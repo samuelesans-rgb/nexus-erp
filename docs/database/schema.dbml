@@ -7,6 +7,11 @@ Enum PartnerType {
   PERSON
 }
 
+Enum PartnerStatus {
+  ACTIVE
+  SUSPENDED
+}
+
 Enum ModuleCategory {
   CORE
   SHARED
@@ -125,9 +130,14 @@ Table VerificationToken {
 
 Table Partner {
   id varchar [pk]
+  code varchar [not null]
   type PartnerType [not null, default: "COMPANY"]
+  status PartnerStatus [not null, default: "ACTIVE"]
   name varchar [not null]
   displayName varchar
+  legalName varchar
+  firstName varchar
+  lastName varchar
   vatNumber varchar
   taxCode varchar
   email varchar
@@ -142,14 +152,40 @@ Table Partner {
   country varchar
   isCustomer boolean [not null, default: false]
   isSupplier boolean [not null, default: false]
+  isLead boolean [not null, default: false]
+  isProspect boolean [not null, default: false]
+  isCollaborator boolean [not null, default: false]
+  isAgent boolean [not null, default: false]
+  isCarrier boolean [not null, default: false]
+  isProfessional boolean [not null, default: false]
+  category varchar
+  priceListCode varchar
+  paymentMethod varchar
+  paymentTerms varchar
+  creditLimit decimal(15,2)
+  discountPercent decimal(5,2)
+  recipientCode varchar
+  splitPayment boolean [not null, default: false]
+  reverseCharge boolean [not null, default: false]
+  internalNotes text
   active boolean [not null, default: true]
+  deletedAt timestamp
   companyId varchar [not null, ref: > Company.id]
+  agentId varchar [ref: > Partner.id]
+  createdById varchar [ref: > User.id]
+  updatedById varchar [ref: > User.id]
   createdAt timestamp [not null]
   updatedAt timestamp [not null]
 
   indexes {
-    companyId
-    name
+    (companyId, code) [unique]
+    (companyId, active, deletedAt)
+    (companyId, type)
+    (companyId, category)
+    (companyId, name)
+    (companyId, vatNumber)
+    (companyId, taxCode)
+    agentId
   }
 }
 

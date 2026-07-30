@@ -51,7 +51,7 @@ export async function isModuleEnabled(
   companyId: string,
   moduleCode: ModuleCode
 ) {
-  const module = await prisma.companyModule.findFirst({
+  const companyModule = await prisma.companyModule.findFirst({
     where: {
       companyId,
       enabled: true,
@@ -64,7 +64,7 @@ export async function isModuleEnabled(
     },
   });
 
-  return module !== null;
+  return companyModule !== null;
 }
 
 export async function requireModule(

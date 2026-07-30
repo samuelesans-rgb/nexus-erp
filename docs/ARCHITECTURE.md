@@ -140,6 +140,10 @@ Ogni modulo:
 
 I collegamenti fra verticali, come addebito Restaurant sul conto Hotel, usano un servizio/contratto dedicato o eventi versionati.
 
+### Partner come anagrafica centrale
+
+`Partner` è l'unica anagrafica condivisa per aziende e persone fisiche. Le qualifiche cliente, fornitore, lead, prospect, collaboratore, agente, trasportatore e professionista sono combinabili e non generano tabelle anagrafiche parallele nei verticali. Tutte le query Partner applicano `companyId`, modulo `CORE_PARTNERS`, selezione esplicita dei campi e soft delete tramite `deletedAt`; gli identificativi ricevuti dal client sono sempre verificati nel tenant.
+
 ## Data Access Layer e servizi
 
 Il DAL è server-only, centralizza letture autorizzate e restituisce DTO minimi. I servizi applicativi orchestrano transazioni, policy, audit ed eventi. Prisma è accessibile soltanto da data layer e infrastruttura controllati, evitando query sparse in UI.

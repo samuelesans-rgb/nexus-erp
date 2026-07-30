@@ -242,6 +242,66 @@ async function main() {
     });
   }
 
+  await prisma.partner.upsert({
+    where: {
+      companyId_code: {
+        companyId: company.id,
+        code: "DEMO-CUST-001",
+      },
+    },
+    update: {},
+    create: {
+      companyId: company.id,
+      code: "DEMO-CUST-001",
+      type: "COMPANY",
+      status: "ACTIVE",
+      name: "Trattoria Demo",
+      legalName: "Trattoria Demo S.r.l.",
+      displayName: "Trattoria Demo",
+      vatNumber: "IT11111111111",
+      email: "amministrazione@trattoria-demo.local",
+      phone: "+39 06 0000001",
+      city: "Roma",
+      country: "Italia",
+      category: "Ristorazione",
+      isCustomer: true,
+      isProspect: true,
+      paymentMethod: "Bonifico bancario",
+      paymentTerms: "30 giorni data fattura",
+      createdById: user.id,
+      updatedById: user.id,
+    },
+  });
+
+  await prisma.partner.upsert({
+    where: {
+      companyId_code: {
+        companyId: company.id,
+        code: "DEMO-PERS-001",
+      },
+    },
+    update: {},
+    create: {
+      companyId: company.id,
+      code: "DEMO-PERS-001",
+      type: "PERSON",
+      status: "ACTIVE",
+      name: "Giulia Bianchi",
+      firstName: "Giulia",
+      lastName: "Bianchi",
+      displayName: "Giulia Bianchi",
+      email: "giulia.bianchi@example.local",
+      mobile: "+39 333 0000001",
+      city: "Milano",
+      country: "Italia",
+      category: "Professionisti",
+      isProfessional: true,
+      isLead: true,
+      createdById: user.id,
+      updatedById: user.id,
+    },
+  });
+
   console.log("✅ Seed completato");
   console.log("Email: admin@nexuserp.local");
   console.log("Password: Admin123!");

@@ -26,9 +26,11 @@ La classificazione esprime la priorità di prodotto, non lo stato di implementaz
 | Permessi | CORE | Autorizzazioni granulari per azione e modulo |
 | Azienda attiva | CORE | Selezione esplicita del tenant corrente |
 | Moduli attivi | CORE | Attivazione, dipendenze e stato per Company |
-| Partner | CORE | Anagrafica unica per persone e organizzazioni |
+| Partner | CORE | Anagrafica unica tenant-scoped per persone e organizzazioni, con codice interno, qualifiche multiple e soft delete |
 | Clienti | CORE | Qualifica e dati commerciali dei Partner clienti |
 | Fornitori | CORE | Qualifica e dati commerciali dei Partner fornitori |
+| Lead e prospect | CORE | Qualifiche commerciali combinabili sulla stessa anagrafica Partner |
+| Collaboratori, agenti, trasportatori e professionisti | V1 | Qualifiche operative riusate dai moduli condivisi e verticali |
 | Contatti | V1 | Referenti e recapiti collegati ai Partner |
 | Prodotti | CORE | Articoli venduti, acquistati o movimentati |
 | Servizi | CORE | Prestazioni non inventariabili |

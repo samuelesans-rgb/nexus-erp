@@ -12,6 +12,11 @@ enum PartnerType {
   PERSON
 }
 
+enum PartnerStatus {
+  ACTIVE
+  SUSPENDED
+}
+
 enum ModuleCategory {
   CORE
   SHARED
@@ -105,7 +110,9 @@ model User {
   locale   String @default("it-IT")
   timeZone String @default("Europe/Rome")
 
-  memberships Membership[]
+  memberships     Membership[]
+  partnersCreated Partner[]    @relation("PartnerCreatedBy")
+  partnersUpdated Partner[]    @relation("PartnerUpdatedBy")
 
   accounts Account[]
   sessions Session[]
@@ -194,10 +201,15 @@ model VerificationToken {
 model Partner {
   id String @id @default(cuid())
 
-  type PartnerType @default(COMPANY)
+  code   String        @default(cuid())
+  type   PartnerType   @default(COMPANY)
+  status PartnerStatus @default(ACTIVE)
 
   name        String
   displayName String?
+  legalName   String?
+  firstName   String?
+  lastName    String?
 
   vatNumber String?
   taxCode   String?
@@ -218,15 +230,51 @@ model Partner {
 
   isCustomer Boolean @default(false)
   isSupplier Boolean @default(false)
+  isLead     Boolean @default(false)
+  isProspect Boolean @default(false)
 
-  active Boolean @default(true)
+  isCollaborator Boolean @default(false)
+  isAgent        Boolean @default(false)
+  isCarrier      Boolean @default(false)
+  isProfessional Boolean @default(false)
+
+  category        String?
+  priceListCode   String?
+  paymentMethod   String?
+  paymentTerms    String?
+  creditLimit     Decimal? @db.Decimal(15, 2)
+  discountPercent Decimal? @db.Decimal(5, 2)
+
+  recipientCode String?
+  splitPayment  Boolean @default(false)
+  reverseCharge Boolean @default(false)
+
+  internalNotes String?
+
+  active    Boolean   @default(true)
+  deletedAt DateTime?
 
   companyId String
   company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
+  agentId         String?
+  agent           Partner?  @relation("PartnerAgent", fields: [agentId], references: [id], onDelete: SetNull)
+  managedPartners Partner[] @relation("PartnerAgent")
+
+  createdById String?
+  createdBy   User?   @relation("PartnerCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedById String?
+  updatedBy   User?   @relation("PartnerUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([companyId])
-  @@index([name])
+  @@unique([companyId, code])
+  @@index([companyId, active, deletedAt])
+  @@index([companyId, type])
+  @@index([companyId, category])
+  @@index([companyId, name])
+  @@index([companyId, vatNumber])
+  @@index([companyId, taxCode])
+  @@index([agentId])
 }
