@@ -2,7 +2,7 @@
 
 ## Regole invarianti
 
-1. `CORE_IDENTITY`, `CORE_COMPANIES`, `CORE_MEMBERSHIPS`, `CORE_LOCATIONS`, `CORE_ACCESS`, `CORE_MODULES`, `CORE_PARTNERS`, `CORE_DOCUMENTS`, `CORE_AUDIT`, `CORE_NOTIFICATIONS` e `CORE_DASHBOARD` sono sempre attivi.
+1. `CORE_AUTH`, `CORE_COMPANIES`, `CORE_MEMBERSHIPS`, `CORE_LOCATIONS`, `CORE_ROLES_PERMISSIONS`, `CORE_MODULES`, `CORE_PARTNERS`, `CORE_DOCUMENTS`, `CORE_AUDIT`, `CORE_NOTIFICATIONS` e `CORE_DASHBOARD` sono sempre attivi.
 2. Partner è richiesto da vendite, acquisti, CRM, Hotel e Beauty.
 3. Prodotti e servizi sono richiesti da vendite, acquisti, magazzino, Restaurant e Beauty.
 4. Il magazzino è opzionale in generale, ma obbligatorio per ricette con scarico ingredienti e consumi Beauty automatici.
@@ -15,12 +15,12 @@
 
 ```mermaid
 flowchart TD
-    ID[CORE_IDENTITY] --> CO[CORE_COMPANIES]
+    ID[CORE_AUTH] --> CO[CORE_COMPANIES]
     ID --> ME[CORE_MEMBERSHIPS]
     CO --> ME
     CO --> LO[CORE_LOCATIONS]
     ME --> LO
-    ME --> AC[CORE_ACCESS]
+    ME --> AC[CORE_ROLES_PERMISSIONS]
     AC --> MO[CORE_MODULES]
     CO --> AU[CORE_AUDIT]
     CO --> PA[CORE_PARTNERS]

@@ -2,9 +2,9 @@
 
 ## Stato e obiettivo
 
-Nexus ERP è un'applicazione web TypeScript basata su Next.js 16 App Router, React 19, Auth.js, Prisma 7 e PostgreSQL. Lo schema attuale contiene le fondazioni di identità, Company, Membership, ruoli e Partner. Il sistema moduli, le sedi e gran parte dei domini descritti qui sono architettura target, non funzionalità già disponibili.
+Nexus ERP è un'applicazione web TypeScript basata su Next.js 16 App Router, React 19, Auth.js, Prisma 7 e PostgreSQL. Lo schema attuale contiene le fondazioni di identità, Company, Membership, ruoli, Partner e attivazione moduli per Company. Le sedi e gran parte dei domini descritti qui sono architettura target, non funzionalità già disponibili.
 
-`docs/database/schema.dbml` è una bozza storica e non è attualmente una rappresentazione fedele di `prisma/schema.prisma`; fino a una decisione esplicita, lo schema Prisma resta il riferimento eseguibile.
+`prisma/schema.prisma` resta il riferimento eseguibile; `docs/database/schema.dbml` ne documenta la struttura relazionale corrente.
 
 ## Vista logica
 

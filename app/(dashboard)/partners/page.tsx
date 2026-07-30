@@ -1,5 +1,7 @@
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { MODULE_CODES } from "@/lib/module-catalog";
+import { ModuleNotEnabledError, requireModule } from "@/lib/modules";
 import { redirect } from "next/navigation";
 import PartnerCreateForm from "./partner-create-form";
 
@@ -8,6 +10,22 @@ export default async function PartnersPage() {
 
   if (!session?.user?.companyId) {
     redirect("/login");
+  }
+
+  try {
+    await requireModule(session.user.companyId, MODULE_CODES.CORE_PARTNERS);
+  } catch (error) {
+    if (error instanceof ModuleNotEnabledError) {
+      return (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-6">
+          <h1 className="text-2xl font-bold">Modulo non disponibile</h1>
+          <p className="mt-2 text-amber-900">
+            Il modulo Partner non è attivo per questa azienda.
+          </p>
+        </div>
+      );
+    }
+    throw error;
   }
 
   const partners = await prisma.partner.findMany({

@@ -16,17 +16,17 @@ I permessi seguono la forma `dominio.azione`; `manage` comprende configurazione,
 
 | Code | Nome | Descrizione | Obbl. | Dipendenze | Route future | Permessi principali | Entità previste | Stato |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `CORE_IDENTITY` | Identità | Autenticazione, utenti e sessioni | Sì | — | `/account` | `account.read`, `account.update` | User, Account, Session | AVAILABLE |
-| `CORE_COMPANIES` | Company | Tenant e azienda attiva | Sì | `CORE_IDENTITY` | `/settings/company` | `company.read`, `company.update` | Company | AVAILABLE |
-| `CORE_MEMBERSHIPS` | Membership | Appartenenza degli utenti alle aziende | Sì | `CORE_IDENTITY`, `CORE_COMPANIES` | `/settings/members` | `membership.read`, `membership.manage` | Membership | AVAILABLE |
+| `CORE_AUTH` | Identità | Autenticazione, utenti e sessioni | Sì | — | `/account` | `account.read`, `account.update` | User, Account, Session | AVAILABLE |
+| `CORE_COMPANIES` | Company | Tenant e azienda attiva | Sì | `CORE_AUTH` | `/settings/company` | `company.read`, `company.update` | Company | AVAILABLE |
+| `CORE_MEMBERSHIPS` | Membership | Appartenenza degli utenti alle aziende | Sì | `CORE_AUTH`, `CORE_COMPANIES` | `/settings/members` | `membership.read`, `membership.manage` | Membership | AVAILABLE |
 | `CORE_LOCATIONS` | Sedi | Sedi, assegnazioni utenti e sede attiva | Sì | `CORE_COMPANIES`, `CORE_MEMBERSHIPS` | `/settings/locations` | `location.read`, `location.manage`, `location.switch` | Location, MembershipLocation | PLANNED |
-| `CORE_ACCESS` | Ruoli e permessi | Autorizzazioni nel contesto aziendale | Sì | `CORE_MEMBERSHIPS` | `/settings/access` | `role.read`, `role.manage` | Role, Permission, MembershipRole | AVAILABLE |
-| `CORE_MODULES` | Sistema moduli | Attivazioni, dipendenze e feature flag per Company | Sì | `CORE_ACCESS` | `/settings/modules` | `module.read`, `module.manage` | ModuleDefinition, CompanyModule, FeatureFlag | PLANNED |
+| `CORE_ROLES_PERMISSIONS` | Ruoli e permessi | Autorizzazioni nel contesto aziendale | Sì | `CORE_MEMBERSHIPS` | `/settings/access` | `role.read`, `role.manage` | Role, Permission, MembershipRole | AVAILABLE |
+| `CORE_MODULES` | Sistema moduli | Attivazioni e dipendenze per Company | Sì | `CORE_ROLES_PERMISSIONS` | `/settings/modules` | `module.read`, `module.manage` | ModuleDefinition, CompanyModule | AVAILABLE |
 | `CORE_PARTNERS` | Partner | Anagrafica condivisa di persone e organizzazioni | Sì | `CORE_COMPANIES` | `/partners` | `partner.read`, `partner.create`, `partner.update`, `partner.archive` | Partner, Contact, Address | AVAILABLE |
 | `CORE_DOCUMENTS` | Documenti e allegati | Documenti, numerazioni e file associati | Sì | `CORE_COMPANIES` | `/documents` | `document.read`, `document.create`, `document.issue`, `attachment.manage` | Document, DocumentLine, Attachment, NumberingSequence | PLANNED |
 | `CORE_AUDIT` | Audit minimo | Registro delle operazioni rilevanti | Sì | `CORE_COMPANIES` | `/settings/audit` | `audit.read`, `audit.export` | AuditEvent, RetentionPolicy | PLANNED |
-| `CORE_NOTIFICATIONS` | Notifiche di sistema | Avvisi applicativi essenziali | Sì | `CORE_IDENTITY` | `/notifications` | `notification.read`, `notification.manage` | Notification, NotificationPreference | PLANNED |
-| `CORE_DASHBOARD` | Dashboard base | Indicatori essenziali dei moduli attivi | Sì | `CORE_MODULES` | `/dashboard` | `dashboard.read` | DashboardWidget | PLANNED |
+| `CORE_NOTIFICATIONS` | Notifiche di sistema | Avvisi applicativi essenziali | Sì | `CORE_AUTH` | `/notifications` | `notification.read`, `notification.manage` | Notification, NotificationPreference | PLANNED |
+| `CORE_DASHBOARD` | Dashboard base | Indicatori essenziali dei moduli attivi | Sì | `CORE_MODULES` | `/dashboard` | `dashboard.read` | DashboardWidget | AVAILABLE |
 
 Categoria di tutte le righe precedenti: `CORE`.
 

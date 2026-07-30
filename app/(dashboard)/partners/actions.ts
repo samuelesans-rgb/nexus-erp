@@ -2,6 +2,8 @@
 
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { MODULE_CODES } from "@/lib/module-catalog";
+import { ModuleNotEnabledError, requireModule } from "@/lib/modules";
 import { revalidatePath } from "next/cache";
 
 export type CreatePartnerState = {
@@ -30,6 +32,18 @@ export async function createPartner(
       status: "error",
       message: "Sessione scaduta. Accedi nuovamente per continuare.",
     };
+  }
+
+  try {
+    await requireModule(session.user.companyId, MODULE_CODES.CORE_PARTNERS);
+  } catch (error) {
+    if (error instanceof ModuleNotEnabledError) {
+      return {
+        status: "error",
+        message: "Il modulo Partner non è attivo per questa azienda.",
+      };
+    }
+    throw error;
   }
 
   const name = String(formData.get("name") ?? "").trim();

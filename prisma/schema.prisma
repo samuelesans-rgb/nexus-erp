@@ -12,6 +12,20 @@ enum PartnerType {
   PERSON
 }
 
+enum ModuleCategory {
+  CORE
+  SHARED
+  RESTAURANT
+  BEAUTY
+  HOTEL
+}
+
+enum ModuleStatus {
+  AVAILABLE
+  PLANNED
+  FUTURE
+}
+
 model Company {
   id        String  @id @default(cuid())
   name      String
@@ -31,9 +45,46 @@ model Company {
 
   memberships Membership[]
   partners    Partner[]
+  modules     CompanyModule[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model ModuleDefinition {
+  id          String         @id @default(cuid())
+  code        String         @unique
+  name        String
+  description String?
+  category    ModuleCategory
+  mandatory   Boolean        @default(false)
+  status      ModuleStatus
+
+  companies CompanyModule[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model CompanyModule {
+  id String @id @default(cuid())
+
+  companyId          String
+  moduleDefinitionId String
+  enabled            Boolean   @default(false)
+  enabledAt          DateTime?
+  disabledAt         DateTime?
+  configuration      Json?
+
+  company          Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  moduleDefinition ModuleDefinition @relation(fields: [moduleDefinitionId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, moduleDefinitionId])
+  @@index([companyId, enabled])
+  @@index([moduleDefinitionId])
 }
 
 model User {

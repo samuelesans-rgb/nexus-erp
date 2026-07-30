@@ -2,47 +2,183 @@ Project NexusERP {
   database_type: "PostgreSQL"
 }
 
-Table companies {
-  id uuid [pk]
-  code varchar(20) [not null, unique]
-  name varchar(255) [not null]
-  vat_number varchar(30)
-  tax_code varchar(30)
-  email varchar(255)
-  phone varchar(50)
-  website varchar(255)
-
-  created_at timestamp
-  updated_at timestamp
-  deleted_at timestamp
+Enum PartnerType {
+  COMPANY
+  PERSON
 }
 
-Table users {
-  id uuid [pk]
-  company_id uuid [not null, ref: > companies.id]
-
-  first_name varchar(100)
-  last_name varchar(100)
-
-  email varchar(255) [not null, unique]
-  password_hash text
-
-  is_active boolean
-
-  created_at timestamp
-  updated_at timestamp
-  deleted_at timestamp
+Enum ModuleCategory {
+  CORE
+  SHARED
+  RESTAURANT
+  BEAUTY
+  HOTEL
 }
 
-Table roles {
-  id uuid [pk]
-  company_id uuid [ref: > companies.id]
-
-  name varchar(100)
-  description text
+Enum ModuleStatus {
+  AVAILABLE
+  PLANNED
+  FUTURE
 }
 
-Table user_roles {
-  user_id uuid [ref: > users.id]
-  role_id uuid [ref: > roles.id]
+Table Company {
+  id varchar [pk]
+  name varchar [not null]
+  legalName varchar
+  vatNumber varchar [unique]
+  taxCode varchar
+  email varchar
+  phone varchar
+  address varchar
+  city varchar
+  country varchar
+  currency varchar [not null, default: "EUR"]
+  timezone varchar [not null, default: "Europe/Rome"]
+  locale varchar [not null, default: "it-IT"]
+  active boolean [not null, default: true]
+  logo varchar
+  createdAt timestamp [not null]
+  updatedAt timestamp [not null]
+}
+
+Table User {
+  id varchar [pk]
+  firstName varchar [not null]
+  lastName varchar [not null]
+  email varchar [not null, unique]
+  password varchar [not null]
+  active boolean [not null, default: true]
+  emailVerified timestamp
+  image varchar
+  lastLogin timestamp
+  locale varchar [not null, default: "it-IT"]
+  timeZone varchar [not null, default: "Europe/Rome"]
+  createdAt timestamp [not null]
+  updatedAt timestamp [not null]
+}
+
+Table Membership {
+  id varchar [pk]
+  userId varchar [not null, ref: > User.id]
+  companyId varchar [not null, ref: > Company.id]
+  active boolean [not null, default: true]
+  isDefault boolean [not null, default: false]
+  joinedAt timestamp [not null]
+
+  indexes {
+    (userId, companyId) [unique]
+  }
+}
+
+Table Role {
+  id varchar [pk]
+  code varchar [not null, unique]
+  name varchar [not null]
+  description varchar
+  system boolean [not null, default: true]
+}
+
+Table MembershipRole {
+  membershipId varchar [not null, ref: > Membership.id]
+  roleId varchar [not null, ref: > Role.id]
+
+  indexes {
+    (membershipId, roleId) [pk]
+  }
+}
+
+Table Account {
+  id varchar [pk]
+  userId varchar [not null, ref: > User.id]
+  type varchar [not null]
+  provider varchar [not null]
+  providerAccountId varchar [not null]
+  refresh_token varchar
+  access_token varchar
+  expires_at int
+  token_type varchar
+  scope varchar
+  id_token varchar
+  session_state varchar
+
+  indexes {
+    (provider, providerAccountId) [unique]
+  }
+}
+
+Table Session {
+  id varchar [pk]
+  sessionToken varchar [not null, unique]
+  userId varchar [not null, ref: > User.id]
+  expires timestamp [not null]
+}
+
+Table VerificationToken {
+  identifier varchar [not null]
+  token varchar [not null, unique]
+  expires timestamp [not null]
+
+  indexes {
+    (identifier, token) [unique]
+  }
+}
+
+Table Partner {
+  id varchar [pk]
+  type PartnerType [not null, default: "COMPANY"]
+  name varchar [not null]
+  displayName varchar
+  vatNumber varchar
+  taxCode varchar
+  email varchar
+  pec varchar
+  phone varchar
+  mobile varchar
+  website varchar
+  address varchar
+  zipCode varchar
+  city varchar
+  province varchar
+  country varchar
+  isCustomer boolean [not null, default: false]
+  isSupplier boolean [not null, default: false]
+  active boolean [not null, default: true]
+  companyId varchar [not null, ref: > Company.id]
+  createdAt timestamp [not null]
+  updatedAt timestamp [not null]
+
+  indexes {
+    companyId
+    name
+  }
+}
+
+Table ModuleDefinition {
+  id varchar [pk]
+  code varchar [not null, unique]
+  name varchar [not null]
+  description varchar
+  category ModuleCategory [not null]
+  mandatory boolean [not null, default: false]
+  status ModuleStatus [not null]
+  createdAt timestamp [not null]
+  updatedAt timestamp [not null]
+}
+
+Table CompanyModule {
+  id varchar [pk]
+  companyId varchar [not null, ref: > Company.id]
+  moduleDefinitionId varchar [not null, ref: > ModuleDefinition.id]
+  enabled boolean [not null, default: false]
+  enabledAt timestamp
+  disabledAt timestamp
+  configuration json
+  createdAt timestamp [not null]
+  updatedAt timestamp [not null]
+
+  indexes {
+    (companyId, moduleDefinitionId) [unique]
+    (companyId, enabled)
+    moduleDefinitionId
+  }
 }

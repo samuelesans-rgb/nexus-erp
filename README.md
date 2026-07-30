@@ -20,7 +20,7 @@ Nexus Core è sempre attivo. Restaurant, Beauty e Hotel sono bundle commerciali 
 
 ## Stato attuale
 
-Sono presenti le fondazioni di autenticazione, sessione, multi-azienda tramite Membership, ruoli e Partner tenant-scoped. Sistema moduli, permessi granulari, multi-sede, Core operativo e verticali sono pianificati nella roadmap, nell'ordine Restaurant, Beauty e Hotel. `prisma/schema.prisma` è il riferimento eseguibile corrente; il DBML in `docs/database/` è una bozza storica da riallineare in un task dedicato.
+Sono presenti autenticazione, sessione, multi-azienda tramite Membership, ruoli, Partner tenant-scoped e la prima versione del sistema moduli per Company. Permessi granulari, multi-sede e verticali sono pianificati nella roadmap, nell'ordine Restaurant, Beauty e Hotel. `prisma/schema.prisma` è il riferimento eseguibile corrente; il DBML in `docs/database/` ne documenta la struttura relazionale.
 
 ## Documentazione
 
