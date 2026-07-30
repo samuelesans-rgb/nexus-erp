@@ -1,36 +1,82 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Nexus ERP
 
-## Getting Started
+Nexus ERP è una piattaforma gestionale italiana, multi-azienda e modulare. Un **Nexus Core** condiviso supporta tre verticali:
 
-First, run the development server:
+- **Restaurant**, per prenotazioni, sala, cucina, menu e food cost;
+- **Hotel**, per camere, soggiorni, front desk e housekeeping;
+- **Beauty**, per agenda, operatori, trattamenti e relazione cliente.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+Nexus Core è sempre attivo. Restaurant, Beauty e Hotel sono bundle commerciali che possono convivere nella stessa Company; altri moduli opzionali possono essere acquistati e attivati singolarmente. Ogni Company usa soltanto i moduli attivati.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+> Il progetto è in sviluppo attivo. Le specifiche descrivono anche capacità pianificate: non tutto ciò che compare nei documenti è già disponibile.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Stack
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- Next.js 16 con App Router e React 19
+- TypeScript e Tailwind CSS
+- Auth.js con adapter Prisma
+- Prisma ORM 7
+- PostgreSQL
 
-## Learn More
+## Stato attuale
 
-To learn more about Next.js, take a look at the following resources:
+Sono presenti le fondazioni di autenticazione, sessione, multi-azienda tramite Membership, ruoli e Partner tenant-scoped. Sistema moduli, permessi granulari, multi-sede, Core operativo e verticali sono pianificati nella roadmap, nell'ordine Restaurant, Beauty e Hotel. `prisma/schema.prisma` è il riferimento eseguibile corrente; il DBML in `docs/database/` è una bozza storica da riallineare in un task dedicato.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Documentazione
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- [Visione di prodotto](docs/VISION.md)
+- [Requisiti funzionali](docs/FUNCTIONAL_REQUIREMENTS.md)
+- [Catalogo moduli](docs/MODULE_CATALOG.md)
+- [Dipendenze fra moduli](docs/MODULE_DEPENDENCIES.md)
+- [Architettura](docs/ARCHITECTURE.md)
+- [Roadmap](docs/ROADMAP.md)
+- [Decisioni architetturali](docs/DECISIONS.md)
+- [Bozza DBML](docs/database/schema.dbml)
 
-## Deploy on Vercel
+## Setup locale
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Prerequisiti: Node.js compatibile con Next.js 16, npm e un database PostgreSQL.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. Installare le dipendenze:
+
+   ```bash
+   npm install
+   ```
+
+2. Configurare le variabili d'ambiente locali, almeno la connessione PostgreSQL e i segreti richiesti da Auth.js. Non versionare file contenenti segreti.
+
+3. Generare Prisma Client:
+
+   ```bash
+   npx prisma generate
+   ```
+
+4. Applicare le migrazioni già presenti nell'ambiente di sviluppo:
+
+   ```bash
+   npx prisma migrate dev
+   ```
+
+5. Avviare l'applicazione:
+
+   ```bash
+   npm run dev
+   ```
+
+L'app è disponibile normalmente su [http://localhost:3000](http://localhost:3000).
+
+## Comandi principali
+
+| Comando | Scopo |
+| --- | --- |
+| `npm run dev` | Avvia l'ambiente di sviluppo |
+| `npm run build` | Crea la build di produzione |
+| `npm run start` | Avvia la build di produzione |
+| `npm run lint` | Esegue ESLint |
+| `npx prisma generate` | Genera Prisma Client |
+| `npx prisma migrate dev` | Applica o crea migrazioni in sviluppo |
+| `npx prisma studio` | Apre l'interfaccia locale Prisma Studio |
+
+## Principi essenziali
+
+Ogni accesso a dati aziendali deve essere limitato dalla Company attiva derivata dalla sessione. UI nascosta, route guard e feature flag non sostituiscono i controlli server-side. La disattivazione di un modulo ne blocca utilizzo e visibilità, ma non cancella dati.
