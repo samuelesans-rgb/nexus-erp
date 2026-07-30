@@ -1,0 +1,48 @@
+Project NexusERP {
+  database_type: "PostgreSQL"
+}
+
+Table companies {
+  id uuid [pk]
+  code varchar(20) [not null, unique]
+  name varchar(255) [not null]
+  vat_number varchar(30)
+  tax_code varchar(30)
+  email varchar(255)
+  phone varchar(50)
+  website varchar(255)
+
+  created_at timestamp
+  updated_at timestamp
+  deleted_at timestamp
+}
+
+Table users {
+  id uuid [pk]
+  company_id uuid [not null, ref: > companies.id]
+
+  first_name varchar(100)
+  last_name varchar(100)
+
+  email varchar(255) [not null, unique]
+  password_hash text
+
+  is_active boolean
+
+  created_at timestamp
+  updated_at timestamp
+  deleted_at timestamp
+}
+
+Table roles {
+  id uuid [pk]
+  company_id uuid [ref: > companies.id]
+
+  name varchar(100)
+  description text
+}
+
+Table user_roles {
+  user_id uuid [ref: > users.id]
+  role_id uuid [ref: > roles.id]
+}

@@ -7,95 +7,129 @@ datasource db {
   provider = "postgresql"
 }
 
-enum UserRole {
-  SUPER_ADMIN
-  ADMIN
-  MANAGER
-  ACCOUNTANT
-  SALES
-  WAREHOUSE
-  USER
+enum PartnerType {
+  COMPANY
+  PERSON
 }
 
 model Company {
-  id         String   @id @default(cuid())
-  name       String
-  vatNumber  String?  @unique
-  taxCode    String?
-  email      String?
-  phone      String?
-  address    String?
-  city       String?
-  country    String?
-  currency   String   @default("EUR")
-  timezone   String   @default("Europe/Rome")
-  logo       String?
+  id        String  @id @default(cuid())
+  name      String
+  legalName String?
+  vatNumber String? @unique
+  taxCode   String?
+  email     String?
+  phone     String?
+  address   String?
+  city      String?
+  country   String?
+  currency  String  @default("EUR")
+  timezone  String  @default("Europe/Rome")
+  locale    String  @default("it-IT")
+  active    Boolean @default(true)
+  logo      String?
 
-  users      User[]
+  memberships Membership[]
+  partners    Partner[]
 
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model User {
-  id            String      @id @default(cuid())
+  id String @id @default(cuid())
 
-  firstName     String
-  lastName      String
+  firstName String
+  lastName  String
 
-  email         String      @unique
-  password      String
+  email    String @unique
+  password String
 
-  role          UserRole    @default(ADMIN)
-  active        Boolean     @default(true)
+  active Boolean @default(true)
 
   emailVerified DateTime?
   image         String?
   lastLogin     DateTime?
 
-  companyId     String
-  company        Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  locale   String @default("it-IT")
+  timeZone String @default("Europe/Rome")
+
+  memberships Membership[]
 
   accounts Account[]
   sessions Session[]
 
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
 
-  locale      String  @default("it-IT")
-timeZone    String  @default("Europe/Rome")
+model Membership {
+  id String @id @default(cuid())
+
+  userId    String
+  companyId String
+
+  active    Boolean  @default(true)
+  isDefault Boolean  @default(false)
+  joinedAt  DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  roles MembershipRole[]
+
+  @@unique([userId, companyId])
+}
+
+model Role {
+  id          String  @id @default(cuid())
+  code        String  @unique
+  name        String
+  description String?
+  system      Boolean @default(true)
+
+  memberships MembershipRole[]
+}
+
+model MembershipRole {
+  membershipId String
+  roleId       String
+
+  membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([membershipId, roleId])
 }
 
 model Account {
-  id                String  @id @default(cuid())
+  id String @id @default(cuid())
 
-  userId            String
-  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   type              String
   provider          String
   providerAccountId String
 
-  refresh_token     String?
-  access_token      String?
-  expires_at        Int?
-  token_type        String?
-  scope             String?
-  id_token          String?
-  session_state     String?
+  refresh_token String?
+  access_token  String?
+  expires_at    Int?
+  token_type    String?
+  scope         String?
+  id_token      String?
+  session_state String?
 
   @@unique([provider, providerAccountId])
 }
 
 model Session {
-  id           String   @id @default(cuid())
+  id String @id @default(cuid())
 
   sessionToken String   @unique
   userId       String
-
   expires      DateTime
 
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model VerificationToken {
@@ -104,4 +138,44 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+}
+
+model Partner {
+  id String @id @default(cuid())
+
+  type PartnerType @default(COMPANY)
+
+  name        String
+  displayName String?
+
+  vatNumber String?
+  taxCode   String?
+
+  email String?
+  pec   String?
+
+  phone  String?
+  mobile String?
+
+  website String?
+
+  address  String?
+  zipCode  String?
+  city     String?
+  province String?
+  country  String?
+
+  isCustomer Boolean @default(false)
+  isSupplier Boolean @default(false)
+
+  active Boolean @default(true)
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([name])
 }
