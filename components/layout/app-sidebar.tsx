@@ -15,6 +15,9 @@ export default async function AppSidebar() {
   if (activeCodes.has(MODULE_CODES.CORE_PARTNERS)) {
     items.push({ label: "Partner", href: "/partners" });
   }
+  if (activeCodes.has(MODULE_CODES.CORE_PRODUCTS)) {
+    items.push({ label: "Catalogo", href: "/items" });
+  }
   if (
     activeCodes.has(MODULE_CODES.CORE_MODULES) &&
     session?.user?.roles.some((role) =>

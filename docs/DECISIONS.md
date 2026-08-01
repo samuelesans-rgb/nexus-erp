@@ -162,4 +162,14 @@ Gli ADR sono accettati come baseline di prodotto. Un cambiamento richiede un nuo
 
 **Alternative rifiutate.** Una sola sede in V1; sede come testo libero; consolidamento multi-società anticipato.
 
+## ADR-017: catalogo Item condiviso con profili specifici
+
+**Contesto.** Nexus Core e i verticali vendono, acquistano o consumano oggetti diversi, ma identità commerciale, prezzi, categorie, unità e fiscalità sono comuni. Tabelle catalogo separate produrrebbero duplicazioni e impedirebbero composizioni trasversali.
+
+**Decisione.** Usare un solo `Item` tenant-scoped per prodotti, servizi, ingredienti, ricette, trattamenti Beauty, camere Hotel vendibili, pacchetti e gift card. I campi comuni restano su Item; i dati specifici vivono in profili uno-a-uno. Recipe e Package compongono altri Item attraverso righe tenant-safe. Nella V1 `HOTEL_ROOM` descrive un'unità o tipologia vendibile, non disponibilità o prenotazioni.
+
+**Conseguenze.** Il Core offre un catalogo coerente e i verticali possono estenderlo senza gonfiare il modello comune. Route, query e action verificano `CORE_PRODUCTS`, modulo specifico del tipo, Company e soft delete. I cambi di tipo dopo la creazione sono rifiutati per non lasciare profili incoerenti.
+
+**Alternative rifiutate.** Cataloghi separati Restaurant/Beauty/Hotel; tabella Item enorme con tutti i campi verticali; ereditarietà senza entità comune; modellare comande, appuntamenti o prenotazioni come Item.
+
 Vedere [Visione](VISION.md), [Architettura](ARCHITECTURE.md) e [Roadmap](ROADMAP.md).

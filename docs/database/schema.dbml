@@ -12,6 +12,22 @@ Enum PartnerStatus {
   SUSPENDED
 }
 
+Enum ItemType {
+  PRODUCT
+  SERVICE
+  INGREDIENT
+  RECIPE
+  BEAUTY_SERVICE
+  HOTEL_ROOM
+  PACKAGE
+  GIFT_CARD
+}
+
+Enum ItemStatus {
+  ACTIVE
+  SUSPENDED
+}
+
 Enum ModuleCategory {
   CORE
   SHARED
@@ -217,4 +233,222 @@ Table CompanyModule {
     (companyId, enabled)
     moduleDefinitionId
   }
+}
+
+Table ItemCategory {
+  id varchar [pk]
+  companyId varchar [not null, ref: > Company.id]
+  code varchar [not null]
+  name varchar [not null]
+  parentId varchar [ref: > ItemCategory.id]
+  active boolean [not null, default: true]
+  deletedAt timestamp
+  createdAt timestamp [not null]
+  updatedAt timestamp [not null]
+
+  indexes {
+    (companyId, code) [unique]
+    (companyId, id) [unique]
+    (companyId, active, deletedAt)
+    parentId
+  }
+}
+
+Table UnitOfMeasure {
+  id varchar [pk]
+  companyId varchar [not null, ref: > Company.id]
+  code varchar [not null]
+  name varchar [not null]
+  symbol varchar [not null]
+  precision int [not null, default: 2]
+  active boolean [not null, default: true]
+  createdAt timestamp [not null]
+  updatedAt timestamp [not null]
+
+  indexes {
+    (companyId, code) [unique]
+    (companyId, id) [unique]
+    (companyId, active)
+  }
+}
+
+Table VatRate {
+  id varchar [pk]
+  companyId varchar [not null, ref: > Company.id]
+  code varchar [not null]
+  name varchar [not null]
+  percentage decimal(5,2) [not null]
+  natureCode varchar
+  active boolean [not null, default: true]
+  validFrom timestamp
+  validTo timestamp
+  createdAt timestamp [not null]
+  updatedAt timestamp [not null]
+
+  indexes {
+    (companyId, code) [unique]
+    (companyId, id) [unique]
+    (companyId, active)
+  }
+}
+
+Table Item {
+  id varchar [pk]
+  companyId varchar [not null, ref: > Company.id]
+  code varchar [not null]
+  type ItemType [not null]
+  status ItemStatus [not null, default: "ACTIVE"]
+  active boolean [not null, default: true]
+  name varchar [not null]
+  shortName varchar
+  description text
+  internalNotes text
+  barcode varchar
+  sku varchar
+  imageUrl varchar
+  categoryId varchar [ref: > ItemCategory.id]
+  unitOfMeasureId varchar [ref: > UnitOfMeasure.id]
+  vatRateId varchar [ref: > VatRate.id]
+  salePrice decimal(15,2)
+  purchasePrice decimal(15,2)
+  standardCost decimal(15,2)
+  currency varchar [not null, default: "EUR"]
+  sellable boolean [not null, default: true]
+  purchasable boolean [not null, default: false]
+  stockManaged boolean [not null, default: false]
+  trackLots boolean [not null, default: false]
+  trackSerials boolean [not null, default: false]
+  trackExpiration boolean [not null, default: false]
+  createdById varchar [ref: > User.id]
+  updatedById varchar [ref: > User.id]
+  deletedAt timestamp
+  createdAt timestamp [not null]
+  updatedAt timestamp [not null]
+
+  indexes {
+    (companyId, code) [unique]
+    (companyId, id) [unique]
+    (companyId, active, deletedAt)
+    (companyId, type)
+    (companyId, categoryId)
+    (companyId, name)
+    (companyId, sku)
+    (companyId, barcode)
+  }
+}
+
+Table ProductProfile {
+  itemId varchar [pk, ref: > Item.id]
+  companyId varchar [not null, ref: > Company.id]
+  weight decimal(15,3)
+  dimensions json
+  manufacturer varchar
+  brand varchar
+  reorderPoint decimal(15,3)
+  minimumStock decimal(15,3)
+}
+
+Table ServiceProfile {
+  itemId varchar [pk, ref: > Item.id]
+  companyId varchar [not null, ref: > Company.id]
+  durationMinutes int
+  requiresAppointment boolean [not null, default: false]
+  defaultCapacity int
+}
+
+Table IngredientProfile {
+  itemId varchar [pk, ref: > Item.id]
+  companyId varchar [not null, ref: > Company.id]
+  yieldPercentage decimal(5,2)
+  storageInstructions text
+  allergenNotes text
+  perishabilityDays int
+}
+
+Table RecipeProfile {
+  itemId varchar [pk, ref: > Item.id]
+  companyId varchar [not null, ref: > Company.id]
+  preparationMinutes int
+  portions decimal(15,3)
+  yieldQuantity decimal(15,3)
+  instructions text
+  foodCostTarget decimal(5,2)
+}
+
+Table RecipeComponent {
+  id varchar [pk]
+  companyId varchar [not null, ref: > Company.id]
+  recipeItemId varchar [not null, ref: > Item.id]
+  componentItemId varchar [not null, ref: > Item.id]
+  unitOfMeasureId varchar [not null, ref: > UnitOfMeasure.id]
+  quantity decimal(15,3) [not null]
+  wastePercentage decimal(5,2)
+  sortOrder int [not null, default: 0]
+  deletedAt timestamp
+  createdAt timestamp [not null]
+  updatedAt timestamp [not null]
+
+  indexes {
+    (companyId, recipeItemId, componentItemId) [unique]
+    (companyId, recipeItemId, deletedAt)
+    (companyId, componentItemId)
+  }
+}
+
+Table BeautyServiceProfile {
+  itemId varchar [pk, ref: > Item.id]
+  companyId varchar [not null, ref: > Company.id]
+  durationMinutes int [not null]
+  cleanupMinutes int
+  requiresCabin boolean [not null, default: false]
+  requiresOperator boolean [not null, default: true]
+  recommendedRepeatDays int
+  consentRequired boolean [not null, default: false]
+}
+
+Table HotelRoomProfile {
+  itemId varchar [pk, ref: > Item.id]
+  companyId varchar [not null, ref: > Company.id]
+  capacityAdults int [not null, default: 1]
+  capacityChildren int [not null, default: 0]
+  roomTypeCode varchar
+  physicalRoomCode varchar
+  floor varchar
+  sellableUnit boolean [not null, default: true]
+  housekeepingRequired boolean [not null, default: true]
+}
+
+Table PackageProfile {
+  itemId varchar [pk, ref: > Item.id]
+  companyId varchar [not null, ref: > Company.id]
+  validityDays int
+  usageLimit int
+}
+
+Table PackageComponent {
+  id varchar [pk]
+  companyId varchar [not null, ref: > Company.id]
+  packageItemId varchar [not null, ref: > Item.id]
+  componentItemId varchar [not null, ref: > Item.id]
+  unitOfMeasureId varchar [not null, ref: > UnitOfMeasure.id]
+  quantity decimal(15,3) [not null]
+  sortOrder int [not null, default: 0]
+  deletedAt timestamp
+  createdAt timestamp [not null]
+  updatedAt timestamp [not null]
+
+  indexes {
+    (companyId, packageItemId, componentItemId) [unique]
+    (companyId, packageItemId, deletedAt)
+    (companyId, componentItemId)
+  }
+}
+
+Table GiftCardProfile {
+  itemId varchar [pk, ref: > Item.id]
+  companyId varchar [not null, ref: > Company.id]
+  defaultValidityDays int [not null]
+  fixedValue decimal(15,2)
+  reusable boolean [not null, default: false]
+  transferable boolean [not null, default: true]
 }

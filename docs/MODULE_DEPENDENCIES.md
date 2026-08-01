@@ -10,6 +10,7 @@
 6. Una dipendenza deve essere attiva prima del modulo dipendente; la disattivazione è rifiutata finché esistono moduli attivi dipendenti.
 7. Disattivare un modulo non cancella, anonimizza o modifica i suoi dati.
 8. I bundle Restaurant, Beauty e Hotel possono convivere nella stessa Company; l'attivazione di un bundle applica i suoi default e risolve le dipendenze senza duplicare il Core.
+9. Il catalogo unico richiede `CORE_PRODUCTS`; la visibilità e le mutazioni dei tipi verticali richiedono anche il modulo proprietario: `RECIPE`/`INGREDIENT` usano `RESTAURANT_RECIPES`, `BEAUTY_SERVICE` usa `BEAUTY_APPOINTMENTS`, `HOTEL_ROOM` usa `HOTEL_ROOMS`, `PACKAGE` usa `BEAUTY_PACKAGES`. `GIFT_CARD` resta visibile solo con uno dei moduli loyalty pianificati.
 
 ## Grafo principale
 
@@ -72,6 +73,8 @@ Il collegamento traduce un conto Restaurant in un addebito Hotel attraverso un c
 | Restaurant | Partner, Prodotti/Servizi | Magazzino per ricette con scarico; Pagamenti/Integrazioni per POS |
 | Hotel | Partner, Prodotti/Servizi | Documenti/Pagamenti per Front Desk; Restaurant per addebito camera |
 | Beauty | Partner, Prodotti/Servizi | Magazzino per consumo; Pagamenti per pacchetti; Notifiche per promemoria |
+
+Il controllo sul tipo Item è aggiuntivo rispetto al gate `/items` su `CORE_PRODUCTS`: nascondere un tipo nel form non sostituisce la verifica nelle query e nelle Server Actions.
 
 ## Default dei bundle
 

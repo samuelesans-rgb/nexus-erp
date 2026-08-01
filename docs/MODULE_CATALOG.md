@@ -36,7 +36,7 @@ In questa e nelle tabelle verticali il **Nome** è anche la descrizione funziona
 
 | Code | Nome | Cat. | Obbl. | Dipendenze | Route future | Permessi principali | Entità previste | Stato |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `CORE_PRODUCTS` | Prodotti e servizi | SHARED | No | Core obbligatorio | `/catalog` | `catalog.read`, `catalog.manage` | Product, Service, Category, Unit | PLANNED |
+| `CORE_PRODUCTS` | Catalogo Item: prodotti e servizi | SHARED | No | Core obbligatorio | `/items` | `catalog.read`, `catalog.manage` | Item, ItemCategory, UnitOfMeasure, VatRate, profili Item | AVAILABLE |
 | `CORE_PRICE_LISTS` | Listini | SHARED | No | `CORE_PRODUCTS` | `/price-lists` | `price_list.read`, `price_list.manage` | PriceList, PriceListItem | PLANNED |
 | `CORE_SALES` | Vendite | SHARED | No | `CORE_PARTNERS`, `CORE_PRODUCTS` | `/sales` | `sales.read`, `sales.create`, `sales.approve` | SalesOrder, SalesLine | PLANNED |
 | `CORE_PURCHASES` | Acquisti | SHARED | No | `CORE_PARTNERS`, `CORE_PRODUCTS` | `/purchases` | `purchase.read`, `purchase.create`, `purchase.approve` | PurchaseOrder, PurchaseLine | PLANNED |

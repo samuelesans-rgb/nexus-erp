@@ -144,6 +144,16 @@ I collegamenti fra verticali, come addebito Restaurant sul conto Hotel, usano un
 
 `Partner` è l'unica anagrafica condivisa per aziende e persone fisiche. Le qualifiche cliente, fornitore, lead, prospect, collaboratore, agente, trasportatore e professionista sono combinabili e non generano tabelle anagrafiche parallele nei verticali. Tutte le query Partner applicano `companyId`, modulo `CORE_PARTNERS`, selezione esplicita dei campi e soft delete tramite `deletedAt`; gli identificativi ricevuti dal client sono sempre verificati nel tenant.
 
+### Item come catalogo commerciale centrale
+
+`Item` è l'unica entità catalogo condivisa per prodotti, servizi, ingredienti, ricette, trattamenti Beauty, camere Hotel vendibili, pacchetti e gift card. Contiene soltanto identità, classificazione, prezzi, riferimenti configurabili e flag commerciali/magazzino comuni. `ItemCategory`, `UnitOfMeasure` e `VatRate` sono configurazioni tenant-scoped.
+
+I dati specifici vivono in profili uno-a-uno (`ProductProfile`, `ServiceProfile`, `IngredientProfile`, `RecipeProfile`, `BeautyServiceProfile`, `HotelRoomProfile`, `PackageProfile`, `GiftCardProfile`). Recipe e Package compongono altri Item tramite righe tenant-scoped; chiavi esterne composite garantiscono che Item e unità appartengano alla stessa Company, mentre le Server Actions impediscono auto-riferimenti, prezzi negativi, percentuali invalide e combinazioni stock/type incoerenti.
+
+`HOTEL_ROOM` rappresenta nella V1 un'unità o tipologia vendibile configurata nel catalogo; può avere un codice tipologia e, quando descrive una camera fisica, un codice camera. Non implementa disponibilità o prenotazioni. Analogamente, Item non sostituisce comande Restaurant, appuntamenti Beauty, prenotazioni/soggiorni Hotel o future entità operative.
+
+Le route `/items` richiedono `CORE_PRODUCTS`; ogni tipo verticale richiede inoltre il relativo modulo attivo. Liste, detail e action derivano `companyId` dalla sessione, filtrano `deletedAt` e non espongono tipi i cui moduli siano disattivati.
+
 ## Data Access Layer e servizi
 
 Il DAL è server-only, centralizza letture autorizzate e restituisce DTO minimi. I servizi applicativi orchestrano transazioni, policy, audit ed eventi. Prisma è accessibile soltanto da data layer e infrastruttura controllati, evitando query sparse in UI.

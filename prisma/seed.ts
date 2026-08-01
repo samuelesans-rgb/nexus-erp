@@ -41,7 +41,7 @@ const moduleDefinitions = [
     "PLANNED",
   ],
   [MODULE_CODES.CORE_DASHBOARD, "Dashboard base", "CORE", true, "AVAILABLE"],
-  [MODULE_CODES.CORE_PRODUCTS, "Prodotti e servizi", "SHARED", false, "PLANNED"],
+  [MODULE_CODES.CORE_PRODUCTS, "Prodotti e servizi", "SHARED", false, "AVAILABLE"],
   [MODULE_CODES.CORE_PRICE_LISTS, "Listini", "SHARED", false, "PLANNED"],
   [MODULE_CODES.CORE_SALES, "Vendite", "SHARED", false, "PLANNED"],
   [MODULE_CODES.CORE_PURCHASES, "Acquisti", "SHARED", false, "PLANNED"],
@@ -299,6 +299,346 @@ async function main() {
       isLead: true,
       createdById: user.id,
       updatedById: user.id,
+    },
+  });
+
+  const categorySeeds = [
+    ["GENERALE", "Generale"],
+    ["RISTORAZIONE", "Ristorazione"],
+    ["SERVIZI", "Servizi"],
+    ["OSPITALITA", "Ospitalità"],
+  ] as const;
+  const categories = new Map<string, string>();
+  for (const [code, name] of categorySeeds) {
+    const category = await prisma.itemCategory.upsert({
+      where: { companyId_code: { companyId: company.id, code } },
+      update: { name, active: true, deletedAt: null },
+      create: { companyId: company.id, code, name },
+      select: { id: true },
+    });
+    categories.set(code, category.id);
+  }
+
+  const unitSeeds = [
+    ["PZ", "Pezzo", "pz", 0],
+    ["KG", "Chilogrammo", "kg", 3],
+    ["G", "Grammo", "g", 0],
+    ["L", "Litro", "l", 3],
+    ["ML", "Millilitro", "ml", 0],
+    ["H", "Ora", "h", 2],
+    ["MIN", "Minuto", "min", 0],
+    ["NOTTE", "Notte", "notte", 0],
+  ] as const;
+  const units = new Map<string, string>();
+  for (const [code, name, symbol, precision] of unitSeeds) {
+    const unit = await prisma.unitOfMeasure.upsert({
+      where: { companyId_code: { companyId: company.id, code } },
+      update: { name, symbol, precision, active: true },
+      create: { companyId: company.id, code, name, symbol, precision },
+      select: { id: true },
+    });
+    units.set(code, unit.id);
+  }
+
+  const vatSeeds = [
+    ["IVA22", "IVA ordinaria 22%", "22.00", null],
+    ["IVA10", "IVA ridotta 10%", "10.00", null],
+    ["IVA4", "IVA ridotta 4%", "4.00", null],
+    ["N2.2", "Non soggetta", "0.00", "N2.2"],
+  ] as const;
+  const vatRates = new Map<string, string>();
+  for (const [code, name, percentage, natureCode] of vatSeeds) {
+    const vatRate = await prisma.vatRate.upsert({
+      where: { companyId_code: { companyId: company.id, code } },
+      update: { name, percentage, natureCode, active: true },
+      create: { companyId: company.id, code, name, percentage, natureCode },
+      select: { id: true },
+    });
+    vatRates.set(code, vatRate.id);
+  }
+
+  const product = await prisma.item.upsert({
+    where: { companyId_code: { companyId: company.id, code: "DEMO-PROD-001" } },
+    update: {},
+    create: {
+      companyId: company.id,
+      code: "DEMO-PROD-001",
+      type: "PRODUCT",
+      name: "Acqua minerale 75 cl",
+      categoryId: categories.get("GENERALE"),
+      unitOfMeasureId: units.get("PZ"),
+      vatRateId: vatRates.get("IVA22"),
+      salePrice: "3.00",
+      purchasePrice: "0.55",
+      standardCost: "0.55",
+      sellable: true,
+      purchasable: true,
+      stockManaged: true,
+      createdById: user.id,
+      updatedById: user.id,
+    },
+  });
+  await prisma.productProfile.upsert({
+    where: { itemId: product.id },
+    update: {},
+    create: {
+      itemId: product.id,
+      companyId: company.id,
+      weight: "0.75",
+      brand: "Nexus Demo",
+      reorderPoint: "24",
+      minimumStock: "12",
+    },
+  });
+
+  const service = await prisma.item.upsert({
+    where: { companyId_code: { companyId: company.id, code: "DEMO-SERV-001" } },
+    update: {},
+    create: {
+      companyId: company.id,
+      code: "DEMO-SERV-001",
+      type: "SERVICE",
+      name: "Consulenza iniziale",
+      categoryId: categories.get("SERVIZI"),
+      unitOfMeasureId: units.get("H"),
+      vatRateId: vatRates.get("IVA22"),
+      salePrice: "60.00",
+      sellable: true,
+      createdById: user.id,
+      updatedById: user.id,
+    },
+  });
+  await prisma.serviceProfile.upsert({
+    where: { itemId: service.id },
+    update: {},
+    create: {
+      itemId: service.id,
+      companyId: company.id,
+      durationMinutes: 60,
+      requiresAppointment: true,
+      defaultCapacity: 1,
+    },
+  });
+
+  const ingredient = await prisma.item.upsert({
+    where: { companyId_code: { companyId: company.id, code: "DEMO-ING-001" } },
+    update: {},
+    create: {
+      companyId: company.id,
+      code: "DEMO-ING-001",
+      type: "INGREDIENT",
+      name: "Pomodoro pelato",
+      categoryId: categories.get("RISTORAZIONE"),
+      unitOfMeasureId: units.get("KG"),
+      vatRateId: vatRates.get("IVA4"),
+      purchasePrice: "2.20",
+      standardCost: "2.20",
+      purchasable: true,
+      stockManaged: true,
+      trackExpiration: true,
+      createdById: user.id,
+      updatedById: user.id,
+    },
+  });
+  await prisma.ingredientProfile.upsert({
+    where: { itemId: ingredient.id },
+    update: {},
+    create: {
+      itemId: ingredient.id,
+      companyId: company.id,
+      yieldPercentage: "95",
+      storageInstructions: "Conservare in luogo fresco; refrigerare dopo l'apertura.",
+      allergenNotes: "Nessun allergene dichiarato nell'esempio.",
+      perishabilityDays: 3,
+    },
+  });
+
+  const recipe = await prisma.item.upsert({
+    where: { companyId_code: { companyId: company.id, code: "DEMO-RIC-001" } },
+    update: {},
+    create: {
+      companyId: company.id,
+      code: "DEMO-RIC-001",
+      type: "RECIPE",
+      name: "Salsa di pomodoro demo",
+      categoryId: categories.get("RISTORAZIONE"),
+      unitOfMeasureId: units.get("KG"),
+      vatRateId: vatRates.get("IVA10"),
+      salePrice: "8.00",
+      sellable: true,
+      createdById: user.id,
+      updatedById: user.id,
+    },
+  });
+  await prisma.recipeProfile.upsert({
+    where: { itemId: recipe.id },
+    update: {},
+    create: {
+      itemId: recipe.id,
+      companyId: company.id,
+      preparationMinutes: 30,
+      portions: "10",
+      yieldQuantity: "1",
+      instructions: "Cuocere e ridurre il pomodoro.",
+      foodCostTarget: "30",
+    },
+  });
+  await prisma.recipeComponent.upsert({
+    where: {
+      companyId_recipeItemId_componentItemId: {
+        companyId: company.id,
+        recipeItemId: recipe.id,
+        componentItemId: ingredient.id,
+      },
+    },
+    update: { deletedAt: null },
+    create: {
+      companyId: company.id,
+      recipeItemId: recipe.id,
+      componentItemId: ingredient.id,
+      unitOfMeasureId: units.get("KG")!,
+      quantity: "1.05",
+      wastePercentage: "5",
+    },
+  });
+
+  const beautyService = await prisma.item.upsert({
+    where: { companyId_code: { companyId: company.id, code: "DEMO-BEAUTY-001" } },
+    update: {},
+    create: {
+      companyId: company.id,
+      code: "DEMO-BEAUTY-001",
+      type: "BEAUTY_SERVICE",
+      name: "Trattamento viso demo",
+      categoryId: categories.get("SERVIZI"),
+      unitOfMeasureId: units.get("MIN"),
+      vatRateId: vatRates.get("IVA22"),
+      salePrice: "55.00",
+      sellable: true,
+      createdById: user.id,
+      updatedById: user.id,
+    },
+  });
+  await prisma.beautyServiceProfile.upsert({
+    where: { itemId: beautyService.id },
+    update: {},
+    create: {
+      itemId: beautyService.id,
+      companyId: company.id,
+      durationMinutes: 50,
+      cleanupMinutes: 10,
+      requiresCabin: true,
+      requiresOperator: true,
+      recommendedRepeatDays: 30,
+      consentRequired: true,
+    },
+  });
+
+  const hotelRoom = await prisma.item.upsert({
+    where: { companyId_code: { companyId: company.id, code: "DEMO-ROOM-001" } },
+    update: {},
+    create: {
+      companyId: company.id,
+      code: "DEMO-ROOM-001",
+      type: "HOTEL_ROOM",
+      name: "Camera Deluxe 101",
+      categoryId: categories.get("OSPITALITA"),
+      unitOfMeasureId: units.get("NOTTE"),
+      vatRateId: vatRates.get("IVA10"),
+      salePrice: "140.00",
+      sellable: true,
+      createdById: user.id,
+      updatedById: user.id,
+    },
+  });
+  await prisma.hotelRoomProfile.upsert({
+    where: { itemId: hotelRoom.id },
+    update: {},
+    create: {
+      itemId: hotelRoom.id,
+      companyId: company.id,
+      capacityAdults: 2,
+      capacityChildren: 1,
+      roomTypeCode: "DELUXE",
+      physicalRoomCode: "101",
+      floor: "1",
+      sellableUnit: true,
+      housekeepingRequired: true,
+    },
+  });
+
+  const packageItem = await prisma.item.upsert({
+    where: { companyId_code: { companyId: company.id, code: "DEMO-PACK-001" } },
+    update: {},
+    create: {
+      companyId: company.id,
+      code: "DEMO-PACK-001",
+      type: "PACKAGE",
+      name: "Pacchetto consulenze demo",
+      categoryId: categories.get("SERVIZI"),
+      unitOfMeasureId: units.get("PZ"),
+      vatRateId: vatRates.get("IVA22"),
+      salePrice: "150.00",
+      sellable: true,
+      createdById: user.id,
+      updatedById: user.id,
+    },
+  });
+  await prisma.packageProfile.upsert({
+    where: { itemId: packageItem.id },
+    update: {},
+    create: {
+      itemId: packageItem.id,
+      companyId: company.id,
+      validityDays: 180,
+      usageLimit: 3,
+    },
+  });
+  await prisma.packageComponent.upsert({
+    where: {
+      companyId_packageItemId_componentItemId: {
+        companyId: company.id,
+        packageItemId: packageItem.id,
+        componentItemId: service.id,
+      },
+    },
+    update: { deletedAt: null },
+    create: {
+      companyId: company.id,
+      packageItemId: packageItem.id,
+      componentItemId: service.id,
+      unitOfMeasureId: units.get("H")!,
+      quantity: "3",
+    },
+  });
+
+  const giftCard = await prisma.item.upsert({
+    where: { companyId_code: { companyId: company.id, code: "DEMO-GIFT-001" } },
+    update: {},
+    create: {
+      companyId: company.id,
+      code: "DEMO-GIFT-001",
+      type: "GIFT_CARD",
+      name: "Gift card 50 euro",
+      categoryId: categories.get("GENERALE"),
+      unitOfMeasureId: units.get("PZ"),
+      vatRateId: vatRates.get("N2.2"),
+      salePrice: "50.00",
+      sellable: true,
+      createdById: user.id,
+      updatedById: user.id,
+    },
+  });
+  await prisma.giftCardProfile.upsert({
+    where: { itemId: giftCard.id },
+    update: {},
+    create: {
+      itemId: giftCard.id,
+      companyId: company.id,
+      defaultValidityDays: 365,
+      fixedValue: "50.00",
+      reusable: false,
+      transferable: true,
     },
   });
 

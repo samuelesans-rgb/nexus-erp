@@ -17,6 +17,22 @@ enum PartnerStatus {
   SUSPENDED
 }
 
+enum ItemType {
+  PRODUCT
+  SERVICE
+  INGREDIENT
+  RECIPE
+  BEAUTY_SERVICE
+  HOTEL_ROOM
+  PACKAGE
+  GIFT_CARD
+}
+
+enum ItemStatus {
+  ACTIVE
+  SUSPENDED
+}
+
 enum ModuleCategory {
   CORE
   SHARED
@@ -48,9 +64,13 @@ model Company {
   active    Boolean @default(true)
   logo      String?
 
-  memberships Membership[]
-  partners    Partner[]
-  modules     CompanyModule[]
+  memberships    Membership[]
+  partners       Partner[]
+  modules        CompanyModule[]
+  items          Item[]
+  itemCategories ItemCategory[]
+  unitsOfMeasure UnitOfMeasure[]
+  vatRates       VatRate[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -113,6 +133,8 @@ model User {
   memberships     Membership[]
   partnersCreated Partner[]    @relation("PartnerCreatedBy")
   partnersUpdated Partner[]    @relation("PartnerUpdatedBy")
+  itemsCreated    Item[]       @relation("ItemCreatedBy")
+  itemsUpdated    Item[]       @relation("ItemUpdatedBy")
 
   accounts Account[]
   sessions Session[]
@@ -277,4 +299,316 @@ model Partner {
   @@index([companyId, vatNumber])
   @@index([companyId, taxCode])
   @@index([agentId])
+}
+
+model ItemCategory {
+  id String @id @default(cuid())
+
+  companyId String
+  code      String
+  name      String
+  parentId  String?
+  active    Boolean   @default(true)
+  deletedAt DateTime?
+
+  company  Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  parent   ItemCategory?  @relation("ItemCategoryTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children ItemCategory[] @relation("ItemCategoryTree")
+  items    Item[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, code])
+  @@unique([companyId, id])
+  @@index([companyId, active, deletedAt])
+  @@index([parentId])
+}
+
+model UnitOfMeasure {
+  id String @id @default(cuid())
+
+  companyId String
+  code      String
+  name      String
+  symbol    String
+  precision Int     @default(2)
+  active    Boolean @default(true)
+
+  company           Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  items             Item[]
+  recipeComponents  RecipeComponent[]
+  packageComponents PackageComponent[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, code])
+  @@unique([companyId, id])
+  @@index([companyId, active])
+}
+
+model VatRate {
+  id String @id @default(cuid())
+
+  companyId  String
+  code       String
+  name       String
+  percentage Decimal   @db.Decimal(5, 2)
+  natureCode String?
+  active     Boolean   @default(true)
+  validFrom  DateTime?
+  validTo    DateTime?
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  items   Item[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, code])
+  @@unique([companyId, id])
+  @@index([companyId, active])
+}
+
+model Item {
+  id String @id @default(cuid())
+
+  companyId String
+  code      String     @default(cuid())
+  type      ItemType
+  status    ItemStatus @default(ACTIVE)
+  active    Boolean    @default(true)
+
+  name          String
+  shortName     String?
+  description   String?
+  internalNotes String?
+  barcode       String?
+  sku           String?
+  imageUrl      String?
+
+  categoryId      String?
+  unitOfMeasureId String?
+  vatRateId       String?
+
+  salePrice     Decimal? @db.Decimal(15, 2)
+  purchasePrice Decimal? @db.Decimal(15, 2)
+  standardCost  Decimal? @db.Decimal(15, 2)
+  currency      String   @default("EUR")
+
+  sellable        Boolean @default(true)
+  purchasable     Boolean @default(false)
+  stockManaged    Boolean @default(false)
+  trackLots       Boolean @default(false)
+  trackSerials    Boolean @default(false)
+  trackExpiration Boolean @default(false)
+
+  createdById String?
+  updatedById String?
+  deletedAt   DateTime?
+
+  company       Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  category      ItemCategory?  @relation(fields: [companyId, categoryId], references: [companyId, id], onDelete: Restrict)
+  unitOfMeasure UnitOfMeasure? @relation(fields: [companyId, unitOfMeasureId], references: [companyId, id], onDelete: Restrict)
+  vatRate       VatRate?       @relation(fields: [companyId, vatRateId], references: [companyId, id], onDelete: Restrict)
+  createdBy     User?          @relation("ItemCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy     User?          @relation("ItemUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  productProfile       ProductProfile?
+  serviceProfile       ServiceProfile?
+  ingredientProfile    IngredientProfile?
+  recipeProfile        RecipeProfile?
+  beautyServiceProfile BeautyServiceProfile?
+  hotelRoomProfile     HotelRoomProfile?
+  packageProfile       PackageProfile?
+  giftCardProfile      GiftCardProfile?
+  recipeComponents     RecipeComponent[]     @relation("RecipeOwner")
+  usedInRecipes        RecipeComponent[]     @relation("RecipeComponentItem")
+  packageComponents    PackageComponent[]    @relation("PackageOwner")
+  usedInPackages       PackageComponent[]    @relation("PackageComponentItem")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, code])
+  @@unique([companyId, id])
+  @@index([companyId, active, deletedAt])
+  @@index([companyId, type])
+  @@index([companyId, categoryId])
+  @@index([companyId, name])
+  @@index([companyId, sku])
+  @@index([companyId, barcode])
+}
+
+model ProductProfile {
+  itemId    String @id
+  companyId String
+
+  weight       Decimal? @db.Decimal(15, 3)
+  dimensions   Json?
+  manufacturer String?
+  brand        String?
+  reorderPoint Decimal? @db.Decimal(15, 3)
+  minimumStock Decimal? @db.Decimal(15, 3)
+
+  item Item @relation(fields: [companyId, itemId], references: [companyId, id], onDelete: Cascade)
+
+  @@unique([companyId, itemId])
+  @@index([companyId])
+}
+
+model ServiceProfile {
+  itemId    String @id
+  companyId String
+
+  durationMinutes     Int?
+  requiresAppointment Boolean @default(false)
+  defaultCapacity     Int?
+
+  item Item @relation(fields: [companyId, itemId], references: [companyId, id], onDelete: Cascade)
+
+  @@unique([companyId, itemId])
+  @@index([companyId])
+}
+
+model IngredientProfile {
+  itemId    String @id
+  companyId String
+
+  yieldPercentage     Decimal? @db.Decimal(5, 2)
+  storageInstructions String?
+  allergenNotes       String?
+  perishabilityDays   Int?
+
+  item Item @relation(fields: [companyId, itemId], references: [companyId, id], onDelete: Cascade)
+
+  @@unique([companyId, itemId])
+  @@index([companyId])
+}
+
+model RecipeProfile {
+  itemId    String @id
+  companyId String
+
+  preparationMinutes Int?
+  portions           Decimal? @db.Decimal(15, 3)
+  yieldQuantity      Decimal? @db.Decimal(15, 3)
+  instructions       String?
+  foodCostTarget     Decimal? @db.Decimal(5, 2)
+
+  item Item @relation(fields: [companyId, itemId], references: [companyId, id], onDelete: Cascade)
+
+  @@unique([companyId, itemId])
+  @@index([companyId])
+}
+
+model RecipeComponent {
+  id String @id @default(cuid())
+
+  companyId       String
+  recipeItemId    String
+  componentItemId String
+  unitOfMeasureId String
+  quantity        Decimal   @db.Decimal(15, 3)
+  wastePercentage Decimal?  @db.Decimal(5, 2)
+  sortOrder       Int       @default(0)
+  deletedAt       DateTime?
+
+  recipeItem    Item          @relation("RecipeOwner", fields: [companyId, recipeItemId], references: [companyId, id], onDelete: Cascade)
+  componentItem Item          @relation("RecipeComponentItem", fields: [companyId, componentItemId], references: [companyId, id], onDelete: Restrict)
+  unitOfMeasure UnitOfMeasure @relation(fields: [companyId, unitOfMeasureId], references: [companyId, id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, recipeItemId, componentItemId])
+  @@index([companyId, recipeItemId, deletedAt])
+  @@index([companyId, componentItemId])
+}
+
+model BeautyServiceProfile {
+  itemId    String @id
+  companyId String
+
+  durationMinutes       Int
+  cleanupMinutes        Int?
+  requiresCabin         Boolean @default(false)
+  requiresOperator      Boolean @default(true)
+  recommendedRepeatDays Int?
+  consentRequired       Boolean @default(false)
+
+  item Item @relation(fields: [companyId, itemId], references: [companyId, id], onDelete: Cascade)
+
+  @@unique([companyId, itemId])
+  @@index([companyId])
+}
+
+model HotelRoomProfile {
+  itemId    String @id
+  companyId String
+
+  capacityAdults       Int     @default(1)
+  capacityChildren     Int     @default(0)
+  roomTypeCode         String?
+  physicalRoomCode     String?
+  floor                String?
+  sellableUnit         Boolean @default(true)
+  housekeepingRequired Boolean @default(true)
+
+  item Item @relation(fields: [companyId, itemId], references: [companyId, id], onDelete: Cascade)
+
+  @@unique([companyId, itemId])
+  @@index([companyId])
+}
+
+model PackageProfile {
+  itemId    String @id
+  companyId String
+
+  validityDays Int?
+  usageLimit   Int?
+
+  item Item @relation(fields: [companyId, itemId], references: [companyId, id], onDelete: Cascade)
+
+  @@unique([companyId, itemId])
+  @@index([companyId])
+}
+
+model PackageComponent {
+  id String @id @default(cuid())
+
+  companyId       String
+  packageItemId   String
+  componentItemId String
+  unitOfMeasureId String
+  quantity        Decimal   @db.Decimal(15, 3)
+  sortOrder       Int       @default(0)
+  deletedAt       DateTime?
+
+  packageItem   Item          @relation("PackageOwner", fields: [companyId, packageItemId], references: [companyId, id], onDelete: Cascade)
+  componentItem Item          @relation("PackageComponentItem", fields: [companyId, componentItemId], references: [companyId, id], onDelete: Restrict)
+  unitOfMeasure UnitOfMeasure @relation(fields: [companyId, unitOfMeasureId], references: [companyId, id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, packageItemId, componentItemId])
+  @@index([companyId, packageItemId, deletedAt])
+  @@index([companyId, componentItemId])
+}
+
+model GiftCardProfile {
+  itemId    String @id
+  companyId String
+
+  defaultValidityDays Int
+  fixedValue          Decimal? @db.Decimal(15, 2)
+  reusable            Boolean  @default(false)
+  transferable        Boolean  @default(true)
+
+  item Item @relation(fields: [companyId, itemId], references: [companyId, id], onDelete: Cascade)
+
+  @@unique([companyId, itemId])
+  @@index([companyId])
 }

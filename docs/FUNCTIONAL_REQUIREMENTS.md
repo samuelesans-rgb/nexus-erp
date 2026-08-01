@@ -32,8 +32,9 @@ La classificazione esprime la priorità di prodotto, non lo stato di implementaz
 | Lead e prospect | CORE | Qualifiche commerciali combinabili sulla stessa anagrafica Partner |
 | Collaboratori, agenti, trasportatori e professionisti | V1 | Qualifiche operative riusate dai moduli condivisi e verticali |
 | Contatti | V1 | Referenti e recapiti collegati ai Partner |
-| Prodotti | CORE | Articoli venduti, acquistati o movimentati |
-| Servizi | CORE | Prestazioni non inventariabili |
+| Catalogo Item condiviso | CORE | Entità commerciale tenant-scoped comune a prodotti, servizi e profili verticali, con codice aziendale, prezzi, categorie, unità, IVA, audit e soft delete |
+| Prodotti | CORE | Item fisici venduti, acquistati o predisposti alla gestione stock |
+| Servizi | CORE | Item non inventariabili con durata, capacità e requisito appuntamento opzionali |
 | Listini | V1 | Prezzi, validità, valuta e condizioni |
 | Vendite | V1 | Ciclo commerciale attivo e relativi stati |
 | Acquisti | V1 | Ciclo passivo e relativi stati |
@@ -173,6 +174,8 @@ La V1 comprende prima nota, incassi e pagamenti, scadenziario, riconciliazione b
 ## Regole trasversali di accettazione
 
 Ogni funzione deve rispettare tenant, sede quando applicabile, moduli attivi e permessi. Le operazioni sensibili producono audit; gli export applicano le stesse autorizzazioni delle viste. Dati fiscali, consensi e integrazioni conservano versione e periodo di validità.
+
+Il catalogo Item è condiviso: `PRODUCT`, `SERVICE`, `INGREDIENT`, `RECIPE`, `BEAUTY_SERVICE`, `HOTEL_ROOM`, `PACKAGE` e `GIFT_CARD` riusano dati comuni e profili specifici. Item rappresenta ciò che viene venduto, acquistato, consumato o configurato; non rappresenta una comanda, un appuntamento, una prenotazione o un soggiorno. Componenti Recipe/Package, categorie, unità e IVA devono appartenere alla stessa Company.
 
 La retention è sempre governata da policy esplicite: audit operativo configurabile con valore iniziale di 10 anni; documenti fiscali secondo gli obblighi applicabili, preferibilmente mediante provider di conservazione; foto Beauty legate a consenso e retention configurabile; dati ospiti Hotel distinti per finalità. Si preferiscono eliminazione logica e anonimizzazione e non si eseguono cancellazioni automatiche in assenza di policy.
 
