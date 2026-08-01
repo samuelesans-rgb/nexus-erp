@@ -172,4 +172,14 @@ Gli ADR sono accettati come baseline di prodotto. Un cambiamento richiede un nuo
 
 **Alternative rifiutate.** Cataloghi separati Restaurant/Beauty/Hotel; tabella Item enorme con tutti i campi verticali; ereditarietà senza entità comune; modellare comande, appuntamenti o prenotazioni come Item.
 
+## ADR-018: Configuration Engine tenant-scoped condiviso
+
+**Contesto.** Categorie, unità, IVA, listini e condizioni commerciali sono usate da Core e verticali. CRUD indipendenti produrrebbero logiche divergenti, valori testuali non referenziabili e rischi cross-tenant.
+
+**Decisione.** Adottare un Configuration Engine dichiarativo con registry, servizio e UI condivisi. Tutte le configurazioni hanno codice univoco per Company, audit, stato, soft delete e tenant scope. Partner usa relazioni a listino, metodo e condizione di pagamento; Item usa categoria, unità e IVA e partecipa a più listini tramite `PriceListItem`. Le relazioni includono `companyId` nelle chiavi esterne.
+
+**Conseguenze.** Ricerca, filtri, validazione, autorizzazione e lifecycle hanno comportamento uniforme. Nuove configurazioni si aggiungono estendendo il registry e il modello specifico senza copiare un'intera CRUD. I moduli `CORE_PRODUCTS`, `CORE_PRICE_LISTS` e `CORE_PAYMENTS` restano gate server-side delle rispettive aree.
+
+**Alternative rifiutate.** Tabelle globali condivise fra tenant; campi testo su Partner/Item; una tabella EAV generica; eliminazione fisica; sei CRUD senza contratto comune.
+
 Vedere [Visione](VISION.md), [Architettura](ARCHITECTURE.md) e [Roadmap](ROADMAP.md).

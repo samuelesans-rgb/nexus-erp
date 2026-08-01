@@ -27,9 +27,9 @@ type PartnerDefaults = {
   province: string | null;
   country: string | null;
   category: string | null;
-  priceListCode: string | null;
-  paymentMethod: string | null;
-  paymentTerms: string | null;
+  priceListId: string | null;
+  paymentMethodId: string | null;
+  paymentTermId: string | null;
   creditLimit: string | null;
   discountPercent: string | null;
   recipientCode: string | null;
@@ -52,6 +52,7 @@ export default function PartnerForm({
   action,
   defaults,
   agents,
+  configurationOptions,
   submitLabel,
 }: {
   action: (
@@ -60,6 +61,11 @@ export default function PartnerForm({
   ) => Promise<PartnerFormState>;
   defaults?: PartnerDefaults;
   agents: Array<{ id: string; code: string; name: string }>;
+  configurationOptions: {
+    priceLists: Array<{ id: string; code: string; name: string }>;
+    paymentMethods: Array<{ id: string; code: string; name: string }>;
+    paymentTerms: Array<{ id: string; code: string; name: string }>;
+  };
   submitLabel: string;
 }) {
   const [state, formAction, pending] = useActionState(action, initialState);
@@ -184,11 +190,7 @@ export default function PartnerForm({
       </Section>
 
       <Section title="Commerciale">
-        <Field
-          name="priceListCode"
-          label="Codice listino"
-          defaultValue={defaults?.priceListCode}
-        />
+        <SelectOption name="priceListId" label="Listino" defaultValue={defaults?.priceListId} options={configurationOptions.priceLists} />
         <label className="text-sm font-medium">
           Agente
           <select
@@ -204,16 +206,8 @@ export default function PartnerForm({
             ))}
           </select>
         </label>
-        <Field
-          name="paymentMethod"
-          label="Metodo di pagamento"
-          defaultValue={defaults?.paymentMethod}
-        />
-        <Field
-          name="paymentTerms"
-          label="Condizioni di pagamento"
-          defaultValue={defaults?.paymentTerms}
-        />
+        <SelectOption name="paymentMethodId" label="Metodo di pagamento" defaultValue={defaults?.paymentMethodId} options={configurationOptions.paymentMethods} />
+        <SelectOption name="paymentTermId" label="Condizioni di pagamento" defaultValue={defaults?.paymentTermId} options={configurationOptions.paymentTerms} />
         <Field
           name="creditLimit"
           label="Fido"
@@ -369,4 +363,8 @@ function Checkbox({
       {label}
     </label>
   );
+}
+
+function SelectOption({ name, label, defaultValue, options }: { name: string; label: string; defaultValue?: string | null; options: Array<{ id: string; code: string; name: string }> }) {
+  return <label className="text-sm font-medium">{label}<select name={name} defaultValue={defaultValue ?? ""} className={inputClassName}><option value="">Nessuno</option>{options.map((option) => <option key={option.id} value={option.id}>{option.code} · {option.name}</option>)}</select></label>;
 }

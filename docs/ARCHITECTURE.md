@@ -152,6 +152,12 @@ I dati specifici vivono in profili uno-a-uno (`ProductProfile`, `ServiceProfile`
 
 `HOTEL_ROOM` rappresenta nella V1 un'unità o tipologia vendibile configurata nel catalogo; può avere un codice tipologia e, quando descrive una camera fisica, un codice camera. Non implementa disponibilità o prenotazioni. Analogamente, Item non sostituisce comande Restaurant, appuntamenti Beauty, prenotazioni/soggiorni Hotel o future entità operative.
 
+### Configuration Engine condiviso
+
+Categorie Item, unità di misura, aliquote IVA, listini prezzi, metodi e condizioni di pagamento usano un engine dichiarativo comune. Il registry associa a ogni configurazione route, label, modulo richiesto e campi specifici; UI e Server Actions riusano ricerca, filtri, paginazione, audit e lifecycle. Ogni record contiene `companyId`, codice univoco nel tenant, stato attivo e `deletedAt`; il server deriva sempre Company e attore dalla sessione.
+
+Le relazioni operative usano chiavi esterne composite tenant-safe. Partner riferisce `PriceList`, `PaymentMethod` e `PaymentTerm`; Item riferisce categoria, unità e IVA ed entra in più listini tramite `PriceListItem`. Le condizioni supportano giorni, fine mese o rate JSON validate al 100%. Le categorie formano un albero senza cicli. La disattivazione non cancella configurazioni né dati collegati.
+
 Le route `/items` richiedono `CORE_PRODUCTS`; ogni tipo verticale richiede inoltre il relativo modulo attivo. Liste, detail e action derivano `companyId` dalla sessione, filtrano `deletedAt` e non espongono tipi i cui moduli siano disattivati.
 
 ## Data Access Layer e servizi

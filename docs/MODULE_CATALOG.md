@@ -37,11 +37,11 @@ In questa e nelle tabelle verticali il **Nome** è anche la descrizione funziona
 | Code | Nome | Cat. | Obbl. | Dipendenze | Route future | Permessi principali | Entità previste | Stato |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `CORE_PRODUCTS` | Catalogo Item: prodotti e servizi | SHARED | No | Core obbligatorio | `/items` | `catalog.read`, `catalog.manage` | Item, ItemCategory, UnitOfMeasure, VatRate, profili Item | AVAILABLE |
-| `CORE_PRICE_LISTS` | Listini | SHARED | No | `CORE_PRODUCTS` | `/price-lists` | `price_list.read`, `price_list.manage` | PriceList, PriceListItem | PLANNED |
+| `CORE_PRICE_LISTS` | Listini | SHARED | No | `CORE_PRODUCTS` | `/settings/configurations/price-lists` | `price_list.read`, `price_list.manage` | PriceList, PriceListItem | AVAILABLE |
 | `CORE_SALES` | Vendite | SHARED | No | `CORE_PARTNERS`, `CORE_PRODUCTS` | `/sales` | `sales.read`, `sales.create`, `sales.approve` | SalesOrder, SalesLine | PLANNED |
 | `CORE_PURCHASES` | Acquisti | SHARED | No | `CORE_PARTNERS`, `CORE_PRODUCTS` | `/purchases` | `purchase.read`, `purchase.create`, `purchase.approve` | PurchaseOrder, PurchaseLine | PLANNED |
 | `CORE_INVENTORY` | Magazzino | SHARED | No | `CORE_PRODUCTS` | `/inventory` | `inventory.read`, `inventory.move`, `inventory.count` | Warehouse, StockItem, StockMovement, InventoryCount | PLANNED |
-| `CORE_PAYMENTS` | Pagamenti | SHARED | No | `CORE_DOCUMENTS`, `CORE_PARTNERS` | `/payments` | `payment.read`, `payment.record`, `payment.reconcile` | Payment, PaymentTerm, DueDate | PLANNED |
+| `CORE_PAYMENTS` | Pagamenti | SHARED | No | `CORE_DOCUMENTS`, `CORE_PARTNERS` | `/payments` | `payment.read`, `payment.record`, `payment.reconcile` | PaymentMethod e PaymentTerm AVAILABLE; Payment e DueDate PLANNED | AVAILABLE |
 | `CORE_TREASURY` | Tesoreria | SHARED | No | `CORE_PAYMENTS` | `/treasury` | `treasury.read`, `treasury.manage` | FinancialAccount, CashFlow, Reconciliation | FUTURE |
 | `CORE_ACCOUNTING` | Contabilità V1 | SHARED | No | `CORE_DOCUMENTS`, `CORE_PAYMENTS` | `/accounting` | `accounting.read`, `journal.manage`, `reconciliation.manage`, `accounting.export` | JournalEntry, DueDate, BankTransaction, Reconciliation | PLANNED |
 | `CORE_REPORTING` | Reporting avanzato | SHARED | No | `CORE_DASHBOARD` | `/reports` | `report.read`, `report.export` | ReportDefinition, ReportRun | PLANNED |

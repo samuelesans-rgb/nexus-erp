@@ -33,6 +33,9 @@ La classificazione esprime la priorità di prodotto, non lo stato di implementaz
 | Collaboratori, agenti, trasportatori e professionisti | V1 | Qualifiche operative riusate dai moduli condivisi e verticali |
 | Contatti | V1 | Referenti e recapiti collegati ai Partner |
 | Catalogo Item condiviso | CORE | Entità commerciale tenant-scoped comune a prodotti, servizi e profili verticali, con codice aziendale, prezzi, categorie, unità, IVA, audit e soft delete |
+| Configuration Engine | CORE | CRUD uniforme tenant-scoped per categorie Item, unità di misura, aliquote IVA, listini, metodi e condizioni di pagamento |
+| Listini prezzi | CORE | Più listini per Company e più prezzi per Item mediante righe listino, senza duplicare il catalogo |
+| Condizioni di pagamento | CORE | Scadenza immediata, 30/60/90 giorni, fine mese e piani rateali personalizzati validati |
 | Prodotti | CORE | Item fisici venduti, acquistati o predisposti alla gestione stock |
 | Servizi | CORE | Item non inventariabili con durata, capacità e requisito appuntamento opzionali |
 | Listini | V1 | Prezzi, validità, valuta e condizioni |
@@ -178,5 +181,7 @@ Ogni funzione deve rispettare tenant, sede quando applicabile, moduli attivi e p
 Il catalogo Item è condiviso: `PRODUCT`, `SERVICE`, `INGREDIENT`, `RECIPE`, `BEAUTY_SERVICE`, `HOTEL_ROOM`, `PACKAGE` e `GIFT_CARD` riusano dati comuni e profili specifici. Item rappresenta ciò che viene venduto, acquistato, consumato o configurato; non rappresenta una comanda, un appuntamento, una prenotazione o un soggiorno. Componenti Recipe/Package, categorie, unità e IVA devono appartenere alla stessa Company.
 
 La retention è sempre governata da policy esplicite: audit operativo configurabile con valore iniziale di 10 anni; documenti fiscali secondo gli obblighi applicabili, preferibilmente mediante provider di conservazione; foto Beauty legate a consenso e retention configurabile; dati ospiti Hotel distinti per finalità. Si preferiscono eliminazione logica e anonimizzazione e non si eseguono cancellazioni automatiche in assenza di policy.
+
+Le configurazioni sono amministrabili solo nel tenant e con modulo/ruolo adeguato. Codice e nome sono ricercabili, stato e lifecycle filtrabili, l'eliminazione è sempre logica e il ripristino conserva i riferimenti. Partner e Item accettano esclusivamente identificativi di configurazioni attive appartenenti alla Company corrente.
 
 Vedere [Catalogo moduli](MODULE_CATALOG.md), [Dipendenze](MODULE_DEPENDENCIES.md) e [Roadmap](ROADMAP.md).

@@ -2,6 +2,7 @@ import { auth } from "@/auth";
 import { MODULE_CODES } from "@/lib/module-catalog";
 import { requireModule } from "@/lib/modules";
 import { getCompanyAgents } from "@/lib/partners";
+import { getPartnerConfigurationOptions } from "@/lib/configurations";
 import { redirect } from "next/navigation";
 import { createPartner } from "../actions";
 import PartnerForm from "../partner-form";
@@ -10,7 +11,7 @@ export default async function NewPartnerPage() {
   const session = await auth();
   if (!session?.user?.companyId) redirect("/login");
   await requireModule(session.user.companyId, MODULE_CODES.CORE_PARTNERS);
-  const agents = await getCompanyAgents(session.user.companyId);
+  const [agents, configurationOptions] = await Promise.all([getCompanyAgents(session.user.companyId), getPartnerConfigurationOptions(session.user.companyId)]);
 
   return (
     <div className="space-y-6">
@@ -23,6 +24,7 @@ export default async function NewPartnerPage() {
       <PartnerForm
         action={createPartner}
         agents={agents}
+        configurationOptions={configurationOptions}
         submitLabel="Crea Partner"
       />
     </div>

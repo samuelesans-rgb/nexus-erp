@@ -4,6 +4,7 @@ import { auth } from "@/auth";
 import { MODULE_CODES } from "@/lib/module-catalog";
 import { ModuleNotEnabledError, requireModule } from "@/lib/modules";
 import { prisma } from "@/lib/prisma";
+import { validateConfigurationReferences } from "@/lib/configurations";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
@@ -114,9 +115,9 @@ function parsePartnerForm(formData: FormData) {
       province: optionalText(formData, "province", 10),
       country: optionalText(formData, "country", 100),
       category: optionalText(formData, "category", 80),
-      priceListCode: optionalText(formData, "priceListCode", 80),
-      paymentMethod: optionalText(formData, "paymentMethod", 100),
-      paymentTerms: optionalText(formData, "paymentTerms", 200),
+      priceListId: optionalText(formData, "priceListId"),
+      paymentMethodId: optionalText(formData, "paymentMethodId"),
+      paymentTermId: optionalText(formData, "paymentTermId"),
       creditLimit,
       discountPercent,
       recipientCode: optionalText(formData, "recipientCode", 20),
@@ -151,6 +152,9 @@ export async function createPartner(
       message: "Controlla i campi evidenziati.",
       errors: parsed.errors,
     };
+  }
+  if (!(await validateConfigurationReferences(context.session.user.companyId, parsed.data))) {
+    return { status: "error", message: "Una configurazione commerciale selezionata non è valida." };
   }
 
   if (parsed.data.agentId) {
@@ -197,6 +201,9 @@ export async function updatePartner(
       message: "Controlla i campi evidenziati.",
       errors: parsed.errors,
     };
+  }
+  if (!(await validateConfigurationReferences(context.session.user.companyId, parsed.data))) {
+    return { status: "error", message: "Una configurazione commerciale selezionata non è valida." };
   }
   if (parsed.data.agentId === partnerId) {
     return { status: "error", message: "Un Partner non può essere agente di sé stesso." };

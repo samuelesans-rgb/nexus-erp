@@ -91,10 +91,10 @@ export default async function PartnerDetailPage({
       </DetailSection>
 
       <DetailSection title="Commerciale">
-        <Detail label="Listino" value={partner.priceListCode} />
+        <Detail label="Listino" value={partner.priceList ? `${partner.priceList.code} · ${partner.priceList.name}` : null} />
         <Detail label="Agente" value={partner.agent?.name} />
-        <Detail label="Metodo pagamento" value={partner.paymentMethod} />
-        <Detail label="Condizioni pagamento" value={partner.paymentTerms} />
+        <Detail label="Metodo pagamento" value={partner.paymentMethod ? `${partner.paymentMethod.code} · ${partner.paymentMethod.name}` : null} />
+        <Detail label="Condizioni pagamento" value={partner.paymentTerm ? `${partner.paymentTerm.code} · ${partner.paymentTerm.name}` : null} />
         <Detail
           label="Fido"
           value={partner.creditLimit ? `€ ${partner.creditLimit}` : null}

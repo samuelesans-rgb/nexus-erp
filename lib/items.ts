@@ -176,12 +176,12 @@ export async function getItemFormOptions(companyId: string, itemId?: string) {
         orderBy: { name: "asc" },
       }),
       prisma.unitOfMeasure.findMany({
-        where: { companyId, active: true },
+        where: { companyId, active: true, deletedAt: null },
         select: { id: true, code: true, name: true, symbol: true },
         orderBy: { code: "asc" },
       }),
       prisma.vatRate.findMany({
-        where: { companyId, active: true },
+        where: { companyId, active: true, deletedAt: null },
         select: { id: true, code: true, name: true, percentage: true },
         orderBy: { percentage: "asc" },
       }),
@@ -276,6 +276,11 @@ export async function getItemDetail(companyId: string, itemId: string) {
           unitOfMeasure: { select: { id: true, code: true, symbol: true } },
         },
         orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+      },
+      priceLists: {
+        where: { deletedAt: null, priceList: { deletedAt: null } },
+        select: { price: true, priceList: { select: { id: true, code: true, name: true, currency: true } } },
+        orderBy: { priceList: { name: "asc" } },
       },
     },
   });

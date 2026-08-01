@@ -2,6 +2,7 @@ import { auth } from "@/auth";
 import { MODULE_CODES } from "@/lib/module-catalog";
 import { requireModule } from "@/lib/modules";
 import { getCompanyAgents, getPartnerDetail } from "@/lib/partners";
+import { getPartnerConfigurationOptions } from "@/lib/configurations";
 import { notFound, redirect } from "next/navigation";
 import { updatePartner } from "../../actions";
 import PartnerForm from "../../partner-form";
@@ -15,9 +16,10 @@ export default async function EditPartnerPage({
   if (!session?.user?.companyId) redirect("/login");
   await requireModule(session.user.companyId, MODULE_CODES.CORE_PARTNERS);
   const { id } = await params;
-  const [partner, agents] = await Promise.all([
+  const [partner, agents, configurationOptions] = await Promise.all([
     getPartnerDetail(session.user.companyId, id),
     getCompanyAgents(session.user.companyId),
+    getPartnerConfigurationOptions(session.user.companyId),
   ]);
   if (!partner || partner.deletedAt) notFound();
   const action = updatePartner.bind(null, partner.id);
@@ -31,6 +33,7 @@ export default async function EditPartnerPage({
       <PartnerForm
         action={action}
         agents={agents.filter((agent) => agent.id !== partner.id)}
+        configurationOptions={configurationOptions}
         submitLabel="Salva modifiche"
         defaults={{
           ...partner,

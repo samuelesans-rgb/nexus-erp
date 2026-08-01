@@ -332,12 +332,12 @@ async function validateRelations(
         : 0,
       parsed.data.unitOfMeasureId
         ? prisma.unitOfMeasure.count({
-            where: { id: parsed.data.unitOfMeasureId, companyId, active: true },
+            where: { id: parsed.data.unitOfMeasureId, companyId, active: true, deletedAt: null },
           })
         : 0,
       parsed.data.vatRateId
         ? prisma.vatRate.count({
-            where: { id: parsed.data.vatRateId, companyId, active: true },
+            where: { id: parsed.data.vatRateId, companyId, active: true, deletedAt: null },
           })
         : 0,
       componentItemIds.length
@@ -356,6 +356,7 @@ async function validateRelations(
               id: { in: componentUnitIds },
               companyId,
               active: true,
+              deletedAt: null,
             },
           })
         : 0,

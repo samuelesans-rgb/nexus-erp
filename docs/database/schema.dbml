@@ -175,9 +175,9 @@ Table Partner {
   isCarrier boolean [not null, default: false]
   isProfessional boolean [not null, default: false]
   category varchar
-  priceListCode varchar
-  paymentMethod varchar
-  paymentTerms varchar
+  priceListId varchar [ref: > PriceList.id]
+  paymentMethodId varchar [ref: > PaymentMethod.id]
+  paymentTermId varchar [ref: > PaymentTerm.id]
   creditLimit decimal(15,2)
   discountPercent decimal(5,2)
   recipientCode varchar
@@ -240,9 +240,12 @@ Table ItemCategory {
   companyId varchar [not null, ref: > Company.id]
   code varchar [not null]
   name varchar [not null]
+  description text
   parentId varchar [ref: > ItemCategory.id]
   active boolean [not null, default: true]
   deletedAt timestamp
+  createdById varchar [ref: > User.id]
+  updatedById varchar [ref: > User.id]
   createdAt timestamp [not null]
   updatedAt timestamp [not null]
 
@@ -250,7 +253,7 @@ Table ItemCategory {
     (companyId, code) [unique]
     (companyId, id) [unique]
     (companyId, active, deletedAt)
-    parentId
+    (companyId, parentId)
   }
 }
 
@@ -259,16 +262,20 @@ Table UnitOfMeasure {
   companyId varchar [not null, ref: > Company.id]
   code varchar [not null]
   name varchar [not null]
+  description text
   symbol varchar [not null]
   precision int [not null, default: 2]
   active boolean [not null, default: true]
+  deletedAt timestamp
+  createdById varchar [ref: > User.id]
+  updatedById varchar [ref: > User.id]
   createdAt timestamp [not null]
   updatedAt timestamp [not null]
 
   indexes {
     (companyId, code) [unique]
     (companyId, id) [unique]
-    (companyId, active)
+    (companyId, active, deletedAt)
   }
 }
 
@@ -277,18 +284,101 @@ Table VatRate {
   companyId varchar [not null, ref: > Company.id]
   code varchar [not null]
   name varchar [not null]
+  description text
   percentage decimal(5,2) [not null]
   natureCode varchar
   active boolean [not null, default: true]
   validFrom timestamp
   validTo timestamp
+  deletedAt timestamp
+  createdById varchar [ref: > User.id]
+  updatedById varchar [ref: > User.id]
   createdAt timestamp [not null]
   updatedAt timestamp [not null]
 
   indexes {
     (companyId, code) [unique]
     (companyId, id) [unique]
-    (companyId, active)
+    (companyId, active, deletedAt)
+  }
+}
+
+Table PriceList {
+  id varchar [pk]
+  companyId varchar [not null, ref: > Company.id]
+  code varchar [not null]
+  name varchar [not null]
+  description text
+  currency varchar [not null, default: "EUR"]
+  active boolean [not null, default: true]
+  deletedAt timestamp
+  createdById varchar [ref: > User.id]
+  updatedById varchar [ref: > User.id]
+  createdAt timestamp [not null]
+  updatedAt timestamp [not null]
+  indexes {
+    (companyId, code) [unique]
+    (companyId, id) [unique]
+    (companyId, active, deletedAt)
+  }
+}
+
+Table PriceListItem {
+  id varchar [pk]
+  companyId varchar [not null, ref: > Company.id]
+  priceListId varchar [not null, ref: > PriceList.id]
+  itemId varchar [not null, ref: > Item.id]
+  price decimal(15,2) [not null]
+  active boolean [not null, default: true]
+  deletedAt timestamp
+  createdById varchar [ref: > User.id]
+  updatedById varchar [ref: > User.id]
+  createdAt timestamp [not null]
+  updatedAt timestamp [not null]
+  indexes {
+    (companyId, priceListId, itemId) [unique]
+    (companyId, itemId, deletedAt)
+  }
+}
+
+Table PaymentMethod {
+  id varchar [pk]
+  companyId varchar [not null, ref: > Company.id]
+  code varchar [not null]
+  name varchar [not null]
+  description text
+  active boolean [not null, default: true]
+  deletedAt timestamp
+  createdById varchar [ref: > User.id]
+  updatedById varchar [ref: > User.id]
+  createdAt timestamp [not null]
+  updatedAt timestamp [not null]
+  indexes {
+    (companyId, code) [unique]
+    (companyId, id) [unique]
+    (companyId, active, deletedAt)
+  }
+}
+
+Table PaymentTerm {
+  id varchar [pk]
+  companyId varchar [not null, ref: > Company.id]
+  code varchar [not null]
+  name varchar [not null]
+  description text
+  dueDays int
+  endOfMonth boolean [not null, default: false]
+  installments json
+  active boolean [not null, default: true]
+  deletedAt timestamp
+  createdById varchar [ref: > User.id]
+  updatedById varchar [ref: > User.id]
+  createdAt timestamp [not null]
+  updatedAt timestamp [not null]
+  indexes {
+    (companyId, code) [unique]
+    (companyId, id) [unique]
+    (companyId, active, deletedAt)
   }
 }
 

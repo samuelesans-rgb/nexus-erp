@@ -84,6 +84,7 @@ export default async function ItemDetailPage({
       <DetailSection title="Commerciale">
         <Detail label="Prezzo vendita" value={money(item.salePrice, item.currency)} />
         <Detail label="Prezzo acquisto" value={money(item.purchasePrice, item.currency)} />
+        <Detail label="Listini" value={item.priceLists.map(({ price, priceList }) => `${priceList.code} · ${priceList.name}: ${money(price, priceList.currency)}`).join("\n")} />
         <Detail label="Costo standard" value={money(item.standardCost, item.currency)} />
         <Detail label="IVA" value={item.vatRate ? `${item.vatRate.name} (${item.vatRate.percentage}%)` : null} />
         <Detail label="Vendibile" value={item.sellable ? "Sì" : "No"} />

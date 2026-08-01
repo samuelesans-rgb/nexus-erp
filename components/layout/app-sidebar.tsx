@@ -26,6 +26,9 @@ export default async function AppSidebar() {
   ) {
     items.push({ label: "Moduli", href: "/settings/modules" });
   }
+  if (session?.user?.roles.some((role) => ["SUPER_ADMIN", "ADMIN"].includes(role)) && [MODULE_CODES.CORE_PRODUCTS, MODULE_CODES.CORE_PRICE_LISTS, MODULE_CODES.CORE_PAYMENTS].some((code) => activeCodes.has(code))) {
+    items.push({ label: "Configurazioni", href: "/settings/configurations" });
+  }
 
   return (
     <aside className="w-64 border-r bg-slate-900 text-white">

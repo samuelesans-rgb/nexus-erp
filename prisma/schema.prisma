@@ -71,6 +71,10 @@ model Company {
   itemCategories ItemCategory[]
   unitsOfMeasure UnitOfMeasure[]
   vatRates       VatRate[]
+  priceLists     PriceList[]
+  priceListItems PriceListItem[]
+  paymentMethods PaymentMethod[]
+  paymentTerms   PaymentTerm[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -130,11 +134,25 @@ model User {
   locale   String @default("it-IT")
   timeZone String @default("Europe/Rome")
 
-  memberships     Membership[]
-  partnersCreated Partner[]    @relation("PartnerCreatedBy")
-  partnersUpdated Partner[]    @relation("PartnerUpdatedBy")
-  itemsCreated    Item[]       @relation("ItemCreatedBy")
-  itemsUpdated    Item[]       @relation("ItemUpdatedBy")
+  memberships           Membership[]
+  partnersCreated       Partner[]       @relation("PartnerCreatedBy")
+  partnersUpdated       Partner[]       @relation("PartnerUpdatedBy")
+  itemsCreated          Item[]          @relation("ItemCreatedBy")
+  itemsUpdated          Item[]          @relation("ItemUpdatedBy")
+  itemCategoriesCreated ItemCategory[]  @relation("ItemCategoryCreatedBy")
+  itemCategoriesUpdated ItemCategory[]  @relation("ItemCategoryUpdatedBy")
+  unitsCreated          UnitOfMeasure[] @relation("UnitOfMeasureCreatedBy")
+  unitsUpdated          UnitOfMeasure[] @relation("UnitOfMeasureUpdatedBy")
+  vatRatesCreated       VatRate[]       @relation("VatRateCreatedBy")
+  vatRatesUpdated       VatRate[]       @relation("VatRateUpdatedBy")
+  priceListsCreated     PriceList[]     @relation("PriceListCreatedBy")
+  priceListsUpdated     PriceList[]     @relation("PriceListUpdatedBy")
+  priceListItemsCreated PriceListItem[] @relation("PriceListItemCreatedBy")
+  priceListItemsUpdated PriceListItem[] @relation("PriceListItemUpdatedBy")
+  paymentMethodsCreated PaymentMethod[] @relation("PaymentMethodCreatedBy")
+  paymentMethodsUpdated PaymentMethod[] @relation("PaymentMethodUpdatedBy")
+  paymentTermsCreated   PaymentTerm[]   @relation("PaymentTermCreatedBy")
+  paymentTermsUpdated   PaymentTerm[]   @relation("PaymentTermUpdatedBy")
 
   accounts Account[]
   sessions Session[]
@@ -261,9 +279,9 @@ model Partner {
   isProfessional Boolean @default(false)
 
   category        String?
-  priceListCode   String?
-  paymentMethod   String?
-  paymentTerms    String?
+  priceListId     String?
+  paymentMethodId String?
+  paymentTermId   String?
   creditLimit     Decimal? @db.Decimal(15, 2)
   discountPercent Decimal? @db.Decimal(5, 2)
 
@@ -280,8 +298,11 @@ model Partner {
   company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   agentId         String?
-  agent           Partner?  @relation("PartnerAgent", fields: [agentId], references: [id], onDelete: SetNull)
-  managedPartners Partner[] @relation("PartnerAgent")
+  agent           Partner?       @relation("PartnerAgent", fields: [agentId], references: [id], onDelete: SetNull)
+  managedPartners Partner[]      @relation("PartnerAgent")
+  priceList       PriceList?     @relation(fields: [companyId, priceListId], references: [companyId, id], onDelete: Restrict)
+  paymentMethod   PaymentMethod? @relation(fields: [companyId, paymentMethodId], references: [companyId, id], onDelete: Restrict)
+  paymentTerm     PaymentTerm?   @relation(fields: [companyId, paymentTermId], references: [companyId, id], onDelete: Restrict)
 
   createdById String?
   createdBy   User?   @relation("PartnerCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
@@ -299,22 +320,30 @@ model Partner {
   @@index([companyId, vatNumber])
   @@index([companyId, taxCode])
   @@index([agentId])
+  @@index([companyId, priceListId])
+  @@index([companyId, paymentMethodId])
+  @@index([companyId, paymentTermId])
 }
 
 model ItemCategory {
   id String @id @default(cuid())
 
-  companyId String
-  code      String
-  name      String
-  parentId  String?
-  active    Boolean   @default(true)
-  deletedAt DateTime?
+  companyId   String
+  code        String
+  name        String
+  description String?
+  parentId    String?
+  active      Boolean   @default(true)
+  deletedAt   DateTime?
 
-  company  Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  parent   ItemCategory?  @relation("ItemCategoryTree", fields: [parentId], references: [id], onDelete: Restrict)
-  children ItemCategory[] @relation("ItemCategoryTree")
-  items    Item[]
+  company     Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  parent      ItemCategory?  @relation("ItemCategoryTree", fields: [companyId, parentId], references: [companyId, id], onDelete: Restrict)
+  children    ItemCategory[] @relation("ItemCategoryTree")
+  items       Item[]
+  createdById String?
+  createdBy   User?          @relation("ItemCategoryCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedById String?
+  updatedBy   User?          @relation("ItemCategoryUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -322,53 +351,159 @@ model ItemCategory {
   @@unique([companyId, code])
   @@unique([companyId, id])
   @@index([companyId, active, deletedAt])
-  @@index([parentId])
+  @@index([companyId, parentId])
 }
 
 model UnitOfMeasure {
   id String @id @default(cuid())
 
-  companyId String
-  code      String
-  name      String
-  symbol    String
-  precision Int     @default(2)
-  active    Boolean @default(true)
+  companyId   String
+  code        String
+  name        String
+  description String?
+  symbol      String
+  precision   Int       @default(2)
+  active      Boolean   @default(true)
+  deletedAt   DateTime?
 
   company           Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
   items             Item[]
   recipeComponents  RecipeComponent[]
   packageComponents PackageComponent[]
+  createdById       String?
+  createdBy         User?              @relation("UnitOfMeasureCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedById       String?
+  updatedBy         User?              @relation("UnitOfMeasureUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([companyId, code])
   @@unique([companyId, id])
-  @@index([companyId, active])
+  @@index([companyId, active, deletedAt])
 }
 
 model VatRate {
   id String @id @default(cuid())
 
-  companyId  String
-  code       String
-  name       String
-  percentage Decimal   @db.Decimal(5, 2)
-  natureCode String?
-  active     Boolean   @default(true)
-  validFrom  DateTime?
-  validTo    DateTime?
+  companyId   String
+  code        String
+  name        String
+  description String?
+  percentage  Decimal   @db.Decimal(5, 2)
+  natureCode  String?
+  active      Boolean   @default(true)
+  validFrom   DateTime?
+  validTo     DateTime?
+  deletedAt   DateTime?
 
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  items   Item[]
+  company     Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  items       Item[]
+  createdById String?
+  createdBy   User?   @relation("VatRateCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedById String?
+  updatedBy   User?   @relation("VatRateUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([companyId, code])
   @@unique([companyId, id])
-  @@index([companyId, active])
+  @@index([companyId, active, deletedAt])
+}
+
+model PriceList {
+  id          String          @id @default(cuid())
+  companyId   String
+  code        String
+  name        String
+  description String?
+  currency    String          @default("EUR")
+  active      Boolean         @default(true)
+  deletedAt   DateTime?
+  company     Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  items       PriceListItem[]
+  partners    Partner[]
+  createdById String?
+  createdBy   User?           @relation("PriceListCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedById String?
+  updatedBy   User?           @relation("PriceListUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@unique([companyId, code])
+  @@unique([companyId, id])
+  @@index([companyId, active, deletedAt])
+}
+
+model PriceListItem {
+  id          String    @id @default(cuid())
+  companyId   String
+  priceListId String
+  itemId      String
+  price       Decimal   @db.Decimal(15, 2)
+  active      Boolean   @default(true)
+  deletedAt   DateTime?
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  priceList   PriceList @relation(fields: [companyId, priceListId], references: [companyId, id], onDelete: Cascade)
+  item        Item      @relation(fields: [companyId, itemId], references: [companyId, id], onDelete: Cascade)
+  createdById String?
+  createdBy   User?     @relation("PriceListItemCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedById String?
+  updatedBy   User?     @relation("PriceListItemUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([companyId, priceListId, itemId])
+  @@index([companyId, itemId, deletedAt])
+  @@index([companyId, priceListId, deletedAt])
+}
+
+model PaymentMethod {
+  id          String    @id @default(cuid())
+  companyId   String
+  code        String
+  name        String
+  description String?
+  active      Boolean   @default(true)
+  deletedAt   DateTime?
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  partners    Partner[]
+  createdById String?
+  createdBy   User?     @relation("PaymentMethodCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedById String?
+  updatedBy   User?     @relation("PaymentMethodUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([companyId, code])
+  @@unique([companyId, id])
+  @@index([companyId, active, deletedAt])
+}
+
+model PaymentTerm {
+  id           String    @id @default(cuid())
+  companyId    String
+  code         String
+  name         String
+  description  String?
+  dueDays      Int?
+  endOfMonth   Boolean   @default(false)
+  installments Json?
+  active       Boolean   @default(true)
+  deletedAt    DateTime?
+  company      Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  partners     Partner[]
+  createdById  String?
+  createdBy    User?     @relation("PaymentTermCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedById  String?
+  updatedBy    User?     @relation("PaymentTermUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([companyId, code])
+  @@unique([companyId, id])
+  @@index([companyId, active, deletedAt])
 }
 
 model Item {
@@ -427,6 +562,7 @@ model Item {
   usedInRecipes        RecipeComponent[]     @relation("RecipeComponentItem")
   packageComponents    PackageComponent[]    @relation("PackageOwner")
   usedInPackages       PackageComponent[]    @relation("PackageComponentItem")
+  priceLists           PriceListItem[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

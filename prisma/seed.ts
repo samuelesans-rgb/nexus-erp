@@ -42,11 +42,11 @@ const moduleDefinitions = [
   ],
   [MODULE_CODES.CORE_DASHBOARD, "Dashboard base", "CORE", true, "AVAILABLE"],
   [MODULE_CODES.CORE_PRODUCTS, "Prodotti e servizi", "SHARED", false, "AVAILABLE"],
-  [MODULE_CODES.CORE_PRICE_LISTS, "Listini", "SHARED", false, "PLANNED"],
+  [MODULE_CODES.CORE_PRICE_LISTS, "Listini", "SHARED", false, "AVAILABLE"],
   [MODULE_CODES.CORE_SALES, "Vendite", "SHARED", false, "PLANNED"],
   [MODULE_CODES.CORE_PURCHASES, "Acquisti", "SHARED", false, "PLANNED"],
   [MODULE_CODES.CORE_INVENTORY, "Magazzino", "SHARED", false, "PLANNED"],
-  [MODULE_CODES.CORE_PAYMENTS, "Pagamenti", "SHARED", false, "PLANNED"],
+  [MODULE_CODES.CORE_PAYMENTS, "Pagamenti", "SHARED", false, "AVAILABLE"],
   [MODULE_CODES.CORE_TREASURY, "Tesoreria", "SHARED", false, "FUTURE"],
   [MODULE_CODES.CORE_ACCOUNTING, "Contabilità V1", "SHARED", false, "PLANNED"],
   [MODULE_CODES.CORE_REPORTING, "Reporting avanzato", "SHARED", false, "PLANNED"],
@@ -216,7 +216,11 @@ async function main() {
 
   const defaultModules = await prisma.moduleDefinition.findMany({
     where: {
-      OR: [{ mandatory: true }, { status: "AVAILABLE", category: "CORE" }],
+      OR: [
+        { mandatory: true },
+        { status: "AVAILABLE", category: "CORE" },
+        { code: { in: [MODULE_CODES.CORE_PRODUCTS, MODULE_CODES.CORE_PRICE_LISTS, MODULE_CODES.CORE_PAYMENTS] } },
+      ],
     },
     select: { id: true },
   });
@@ -242,6 +246,31 @@ async function main() {
     });
   }
 
+  const defaultPaymentMethod = await prisma.paymentMethod.upsert({
+    where: { companyId_code: { companyId: company.id, code: "BONIFICO" } },
+    update: { name: "Bonifico bancario", active: true, deletedAt: null, updatedById: user.id },
+    create: { companyId: company.id, code: "BONIFICO", name: "Bonifico bancario", description: "Pagamento tramite bonifico bancario.", createdById: user.id, updatedById: user.id },
+  });
+  await prisma.paymentMethod.upsert({
+    where: { companyId_code: { companyId: company.id, code: "CARTA" } },
+    update: { name: "Carta", active: true, deletedAt: null, updatedById: user.id },
+    create: { companyId: company.id, code: "CARTA", name: "Carta", createdById: user.id, updatedById: user.id },
+  });
+  const defaultPaymentTerm = await prisma.paymentTerm.upsert({
+    where: { companyId_code: { companyId: company.id, code: "30DF" } },
+    update: { name: "30 giorni data fattura", dueDays: 30, active: true, deletedAt: null, updatedById: user.id },
+    create: { companyId: company.id, code: "30DF", name: "30 giorni data fattura", dueDays: 30, createdById: user.id, updatedById: user.id },
+  });
+  for (const [code, name, dueDays, endOfMonth] of [["IMMEDIATO", "Pagamento immediato", 0, false], ["60DF", "60 giorni data fattura", 60, false], ["90DF", "90 giorni data fattura", 90, false], ["30FM", "30 giorni fine mese", 30, true]] as const) {
+    await prisma.paymentTerm.upsert({ where: { companyId_code: { companyId: company.id, code } }, update: { name, dueDays, endOfMonth, active: true, deletedAt: null, updatedById: user.id }, create: { companyId: company.id, code, name, dueDays, endOfMonth, createdById: user.id, updatedById: user.id } });
+  }
+  await prisma.paymentTerm.upsert({ where: { companyId_code: { companyId: company.id, code: "RATA-30-60-90" } }, update: { installments: [{ days: 30, percentage: 34 }, { days: 60, percentage: 33 }, { days: 90, percentage: 33 }], active: true, deletedAt: null, updatedById: user.id }, create: { companyId: company.id, code: "RATA-30-60-90", name: "Tre rate 30/60/90", installments: [{ days: 30, percentage: 34 }, { days: 60, percentage: 33 }, { days: 90, percentage: 33 }], createdById: user.id, updatedById: user.id } });
+  const defaultPriceList = await prisma.priceList.upsert({
+    where: { companyId_code: { companyId: company.id, code: "STANDARD" } },
+    update: { name: "Listino standard", active: true, deletedAt: null, updatedById: user.id },
+    create: { companyId: company.id, code: "STANDARD", name: "Listino standard", currency: "EUR", createdById: user.id, updatedById: user.id },
+  });
+
   await prisma.partner.upsert({
     where: {
       companyId_code: {
@@ -266,8 +295,9 @@ async function main() {
       category: "Ristorazione",
       isCustomer: true,
       isProspect: true,
-      paymentMethod: "Bonifico bancario",
-      paymentTerms: "30 giorni data fattura",
+      priceListId: defaultPriceList.id,
+      paymentMethodId: defaultPaymentMethod.id,
+      paymentTermId: defaultPaymentTerm.id,
       createdById: user.id,
       updatedById: user.id,
     },
@@ -312,8 +342,8 @@ async function main() {
   for (const [code, name] of categorySeeds) {
     const category = await prisma.itemCategory.upsert({
       where: { companyId_code: { companyId: company.id, code } },
-      update: { name, active: true, deletedAt: null },
-      create: { companyId: company.id, code, name },
+      update: { name, active: true, deletedAt: null, updatedById: user.id },
+      create: { companyId: company.id, code, name, createdById: user.id, updatedById: user.id },
       select: { id: true },
     });
     categories.set(code, category.id);
@@ -333,8 +363,8 @@ async function main() {
   for (const [code, name, symbol, precision] of unitSeeds) {
     const unit = await prisma.unitOfMeasure.upsert({
       where: { companyId_code: { companyId: company.id, code } },
-      update: { name, symbol, precision, active: true },
-      create: { companyId: company.id, code, name, symbol, precision },
+      update: { name, symbol, precision, active: true, deletedAt: null, updatedById: user.id },
+      create: { companyId: company.id, code, name, symbol, precision, createdById: user.id, updatedById: user.id },
       select: { id: true },
     });
     units.set(code, unit.id);
@@ -350,8 +380,8 @@ async function main() {
   for (const [code, name, percentage, natureCode] of vatSeeds) {
     const vatRate = await prisma.vatRate.upsert({
       where: { companyId_code: { companyId: company.id, code } },
-      update: { name, percentage, natureCode, active: true },
-      create: { companyId: company.id, code, name, percentage, natureCode },
+      update: { name, percentage, natureCode, active: true, deletedAt: null, updatedById: user.id },
+      create: { companyId: company.id, code, name, percentage, natureCode, createdById: user.id, updatedById: user.id },
       select: { id: true },
     });
     vatRates.set(code, vatRate.id);
@@ -641,6 +671,10 @@ async function main() {
       transferable: true,
     },
   });
+
+  for (const [itemId, price] of [[product.id, "3.00"], [service.id, "60.00"], [recipe.id, "8.00"], [beautyService.id, "55.00"], [hotelRoom.id, "140.00"], [packageItem.id, "150.00"], [giftCard.id, "50.00"]] as const) {
+    await prisma.priceListItem.upsert({ where: { companyId_priceListId_itemId: { companyId: company.id, priceListId: defaultPriceList.id, itemId } }, update: { price, active: true, deletedAt: null, updatedById: user.id }, create: { companyId: company.id, priceListId: defaultPriceList.id, itemId, price, createdById: user.id, updatedById: user.id } });
+  }
 
   console.log("✅ Seed completato");
   console.log("Email: admin@nexuserp.local");
