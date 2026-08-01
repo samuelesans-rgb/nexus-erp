@@ -1,0 +1,80 @@
+import "server-only";
+
+import { Prisma, type DocumentStatus, type DocumentType } from "@/generated/prisma/client";
+import { prisma } from "@/lib/prisma";
+
+export class DocumentDomainError extends Error { constructor(message: string) { super(message); this.name = "DocumentDomainError"; } }
+
+export type DocumentLineInput = { itemId: string; description?: string | null; quantity: number; unitOfMeasureId: string; unitPrice: number; discount?: number; vatRateId: string; warehouseId?: string | null; lotId?: string | null; serialId?: string | null; notes?: string | null };
+export type DraftInput = { seriesId: string; partnerId: string; documentDate: Date; currency?: string; exchangeRate?: number; warehouseId?: string | null; locationId?: string | null; paymentMethodId?: string | null; paymentTermId?: string | null; priceListId?: string | null; notes?: string | null; internalNotes?: string | null; lines: DocumentLineInput[] };
+
+async function emit(tx: Prisma.TransactionClient, companyId: string, userId: string, documentId: string, eventType: string, fromStatus: DocumentStatus | null, toStatus: DocumentStatus, payload: Prisma.InputJsonValue = {}) {
+  await Promise.all([
+    tx.documentEvent.create({ data: { companyId, documentId, eventType, fromStatus, toStatus, payload, createdById: userId } }),
+    tx.domainEvent.create({ data: { companyId, eventType, aggregateType: "BusinessDocument", aggregateId: documentId, payload: { documentId, fromStatus, toStatus, ...payload as object }, occurredAt: new Date() } }),
+  ]);
+}
+
+async function allocateNumber(tx: Prisma.TransactionClient, companyId: string, seriesId: string) {
+  let series;
+  try { series = await tx.documentSeries.update({ where: { id: seriesId, companyId, active: true }, data: { nextNumber: { increment: 1 } }, select: { documentType: true, prefix: true, suffix: true, nextNumber: true, padding: true } }); }
+  catch { throw new DocumentDomainError("Serie documentale non valida per la Company."); }
+  const assignedNumber = series.nextNumber - 1;
+  return { documentType: series.documentType, documentNumber: `${series.prefix}${String(assignedNumber).padStart(series.padding, "0")}${series.suffix}` };
+}
+
+export async function getNextNumber(companyId: string, seriesId: string) { return prisma.$transaction((tx) => allocateNumber(tx, companyId, seriesId)); }
+
+async function prepareLines(tx: Prisma.TransactionClient, companyId: string, lines: DocumentLineInput[]) {
+  if (!lines.length) throw new DocumentDomainError("Il documento richiede almeno una riga.");
+  const prepared = [];
+  let subtotal = 0; let discountTotal = 0; let tax = 0;
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]; const quantity = Number(line.quantity); const unitPrice = Number(line.unitPrice); const discount = Number(line.discount ?? 0);
+    if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(unitPrice) || unitPrice < 0 || !Number.isFinite(discount) || discount < 0 || discount > 100) throw new DocumentDomainError("Quantità, prezzo o sconto riga non validi.");
+    const [item, unit, vat, warehouse, lot, serial] = await Promise.all([
+      tx.item.findFirst({ where: { id: line.itemId, companyId, active: true, deletedAt: null }, select: { id: true, name: true } }),
+      tx.unitOfMeasure.findFirst({ where: { id: line.unitOfMeasureId, companyId, active: true, deletedAt: null }, select: { id: true } }),
+      tx.vatRate.findFirst({ where: { id: line.vatRateId, companyId, active: true, deletedAt: null }, select: { id: true, percentage: true } }),
+      line.warehouseId ? tx.warehouse.findFirst({ where: { id: line.warehouseId, companyId, active: true, deletedAt: null }, select: { id: true } }) : null,
+      line.lotId ? tx.inventoryLot.findFirst({ where: { id: line.lotId, companyId, itemId: line.itemId }, select: { id: true } }) : null,
+      line.serialId ? tx.inventorySerial.findFirst({ where: { id: line.serialId, companyId, itemId: line.itemId }, select: { id: true } }) : null,
+    ]);
+    if (!item || !unit || !vat || (line.warehouseId && !warehouse) || (line.lotId && !lot) || (line.serialId && !serial)) throw new DocumentDomainError("Uno o più riferimenti riga non appartengono alla Company.");
+    const gross = quantity * unitPrice; const discountAmount = gross * discount / 100; const net = gross - discountAmount; const lineTax = net * Number(vat.percentage) / 100;
+    subtotal += gross; discountTotal += discountAmount; tax += lineTax;
+    prepared.push({ lineNumber: index + 1, itemId: item.id, description: line.description?.trim() || item.name, quantity, unitOfMeasureId: unit.id, unitPrice, discount, vatRateId: vat.id, lineTotal: net, warehouseId: warehouse?.id, lotId: lot?.id, serialId: serial?.id, notes: line.notes?.trim() || null });
+  }
+  const money = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
+  return { lines: prepared, subtotal: money(subtotal), discount: money(discountTotal), tax: money(tax), total: money(subtotal - discountTotal + tax) };
+}
+
+async function validateHeader(tx: Prisma.TransactionClient, companyId: string, input: DraftInput) {
+  const [partner, warehouse, location, paymentMethod, paymentTerm, priceList] = await Promise.all([
+    tx.partner.findFirst({ where: { id: input.partnerId, companyId, active: true, deletedAt: null }, select: { id: true } }),
+    input.warehouseId ? tx.warehouse.findFirst({ where: { id: input.warehouseId, companyId, active: true, deletedAt: null }, select: { id: true, locationId: true } }) : null,
+    input.locationId ? tx.location.findFirst({ where: { id: input.locationId, companyId, active: true, deletedAt: null }, select: { id: true } }) : null,
+    input.paymentMethodId ? tx.paymentMethod.findFirst({ where: { id: input.paymentMethodId, companyId, active: true, deletedAt: null }, select: { id: true } }) : null,
+    input.paymentTermId ? tx.paymentTerm.findFirst({ where: { id: input.paymentTermId, companyId, active: true, deletedAt: null }, select: { id: true } }) : null,
+    input.priceListId ? tx.priceList.findFirst({ where: { id: input.priceListId, companyId, active: true, deletedAt: null }, select: { id: true } }) : null,
+  ]);
+  if (!partner || (input.warehouseId && !warehouse) || (input.locationId && !location) || (input.paymentMethodId && !paymentMethod) || (input.paymentTermId && !paymentTerm) || (input.priceListId && !priceList)) throw new DocumentDomainError("Uno o più riferimenti testata non appartengono alla Company.");
+  if (warehouse && location && warehouse.locationId !== location.id) throw new DocumentDomainError("Il magazzino non appartiene alla sede selezionata.");
+  const exchangeRate = Number(input.exchangeRate ?? 1); if (!Number.isFinite(exchangeRate) || exchangeRate <= 0) throw new DocumentDomainError("Cambio valuta non valido.");
+  return { partnerId: partner.id, documentDate: input.documentDate, currency: (input.currency ?? "EUR").toUpperCase().slice(0, 3), exchangeRate, warehouseId: warehouse?.id, locationId: location?.id, paymentMethodId: paymentMethod?.id, paymentTermId: paymentTerm?.id, priceListId: priceList?.id, notes: input.notes?.trim() || null, internalNotes: input.internalNotes?.trim() || null };
+}
+
+export async function createDraft(companyId: string, userId: string, input: DraftInput) { return prisma.$transaction(async (tx) => { const numbering = await allocateNumber(tx, companyId, input.seriesId); const header = await validateHeader(tx, companyId, input); const totals = await prepareLines(tx, companyId, input.lines); const document = await tx.businessDocument.create({ data: { companyId, seriesId: input.seriesId, ...numbering, ...header, subtotal: totals.subtotal, discount: totals.discount, tax: totals.tax, total: totals.total, createdById: userId, updatedById: userId, lines: { create: totals.lines } }, select: { id: true } }); await emit(tx, companyId, userId, document.id, "DocumentCreated", null, "DRAFT", { documentNumber: numbering.documentNumber, documentType: numbering.documentType }); return document; }, { timeout: 15000 }); }
+
+export async function updateDraft(companyId: string, userId: string, documentId: string, input: Omit<DraftInput, "seriesId">) { return prisma.$transaction(async (tx) => { const document = await tx.businessDocument.findFirst({ where: { id: documentId, companyId, status: "DRAFT", deletedAt: null }, select: { id: true } }); if (!document) throw new DocumentDomainError("Solo un documento Draft può essere modificato."); const header = await validateHeader(tx, companyId, { ...input, seriesId: "" }); const totals = await prepareLines(tx, companyId, input.lines); await tx.businessDocumentLine.deleteMany({ where: { companyId, documentId } }); await tx.businessDocument.update({ where: { id: document.id }, data: { ...header, subtotal: totals.subtotal, discount: totals.discount, tax: totals.tax, total: totals.total, updatedById: userId, lines: { create: totals.lines } } }); return { id: document.id }; }, { isolationLevel: "Serializable", timeout: 15000 }); }
+
+async function transition(companyId: string, userId: string, documentId: string, from: DocumentStatus, to: DocumentStatus, eventType: string) { return prisma.$transaction(async (tx) => { const document = await tx.businessDocument.findFirst({ where: { id: documentId, companyId, status: from, deletedAt: null }, select: { id: true, lines: { select: { id: true }, take: 1 } } }); if (!document || (to === "CONFIRMED" && !document.lines.length)) throw new DocumentDomainError(`Transizione ${from} → ${to} non consentita.`); await tx.businessDocument.update({ where: { id: document.id }, data: { status: to, postingDate: to === "POSTED" ? new Date() : undefined, updatedById: userId } }); await emit(tx, companyId, userId, document.id, eventType, from, to); return { id: document.id }; }); }
+export const confirmDocument = (companyId: string, userId: string, id: string) => transition(companyId, userId, id, "DRAFT", "CONFIRMED", "DocumentConfirmed");
+export const postDocument = (companyId: string, userId: string, id: string) => transition(companyId, userId, id, "CONFIRMED", "POSTED", "DocumentPosted");
+export const closeDocument = (companyId: string, userId: string, id: string) => transition(companyId, userId, id, "POSTED", "CLOSED", "DocumentClosed");
+export async function cancelDocument(companyId: string, userId: string, id: string) { const document = await prisma.businessDocument.findFirst({ where: { id, companyId, status: { in: ["DRAFT", "CONFIRMED"] }, deletedAt: null }, select: { status: true } }); if (!document) throw new DocumentDomainError("Un documento Posted o Closed non può essere annullato o modificato."); return transition(companyId, userId, id, document.status, "CANCELLED", "DocumentCancelled"); }
+
+export async function getDocument(companyId: string, id: string) { return prisma.businessDocument.findFirst({ where: { id, companyId, deletedAt: null }, include: { series: true, partner: { select: { id: true, code: true, name: true, displayName: true } }, warehouse: { select: { code: true, name: true } }, location: { select: { code: true, name: true } }, paymentMethod: { select: { name: true } }, paymentTerm: { select: { name: true } }, priceList: { select: { name: true } }, lines: { include: { item: { select: { code: true, name: true } }, unitOfMeasure: { select: { symbol: true } }, vatRate: { select: { code: true, percentage: true } } }, orderBy: { lineNumber: "asc" } }, events: { orderBy: { createdAt: "asc" }, include: { createdBy: { select: { firstName: true, lastName: true } } } } } }); }
+export async function getDocuments(companyId: string, filters: { query?: string; documentType?: DocumentType; status?: DocumentStatus; partnerId?: string; seriesId?: string; from?: Date; to?: Date; page?: number } = {}) { const where: Prisma.BusinessDocumentWhereInput = { companyId, deletedAt: null, documentType: filters.documentType, status: filters.status, partnerId: filters.partnerId, seriesId: filters.seriesId, documentDate: filters.from || filters.to ? { gte: filters.from, lte: filters.to } : undefined, ...(filters.query ? { OR: [{ documentNumber: { contains: filters.query, mode: "insensitive" } }, { partner: { name: { contains: filters.query, mode: "insensitive" } } }] } : {}) }; const page = Math.max(filters.page ?? 1, 1); const [rows, total] = await Promise.all([prisma.businessDocument.findMany({ where, select: { id: true, documentNumber: true, documentType: true, status: true, documentDate: true, currency: true, total: true, series: { select: { code: true } }, partner: { select: { name: true, displayName: true } } }, orderBy: [{ documentDate: "desc" }, { createdAt: "desc" }], skip: (page - 1) * 25, take: 25 }), prisma.businessDocument.count({ where })]); return { rows, total, page }; }
+export async function duplicateDraft(companyId: string, userId: string, id: string) { const source = await getDocument(companyId, id); if (!source) throw new DocumentDomainError("Documento da duplicare non trovato."); return createDraft(companyId, userId, { seriesId: source.seriesId, partnerId: source.partnerId, documentDate: new Date(), currency: source.currency, exchangeRate: Number(source.exchangeRate), warehouseId: source.warehouseId, locationId: source.locationId, paymentMethodId: source.paymentMethodId, paymentTermId: source.paymentTermId, priceListId: source.priceListId, notes: source.notes, internalNotes: source.internalNotes, lines: source.lines.map((line) => ({ itemId: line.itemId, description: line.description, quantity: Number(line.quantity), unitOfMeasureId: line.unitOfMeasureId, unitPrice: Number(line.unitPrice), discount: Number(line.discount), vatRateId: line.vatRateId, warehouseId: line.warehouseId, lotId: line.lotId, serialId: line.serialId, notes: line.notes })) }); }
+export async function getDocumentOptions(companyId: string) { const [series, partners, items, units, vatRates, warehouses, locations, paymentMethods, paymentTerms, priceLists, lots, serials] = await Promise.all([prisma.documentSeries.findMany({ where: { companyId, active: true }, orderBy: { code: "asc" } }), prisma.partner.findMany({ where: { companyId, active: true, deletedAt: null }, select: { id: true, code: true, name: true, displayName: true }, orderBy: { name: "asc" } }), prisma.item.findMany({ where: { companyId, active: true, deletedAt: null }, select: { id: true, code: true, name: true, unitOfMeasureId: true, vatRateId: true, salePrice: true, purchasePrice: true }, orderBy: { name: "asc" } }), prisma.unitOfMeasure.findMany({ where: { companyId, active: true, deletedAt: null }, select: { id: true, code: true, symbol: true } }), prisma.vatRate.findMany({ where: { companyId, active: true, deletedAt: null }, select: { id: true, code: true, percentage: true } }), prisma.warehouse.findMany({ where: { companyId, active: true, deletedAt: null }, select: { id: true, code: true, name: true, locationId: true } }), prisma.location.findMany({ where: { companyId, active: true, deletedAt: null }, select: { id: true, code: true, name: true } }), prisma.paymentMethod.findMany({ where: { companyId, active: true, deletedAt: null }, select: { id: true, code: true, name: true } }), prisma.paymentTerm.findMany({ where: { companyId, active: true, deletedAt: null }, select: { id: true, code: true, name: true } }), prisma.priceList.findMany({ where: { companyId, active: true, deletedAt: null }, select: { id: true, code: true, name: true } }), prisma.inventoryLot.findMany({ where: { companyId, active: true }, select: { id: true, itemId: true, lotNumber: true } }), prisma.inventorySerial.findMany({ where: { companyId }, select: { id: true, itemId: true, serialNumber: true } })]); return { series, partners, items, units, vatRates, warehouses, locations, paymentMethods, paymentTerms, priceLists, lots, serials }; }

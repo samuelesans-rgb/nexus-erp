@@ -30,7 +30,7 @@ const moduleDefinitions = [
     "Documenti e allegati",
     "CORE",
     true,
-    "PLANNED",
+    "AVAILABLE",
   ],
   [MODULE_CODES.CORE_AUDIT, "Audit minimo", "CORE", true, "PLANNED"],
   [
@@ -275,7 +275,7 @@ async function main() {
     create: { companyId: company.id, code: "STANDARD", name: "Listino standard", currency: "EUR", createdById: user.id, updatedById: user.id },
   });
 
-  await prisma.partner.upsert({
+  const demoCustomer = await prisma.partner.upsert({
     where: {
       companyId_code: {
         companyId: company.id,
@@ -718,6 +718,27 @@ async function main() {
       await prisma.stockBalance.upsert({ where: { companyId_warehouseId_itemId: { companyId: company.id, warehouseId: mainWarehouse.id, itemId: entry.itemId } }, update: { quantity: entry.quantity, averageCost: entry.cost, stockValue: entry.quantity * entry.cost }, create: { companyId: company.id, warehouseId: mainWarehouse.id, itemId: entry.itemId, quantity: entry.quantity, averageCost: entry.cost, stockValue: entry.quantity * entry.cost } });
       await prisma.domainEvent.create({ data: { companyId: company.id, eventType: "InventoryMovementPosted", aggregateType: "InventoryMovement", aggregateId: movement.id, payload: { source: "seed", movementId: movement.id }, occurredAt: new Date() } });
     }
+  }
+
+  const seriesSeeds = [
+    ["DEMO", "Serie demo", "QUOTE", "DEMO-"],
+    ["FATTURE", "Serie fatture", "SALES_INVOICE", "FT-"],
+    ["ORDINI", "Serie ordini", "SALES_ORDER", "ORD-"],
+    ["PREVENTIVI", "Serie preventivi", "QUOTE", "PREV-"],
+  ] as const;
+  const documentSeries = new Map<string, { id: string; nextNumber: number }>();
+  for (const [code, name, documentType, prefix] of seriesSeeds) {
+    const series = await prisma.documentSeries.upsert({ where: { companyId_code: { companyId: company.id, code } }, update: { name, documentType, prefix, active: true }, create: { companyId: company.id, code, name, documentType, prefix }, select: { id: true, nextNumber: true } });
+    documentSeries.set(code, series);
+  }
+  const demoSeries = documentSeries.get("DEMO")!;
+  const demoDocumentNumber = "DEMO-000001";
+  const existingDocument = await prisma.businessDocument.findFirst({ where: { companyId: company.id, seriesId: demoSeries.id, documentNumber: demoDocumentNumber }, select: { id: true } });
+  if (!existingDocument) {
+    const document = await prisma.businessDocument.create({ data: { companyId: company.id, seriesId: demoSeries.id, documentNumber: demoDocumentNumber, documentType: "QUOTE", status: "DRAFT", partnerId: demoCustomer.id, documentDate: new Date(), currency: "EUR", exchangeRate: 1, warehouseId: mainWarehouse.id, locationId: location.id, paymentMethodId: defaultPaymentMethod.id, paymentTermId: defaultPaymentTerm.id, priceListId: defaultPriceList.id, subtotal: 30, discount: 0, tax: 6.6, total: 36.6, notes: "Documento Draft dimostrativo", createdById: user.id, updatedById: user.id, lines: { create: [{ lineNumber: 1, itemId: product.id, description: product.name, quantity: 10, unitOfMeasureId: units.get("PZ")!, unitPrice: 3, discount: 0, vatRateId: vatRates.get("IVA22")!, lineTotal: 30, warehouseId: mainWarehouse.id }] } }, select: { id: true } });
+    await prisma.documentSeries.update({ where: { id: demoSeries.id }, data: { nextNumber: { set: Math.max(demoSeries.nextNumber, 2) } } });
+    await prisma.documentEvent.create({ data: { companyId: company.id, documentId: document.id, eventType: "DocumentCreated", toStatus: "DRAFT", payload: { source: "seed" }, createdById: user.id } });
+    await prisma.domainEvent.create({ data: { companyId: company.id, eventType: "DocumentCreated", aggregateType: "BusinessDocument", aggregateId: document.id, payload: { source: "seed", documentId: document.id }, occurredAt: new Date() } });
   }
 
   console.log("✅ Seed completato");

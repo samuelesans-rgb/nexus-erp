@@ -212,4 +212,14 @@ Gli ADR sono accettati come baseline di prodotto. Un cambiamento richiede un nuo
 
 **Alternative rifiutate.** Chiamate sincrone incrociate; eventi prima del commit; polling dei saldi come integrazione.
 
+## ADR-022: Unified Document Engine
+
+**Contesto.** Preventivi, ordini, DDT, fatture, ordini fornitori, ricezioni, resi e note di credito condividono testata, righe, numerazione e lifecycle. Modelli separati duplicherebbero regole, audit e integrazioni.
+
+**Decisione.** Adottare `BusinessDocument` e `BusinessDocumentLine` come aggregate tenant-scoped unico, discriminato da `DocumentType`. `DocumentSeries` assegna numeri atomici e univoci nella stessa transazione della creazione. Solo `DRAFT` è modificabile; le transizioni ammesse sono `DRAFT → CONFIRMED → POSTED → CLOSED`, mentre `DRAFT` e `CONFIRMED` possono diventare `CANCELLED`. Ogni passaggio crea un `DocumentEvent` append-only e un `DomainEvent` outbox.
+
+**Conseguenze.** Sales, Purchases, fiscalità e verticali potranno comporre comportamenti sopra un contratto comune. Il Document Engine non scrive Inventory né contabilità: pubblica `DocumentCreated`, `DocumentConfirmed`, `DocumentPosted`, `DocumentCancelled` e `DocumentClosed`. Attachment e approvazioni restano punti di estensione.
+
+**Alternative rifiutate.** Tabelle per ogni tipo; numerazione calcolata lato client; modifica dei documenti posted; chiamata diretta a Inventory durante il posting.
+
 Vedere [Visione](VISION.md), [Architettura](ARCHITECTURE.md) e [Roadmap](ROADMAP.md).

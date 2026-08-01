@@ -722,3 +722,97 @@ Table DomainEvent {
   createdAt timestamp [not null]
   indexes { (processedAt, occurredAt) (companyId, eventType, occurredAt) }
 }
+
+Table DocumentSeries {
+  id varchar [pk]
+  companyId varchar [not null, ref: > Company.id]
+  code varchar [not null]
+  name varchar [not null]
+  documentType varchar [not null]
+  prefix varchar [not null]
+  suffix varchar [not null]
+  nextNumber int [not null, default: 1]
+  padding int [not null, default: 6]
+  active boolean [not null, default: true]
+  createdAt timestamp [not null]
+  updatedAt timestamp [not null]
+  indexes { (companyId, code) [unique] (companyId, id) [unique] }
+}
+
+Table BusinessDocument {
+  id varchar [pk]
+  companyId varchar [not null, ref: > Company.id]
+  seriesId varchar [not null, ref: > DocumentSeries.id]
+  documentNumber varchar [not null]
+  documentType varchar [not null]
+  status varchar [not null]
+  partnerId varchar [not null, ref: > Partner.id]
+  documentDate timestamp [not null]
+  postingDate timestamp
+  currency varchar [not null]
+  exchangeRate decimal(18,6) [not null]
+  warehouseId varchar [ref: > Warehouse.id]
+  locationId varchar [ref: > Location.id]
+  paymentMethodId varchar [ref: > PaymentMethod.id]
+  paymentTermId varchar [ref: > PaymentTerm.id]
+  priceListId varchar [ref: > PriceList.id]
+  subtotal decimal(15,2) [not null]
+  discount decimal(15,2) [not null]
+  tax decimal(15,2) [not null]
+  total decimal(15,2) [not null]
+  notes text
+  internalNotes text
+  createdById varchar [not null, ref: > User.id]
+  updatedById varchar [not null, ref: > User.id]
+  deletedAt timestamp
+  createdAt timestamp [not null]
+  updatedAt timestamp [not null]
+  indexes { (companyId, seriesId, documentNumber) [unique] (companyId, id) [unique] }
+}
+
+Table BusinessDocumentLine {
+  id varchar [pk]
+  companyId varchar [not null, ref: > Company.id]
+  documentId varchar [not null, ref: > BusinessDocument.id]
+  lineNumber int [not null]
+  itemId varchar [not null, ref: > Item.id]
+  description text [not null]
+  quantity decimal(15,3) [not null]
+  unitOfMeasureId varchar [not null, ref: > UnitOfMeasure.id]
+  unitPrice decimal(15,4) [not null]
+  discount decimal(5,2) [not null]
+  vatRateId varchar [not null, ref: > VatRate.id]
+  lineTotal decimal(15,2) [not null]
+  warehouseId varchar [ref: > Warehouse.id]
+  lotId varchar [ref: > InventoryLot.id]
+  serialId varchar [ref: > InventorySerial.id]
+  notes text
+  createdAt timestamp [not null]
+  updatedAt timestamp [not null]
+  indexes { (companyId, documentId, lineNumber) [unique] (companyId, itemId) }
+}
+
+Table DocumentAttachment {
+  id varchar [pk]
+  companyId varchar [not null, ref: > Company.id]
+  documentId varchar [not null, ref: > BusinessDocument.id]
+  fileName varchar [not null]
+  contentType varchar
+  storageKey varchar
+  metadata json
+  createdAt timestamp [not null]
+  indexes { (companyId, documentId) }
+}
+
+Table DocumentEvent {
+  id varchar [pk]
+  companyId varchar [not null, ref: > Company.id]
+  documentId varchar [not null, ref: > BusinessDocument.id]
+  eventType varchar [not null]
+  fromStatus varchar
+  toStatus varchar
+  payload json
+  createdById varchar [not null, ref: > User.id]
+  createdAt timestamp [not null]
+  indexes { (companyId, documentId, createdAt) }
+}

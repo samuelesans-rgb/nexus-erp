@@ -44,7 +44,7 @@ La classificazione esprime la priorità di prodotto, non lo stato di implementaz
 | Inventory Engine | V1 | Sedi, magazzini, ubicazioni, ledger immutabile, lotti/seriali, trasferimenti, inventari, disponibilità e valorizzazione a costo medio |
 | Pagamenti | V1 | Scadenze, incassi, pagamenti e riconciliazione base |
 | Tesoreria di base | V2 | Conti, saldi e previsione dei flussi |
-| Documenti | CORE | Metadati, numerazione, stati e collegamenti |
+| Unified Document Engine | CORE | Header e righe comuni, serie atomiche, stati, workflow, audit ed estensioni per ogni documento aziendale |
 | Allegati | CORE | File associati a entità autorizzate |
 | Notifiche di sistema | CORE | Avvisi applicativi essenziali e preferenze |
 | Audit log | CORE | Traccia immutabile delle operazioni rilevanti |
@@ -185,5 +185,7 @@ La retention è sempre governata da policy esplicite: audit operativo configurab
 Le configurazioni sono amministrabili solo nel tenant e con modulo/ruolo adeguato. Codice e nome sono ricercabili, stato e lifecycle filtrabili, l'eliminazione è sempre logica e il ripristino conserva i riferimenti. Partner e Item accettano esclusivamente identificativi di configurazioni attive appartenenti alla Company corrente.
 
 Inventory considera autoritativo il ledger dei movimenti posted. I saldi materializzati sono una cache transazionale ricostruibile; non sono modificabili dal client. La V1 misura stock reale contabilizzato e costo medio ponderato per magazzino e Item: stock prenotato, disponibile e futuro saranno separati quando esisteranno i documenti sorgente. Non sono generate scritture contabili. Correzioni, trasferimenti e differenze inventariali producono nuovi movimenti e outbox event, senza modifica o cancellazione del ledger.
+
+Il Document Engine usa un solo aggregate per preventivi, ordini, DDT, fatture, resi, note di credito e documenti inventariali. La numerazione è atomica per serie; soltanto i Draft sono modificabili. Il workflow iniziale è Draft → Confirmed → Posted → Closed, con annullamento consentito prima del posting. Ogni transizione produce storico e outbox; il posting non movimenta ancora Inventory e non genera contabilità.
 
 Vedere [Catalogo moduli](MODULE_CATALOG.md), [Dipendenze](MODULE_DEPENDENCIES.md) e [Roadmap](ROADMAP.md).

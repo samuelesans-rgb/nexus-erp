@@ -213,6 +213,25 @@ flowchart LR
 
 Gli ingressi aggiornano il costo medio ponderato; le uscite usano il costo medio corrente e sono rifiutate sotto zero salvo opt-in del magazzino. Lotto, seriale, scadenza, precisione dell'unità e appartenenza dell'ubicazione sono invarianti del servizio. Trasferimenti e conteggi sono bozze fino alla contabilizzazione atomica; gli errori si correggono con storni.
 
+## Unified Document Engine
+
+`CORE_DOCUMENTS` espone un unico aggregate per i documenti aziendali. `DocumentSeries` assegna il progressivo con transazione serializzabile; header, righe e riferimenti usano chiavi composite con `companyId`. Le Server Action derivano Company e attore dalla sessione e richiedono modulo e ruolo server-side.
+
+```mermaid
+flowchart LR
+  D[DRAFT modificabile] --> C[CONFIRMED]
+  C --> P[POSTED sola lettura]
+  P --> X[CLOSED]
+  D --> K[CANCELLED]
+  C --> K
+  C --> O[DomainEvent Outbox]
+  P --> O
+  X --> O
+  O -. consumer futuro .-> I[Inventory / Accounting]
+```
+
+Il posting persiste stato, storico `DocumentEvent` e outbox nello stesso commit, ma non movimenta direttamente Inventory e non produce scritture contabili. `DocumentAttachment` è soltanto il placeholder metadati: storage, PDF, firma, invio e conservazione arriveranno tramite infrastrutture dedicate.
+
 ## Criteri di qualità architetturale
 
 - Nessuna query tenant senza scope verificabile.
