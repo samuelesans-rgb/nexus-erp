@@ -232,4 +232,24 @@ Gli ADR sono accettati come baseline di prodotto. Un cambiamento richiede un nuo
 
 **Alternative rifiutate.** Tabelle Quote/Order/Invoice autonome; copia di Partner o Item nelle conversioni; update diretto di `StockBalance`; mutazione di documenti Posted; collegamenti impliciti affidati alle note.
 
+## ADR-024: Purchasing Engine basato sul Document Engine
+
+**Contesto.** Ordini fornitori, ricezioni, fatture passive, resi e note di credito condividono numerazione, righe e lifecycle.
+
+**Decisione.** `CORE_PURCHASES` orchestra `BusinessDocument`; introduce soltanto `GOODS_RECEIPT` e nuovi `DocumentLinkType`. Le conversioni copiano riferimenti e righe, rispettano quantità residue e pubblicano eventi tenant-scoped.
+
+**Conseguenze.** La genealogia copre ricezioni parziali, fattura da ricevimento o ordine e reso con nota di credito. Il posting della fattura passiva non genera contabilità.
+
+**Alternative rifiutate.** Aggregate Purchase separati; uso ambiguo di `DELIVERY_NOTE`; modifica dei Posted; duplicazione di Partner o Item.
+
+## ADR-025: ricezioni fornitore integrate con Inventory ledger
+
+**Contesto.** Ricezioni e resi cambiano stock e costo medio, ma Purchasing non possiede i saldi.
+
+**Decisione.** Il posting invoca `postInventoryMovement` con `RECEIPT` o `RETURN_OUT`, costo riga e riferimento alla riga documento. Servizi non stock-managed non producono movimenti; Inventory disattivato blocca soltanto operazioni fisiche.
+
+**Conseguenze.** Ledger e `StockBalance` restano governati da Inventory. La V1 è idempotente e recuperabile, ma il posting multi-riga non è una singola transazione fra Document e Inventory.
+
+**Alternative rifiutate.** Scrittura diretta dei saldi; movimenti per servizi; fallimenti parziali silenziosi; riscrittura invasiva di Inventory.
+
 Vedere [Visione](VISION.md), [Architettura](ARCHITECTURE.md) e [Roadmap](ROADMAP.md).

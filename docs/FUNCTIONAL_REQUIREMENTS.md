@@ -190,4 +190,6 @@ Il Document Engine usa un solo aggregate per preventivi, ordini, DDT, fatture, r
 
 Il Sales Engine orchestra il ciclo attivo `QUOTE → SALES_ORDER → DELIVERY_NOTE → SALES_INVOICE` riusando `BusinessDocument` e le configurazioni esistenti. Ogni conversione copia righe e riferimenti senza duplicare Partner o Item, crea un `DocumentLink` e pubblica il relativo `DomainEvent`. Sono supportate anche fattura diretta da ordine e duplicazione del preventivo. Il DDT confermato, quando posted, genera movimenti Inventory `ISSUE` mediante il servizio Inventory per le sole righe stock-managed; i riferimenti alla riga documento evitano doppi scarichi. I ruoli `SUPER_ADMIN`, `ADMIN`, `MANAGER` e `SALES` possono operare; `WAREHOUSE` ha lettura Sales coerente. Nessun documento Posted è modificabile.
 
+Il Purchasing Engine orchestra `PURCHASE_ORDER → GOODS_RECEIPT → PURCHASE_INVOICE`, oltre a fattura diretta, reso e nota di credito. Richiede fornitore attivo, Item acquistabili, righe positive, UOM/IVA coerenti e magazzino per stock-managed. Le conversioni non possono superare il residuo. Ricezioni e resi posted invocano Inventory con `RECEIPT` e `RETURN_OUT`; servizi e fatture passive non generano stock o contabilità. Documenti Posted e doppi posting sono bloccati.
+
 Vedere [Catalogo moduli](MODULE_CATALOG.md), [Dipendenze](MODULE_DEPENDENCIES.md) e [Roadmap](ROADMAP.md).

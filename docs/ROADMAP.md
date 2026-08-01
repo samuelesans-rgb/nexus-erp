@@ -22,7 +22,7 @@ La roadmap definisce sequenza e criteri, non date contrattuali. L'ordine definit
 
 **Dipendenze.** Fase 0.
 
-**Deliverable.** Sistema moduli e bundle; Configuration Engine condiviso per categorie, unità, IVA, listini, metodi e condizioni di pagamento; più sedi per Company; Inventory Engine con magazzini, ubicazioni, lotti/seriali, ledger, trasferimenti, inventari, saldi e outbox; Unified Document Engine con serie, workflow e outbox; Sales Engine con preventivi, ordini, DDT, fatture, conversioni tracciate e scarico Inventory; assegnazioni utenti-sedi e sede attiva; ruoli e permessi granulari; Partner completo; catalogo Item condiviso con prodotti, servizi e profili verticali; allegati; audit minimo con retention configurabile; notifiche di sistema; dashboard base; email SMTP ed Excel/CSV.
+**Deliverable.** Sistema moduli e bundle; Configuration Engine condiviso per categorie, unità, IVA, listini, metodi e condizioni di pagamento; più sedi per Company; Inventory Engine con magazzini, ubicazioni, lotti/seriali, ledger, trasferimenti, inventari, saldi e outbox; Unified Document Engine con serie, workflow e outbox; Sales Engine con ciclo attivo; Purchasing Engine con ordini fornitori, ricezioni, fatture passive, resi, genealogia e movimenti Inventory; assegnazioni utenti-sedi e sede attiva; ruoli e permessi granulari; Partner completo; catalogo Item condiviso; allegati; audit minimo; notifiche; dashboard; email SMTP ed Excel/CSV.
 
 **Completamento.** Core obbligatorio attivo; bundle conviventi e moduli singoli attivabili; controlli tenant/modulo/permesso/sede su route e mutazioni; utenti multi-sede; magazzini, casse, prenotazioni e report scoped per sede; nessuna funzione inattiva visibile; audit dei casi critici; test di isolamento.
 

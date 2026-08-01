@@ -44,7 +44,7 @@ const moduleDefinitions = [
   [MODULE_CODES.CORE_PRODUCTS, "Prodotti e servizi", "SHARED", false, "AVAILABLE"],
   [MODULE_CODES.CORE_PRICE_LISTS, "Listini", "SHARED", false, "AVAILABLE"],
   [MODULE_CODES.CORE_SALES, "Vendite", "SHARED", false, "AVAILABLE"],
-  [MODULE_CODES.CORE_PURCHASES, "Acquisti", "SHARED", false, "PLANNED"],
+  [MODULE_CODES.CORE_PURCHASES, "Acquisti", "SHARED", false, "AVAILABLE"],
   [MODULE_CODES.CORE_INVENTORY, "Magazzino", "SHARED", false, "AVAILABLE"],
   [MODULE_CODES.CORE_PAYMENTS, "Pagamenti", "SHARED", false, "AVAILABLE"],
   [MODULE_CODES.CORE_TREASURY, "Tesoreria", "SHARED", false, "FUTURE"],
@@ -206,7 +206,7 @@ async function main() {
     },
   });
 
-  for (const [code, name] of [["ADMIN", "Administrator"], ["MANAGER", "Manager"], ["SALES", "Sales operator"], ["WAREHOUSE", "Warehouse operator"]] as const) {
+  for (const [code, name] of [["ADMIN", "Administrator"], ["MANAGER", "Manager"], ["SALES", "Sales operator"], ["ACCOUNTANT", "Accountant"], ["WAREHOUSE", "Warehouse operator"]] as const) {
     await prisma.role.upsert({ where: { code }, update: { name }, create: { code, name } });
   }
 
@@ -223,7 +223,7 @@ async function main() {
       OR: [
         { mandatory: true },
         { status: "AVAILABLE", category: "CORE" },
-        { code: { in: [MODULE_CODES.CORE_PRODUCTS, MODULE_CODES.CORE_PRICE_LISTS, MODULE_CODES.CORE_PAYMENTS, MODULE_CODES.CORE_INVENTORY, MODULE_CODES.CORE_SALES] } },
+        { code: { in: [MODULE_CODES.CORE_PRODUCTS, MODULE_CODES.CORE_PRICE_LISTS, MODULE_CODES.CORE_PAYMENTS, MODULE_CODES.CORE_INVENTORY, MODULE_CODES.CORE_SALES, MODULE_CODES.CORE_PURCHASES] } },
       ],
     },
     select: { id: true },
@@ -305,6 +305,12 @@ async function main() {
       createdById: user.id,
       updatedById: user.id,
     },
+  });
+
+  const demoSupplier = await prisma.partner.upsert({
+    where: { companyId_code: { companyId: company.id, code: "DEMO-SUP-001" } },
+    update: { active: true, deletedAt: null, isSupplier: true, paymentMethodId: defaultPaymentMethod.id, paymentTermId: defaultPaymentTerm.id, updatedById: user.id },
+    create: { companyId: company.id, code: "DEMO-SUP-001", type: "COMPANY", status: "ACTIVE", name: "Forniture Nexus Demo", legalName: "Forniture Nexus Demo S.r.l.", displayName: "Forniture Nexus Demo", vatNumber: "IT22222222222", email: "ordini@forniture-demo.local", isSupplier: true, paymentMethodId: defaultPaymentMethod.id, paymentTermId: defaultPaymentTerm.id, createdById: user.id, updatedById: user.id },
   });
 
   await prisma.partner.upsert({
@@ -726,6 +732,11 @@ async function main() {
     ["ORDINI", "Serie ordini", "SALES_ORDER", "ORD-"],
     ["PREVENTIVI", "Serie preventivi", "QUOTE", "PREV-"],
     ["DDT", "Serie DDT", "DELIVERY_NOTE", "DDT-"],
+    ["ORD-FORN", "Ordini fornitori", "PURCHASE_ORDER", "OF-"],
+    ["RICEV", "Ricevimenti fornitori", "GOODS_RECEIPT", "RCV-"],
+    ["FATT-PASS", "Fatture passive", "PURCHASE_INVOICE", "FP-"],
+    ["RESI-FORN", "Resi fornitori", "RETURN", "RF-"],
+    ["NC-FORN", "Note credito fornitori", "CREDIT_NOTE", "NCF-"],
   ] as const;
   const documentSeries = new Map<string, { id: string; nextNumber: number }>();
   for (const [code, name, documentType, prefix] of seriesSeeds) {
@@ -757,6 +768,16 @@ async function main() {
   for (const [sourceDocumentId, targetDocumentId, linkType] of [[demoQuote.id, demoOrder.id, "QUOTE_TO_ORDER"], [demoOrder.id, demoDelivery.id, "ORDER_TO_DDT"], [demoDelivery.id, demoInvoice.id, "DDT_TO_INVOICE"]] as const) {
     await prisma.documentLink.upsert({ where: { companyId_sourceDocumentId_targetDocumentId_linkType: { companyId: company.id, sourceDocumentId, targetDocumentId, linkType } }, update: {}, create: { companyId: company.id, sourceDocumentId, targetDocumentId, linkType, createdById: user.id } });
   }
+
+  const purchaseDemo = async (seriesCode: string, documentNumber: string, documentType: "PURCHASE_ORDER" | "GOODS_RECEIPT" | "PURCHASE_INVOICE", status: "CONFIRMED" | "POSTED") => {
+    const series = documentSeries.get(seriesCode)!; const existing = await prisma.businessDocument.findFirst({ where: { companyId: company.id, seriesId: series.id, documentNumber }, select: { id: true } }); if (existing) return existing;
+    const document = await prisma.businessDocument.create({ data: { companyId: company.id, seriesId: series.id, documentNumber, documentType, status, partnerId: demoSupplier.id, documentDate: new Date(), postingDate: status === "POSTED" ? new Date() : null, currency: "EUR", exchangeRate: 1, warehouseId: mainWarehouse.id, locationId: location.id, paymentMethodId: defaultPaymentMethod.id, paymentTermId: defaultPaymentTerm.id, subtotal: 5.5, tax: 1.21, total: 6.71, notes: "Ciclo Purchasing demo", createdById: user.id, updatedById: user.id, lines: { create: [{ lineNumber: 1, itemId: product.id, description: product.name, quantity: 10, unitOfMeasureId: units.get("PZ")!, unitPrice: 0.55, vatRateId: vatRates.get("IVA22")!, lineTotal: 5.5, warehouseId: mainWarehouse.id }] } }, select: { id: true } });
+    await prisma.domainEvent.create({ data: { companyId: company.id, eventType: documentType === "PURCHASE_ORDER" ? "PurchaseOrderCreated" : documentType === "GOODS_RECEIPT" ? "GoodsReceiptCreated" : "PurchaseInvoiceCreated", aggregateType: "BusinessDocument", aggregateId: document.id, payload: { source: "seed", documentId: document.id }, occurredAt: new Date() } }); return document;
+  };
+  const demoPurchaseOrder = await purchaseDemo("ORD-FORN", "OF-DEMO-001", "PURCHASE_ORDER", "CONFIRMED");
+  const demoReceipt = await purchaseDemo("RICEV", "RCV-DEMO-001", "GOODS_RECEIPT", "POSTED");
+  const demoPurchaseInvoice = await purchaseDemo("FATT-PASS", "FP-DEMO-001", "PURCHASE_INVOICE", "POSTED");
+  for (const [sourceDocumentId, targetDocumentId, linkType] of [[demoPurchaseOrder.id, demoReceipt.id, "PURCHASE_ORDER_TO_RECEIPT"], [demoReceipt.id, demoPurchaseInvoice.id, "RECEIPT_TO_PURCHASE_INVOICE"]] as const) await prisma.documentLink.upsert({ where: { companyId_sourceDocumentId_targetDocumentId_linkType: { companyId: company.id, sourceDocumentId, targetDocumentId, linkType } }, update: {}, create: { companyId: company.id, sourceDocumentId, targetDocumentId, linkType, createdById: user.id } });
 
   console.log("✅ Seed completato");
   console.log("Email: admin@nexuserp.local");

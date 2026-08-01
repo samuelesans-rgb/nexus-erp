@@ -2,7 +2,7 @@
 
 ## Stato e obiettivo
 
-Nexus ERP è un'applicazione web TypeScript basata su Next.js 16 App Router, React 19, Auth.js, Prisma 7 e PostgreSQL. Lo schema attuale contiene identità, Company, Membership, ruoli, Partner, catalogo Item, Configuration Engine, sedi, Inventory Engine, Unified Document Engine e Sales Engine, oltre all'attivazione moduli per Company. Gran parte dei verticali descritti qui resta architettura target.
+Nexus ERP è un'applicazione web TypeScript basata su Next.js 16 App Router, React 19, Auth.js, Prisma 7 e PostgreSQL. Lo schema attuale contiene identità, Company, Membership, ruoli, Partner, catalogo Item, Configuration Engine, sedi, Inventory Engine, Unified Document Engine, Sales Engine e Purchasing Engine, oltre all'attivazione moduli per Company. Gran parte dei verticali descritti qui resta architettura target.
 
 `prisma/schema.prisma` resta il riferimento eseguibile; `docs/database/schema.dbml` ne documenta la struttura relazionale corrente.
 
@@ -251,6 +251,23 @@ flowchart LR
 ```
 
 Le conversioni copiano i riferimenti e le righe in un nuovo Draft numerato dal Document Engine. Il posting del DDT invoca esclusivamente l'API Inventory per gli Item stock-managed, con riferimento idempotente alla riga documento; non scrive mai `StockBalance`. Route e Server Action derivano il tenant dalla sessione, richiedono `CORE_SALES` e applicano ruoli di lettura e scrittura. I documenti Posted restano immutabili.
+
+## Purchasing Engine
+
+`CORE_PURCHASES` orchestra `PURCHASE_ORDER → GOODS_RECEIPT → PURCHASE_INVOICE` sopra `BusinessDocument`. `DocumentLink` conserva ricezioni parziali, fattura diretta, resi e note di credito senza duplicare Partner o Item. Ordini e fatture di servizi restano disponibili senza Inventory; ricezioni e resi fisici richiedono `CORE_INVENTORY`.
+
+```mermaid
+flowchart LR
+  O[PURCHASE_ORDER] --> R[GOODS_RECEIPT]
+  O --> I[PURCHASE_INVOICE]
+  R --> I
+  R --> X[RETURN]
+  X --> C[CREDIT_NOTE]
+  R -->|API Inventory| M[RECEIPT]
+  X -->|API Inventory| Y[RETURN_OUT]
+```
+
+Il servizio valida fornitore, Item acquistabili, quantità residue, UOM, IVA e magazzino. I movimenti usano costo riga e riferimenti idempotenti; `StockBalance` è aggiornato soltanto da Inventory. Il posting multi-riga è recuperabile ma non ancora atomico fra documento e tutti i movimenti: un retry completa soltanto le righe mancanti.
 
 ## Criteri di qualità architetturale
 

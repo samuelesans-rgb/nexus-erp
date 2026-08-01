@@ -68,7 +68,7 @@ Il collegamento traduce un conto Restaurant in un addebito Hotel attraverso un c
 | Famiglia | Dipendenze minime | Dipendenze condizionali |
 | --- | --- | --- |
 | Sales Engine | Partner, Prodotti/Servizi, Unified Document Engine | Inventory per posting DDT stock-managed; Pagamenti per incasso futuro |
-| Acquisti | Partner, Prodotti/Servizi | Documenti, Pagamenti, Magazzino |
+| Purchasing Engine | Partner, Prodotti/Servizi, Unified Document Engine | Inventory per ricezioni e resi fisici; servizi acquistabili senza Inventory |
 | Inventory Engine | Prodotti/Servizi | Sales, Purchases e verticali invocano il servizio o consumano l'outbox; nessuno scrive direttamente `StockBalance` |
 | CRM | Partner, Notifiche | Integrazioni |
 | Restaurant | Partner, Prodotti/Servizi | Magazzino per ricette con scarico; Pagamenti/Integrazioni per POS |
