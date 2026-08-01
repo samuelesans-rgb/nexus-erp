@@ -542,3 +542,183 @@ Table GiftCardProfile {
   reusable boolean [not null, default: false]
   transferable boolean [not null, default: true]
 }
+
+Table Location {
+  id varchar [pk]
+  companyId varchar [not null, ref: > Company.id]
+  code varchar [not null]
+  name varchar [not null]
+  address varchar
+  city varchar
+  active boolean [not null, default: true]
+  deletedAt timestamp
+  createdAt timestamp [not null]
+  updatedAt timestamp [not null]
+  indexes { (companyId, code) [unique] (companyId, id) [unique] }
+}
+
+Table Warehouse {
+  id varchar [pk]
+  companyId varchar [not null, ref: > Company.id]
+  locationId varchar [not null, ref: > Location.id]
+  code varchar [not null]
+  name varchar [not null]
+  description text
+  active boolean [not null, default: true]
+  allowNegativeStock boolean [not null, default: false]
+  deletedAt timestamp
+  createdById varchar [ref: > User.id]
+  updatedById varchar [ref: > User.id]
+  createdAt timestamp [not null]
+  updatedAt timestamp [not null]
+  indexes { (companyId, code) [unique] (companyId, id) [unique] }
+}
+
+Table WarehouseBin {
+  id varchar [pk]
+  companyId varchar [not null, ref: > Company.id]
+  warehouseId varchar [not null, ref: > Warehouse.id]
+  code varchar [not null]
+  name varchar [not null]
+  description text
+  binType varchar
+  active boolean [not null, default: true]
+  deletedAt timestamp
+  createdAt timestamp [not null]
+  updatedAt timestamp [not null]
+  indexes { (companyId, warehouseId, code) [unique] (companyId, id) [unique] }
+}
+
+Table InventoryLot {
+  id varchar [pk]
+  companyId varchar [not null, ref: > Company.id]
+  itemId varchar [not null, ref: > Item.id]
+  lotNumber varchar [not null]
+  manufactureDate timestamp
+  expirationDate timestamp
+  supplierLot varchar
+  active boolean [not null, default: true]
+  createdAt timestamp [not null]
+  updatedAt timestamp [not null]
+  indexes { (companyId, itemId, lotNumber) [unique] (companyId, id) [unique] }
+}
+
+Table InventorySerial {
+  id varchar [pk]
+  companyId varchar [not null, ref: > Company.id]
+  itemId varchar [not null, ref: > Item.id]
+  serialNumber varchar [not null]
+  status varchar [not null]
+  createdAt timestamp [not null]
+  updatedAt timestamp [not null]
+  indexes { (companyId, serialNumber) [unique] (companyId, id) [unique] }
+}
+
+Table InventoryMovement {
+  id varchar [pk]
+  companyId varchar [not null, ref: > Company.id]
+  warehouseId varchar [not null, ref: > Warehouse.id]
+  binId varchar [ref: > WarehouseBin.id]
+  itemId varchar [not null, ref: > Item.id]
+  movementType varchar [not null]
+  quantity decimal(15,3) [not null]
+  direction int [not null]
+  unitOfMeasureId varchar [not null, ref: > UnitOfMeasure.id]
+  lotId varchar [ref: > InventoryLot.id]
+  serialId varchar [ref: > InventorySerial.id]
+  unitCost decimal(15,4)
+  totalCost decimal(15,2)
+  referenceType varchar
+  referenceId varchar
+  reason text
+  note text
+  occurredAt timestamp [not null]
+  postedAt timestamp [not null]
+  postedById varchar [not null, ref: > User.id]
+  reversalOfId varchar [unique, ref: > InventoryMovement.id]
+  createdAt timestamp [not null]
+  indexes { (companyId, occurredAt) (companyId, warehouseId, itemId, occurredAt) }
+}
+
+Table InventoryTransfer {
+  id varchar [pk]
+  companyId varchar [not null, ref: > Company.id]
+  code varchar [not null]
+  sourceWarehouseId varchar [not null, ref: > Warehouse.id]
+  destinationWarehouseId varchar [not null, ref: > Warehouse.id]
+  sourceBinId varchar [ref: > WarehouseBin.id]
+  destinationBinId varchar [ref: > WarehouseBin.id]
+  status varchar [not null]
+  requestedAt timestamp [not null]
+  completedAt timestamp
+  completedById varchar [ref: > User.id]
+  createdById varchar [not null, ref: > User.id]
+  createdAt timestamp [not null]
+  updatedAt timestamp [not null]
+  indexes { (companyId, code) [unique] (companyId, id) [unique] }
+}
+
+Table InventoryTransferLine {
+  id varchar [pk]
+  companyId varchar [not null, ref: > Company.id]
+  transferId varchar [not null, ref: > InventoryTransfer.id]
+  itemId varchar [not null, ref: > Item.id]
+  quantity decimal(15,3) [not null]
+  unitOfMeasureId varchar [not null, ref: > UnitOfMeasure.id]
+  lotId varchar [ref: > InventoryLot.id]
+  serialId varchar [ref: > InventorySerial.id]
+}
+
+Table InventoryCount {
+  id varchar [pk]
+  companyId varchar [not null, ref: > Company.id]
+  code varchar [not null]
+  warehouseId varchar [not null, ref: > Warehouse.id]
+  binId varchar [ref: > WarehouseBin.id]
+  status varchar [not null]
+  countedAt timestamp
+  postedAt timestamp
+  postedById varchar [ref: > User.id]
+  createdById varchar [not null, ref: > User.id]
+  createdAt timestamp [not null]
+  updatedAt timestamp [not null]
+  indexes { (companyId, code) [unique] (companyId, id) [unique] }
+}
+
+Table InventoryCountLine {
+  id varchar [pk]
+  companyId varchar [not null, ref: > Company.id]
+  inventoryCountId varchar [not null, ref: > InventoryCount.id]
+  itemId varchar [not null, ref: > Item.id]
+  expectedQuantity decimal(15,3) [not null]
+  countedQuantity decimal(15,3) [not null]
+  difference decimal(15,3) [not null]
+  unitOfMeasureId varchar [not null, ref: > UnitOfMeasure.id]
+  lotId varchar [ref: > InventoryLot.id]
+  serialId varchar [ref: > InventorySerial.id]
+}
+
+Table StockBalance {
+  id varchar [pk]
+  companyId varchar [not null, ref: > Company.id]
+  warehouseId varchar [not null, ref: > Warehouse.id]
+  itemId varchar [not null, ref: > Item.id]
+  quantity decimal(15,3) [not null]
+  averageCost decimal(15,4) [not null]
+  stockValue decimal(15,2) [not null]
+  updatedAt timestamp [not null]
+  indexes { (companyId, warehouseId, itemId) [unique] (companyId, itemId) }
+}
+
+Table DomainEvent {
+  id varchar [pk]
+  companyId varchar [not null, ref: > Company.id]
+  eventType varchar [not null]
+  aggregateType varchar [not null]
+  aggregateId varchar [not null]
+  payload json [not null]
+  occurredAt timestamp [not null]
+  processedAt timestamp
+  createdAt timestamp [not null]
+  indexes { (processedAt, occurredAt) (companyId, eventType, occurredAt) }
+}

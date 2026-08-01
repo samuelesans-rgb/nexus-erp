@@ -69,6 +69,7 @@ Il collegamento traduce un conto Restaurant in un addebito Hotel attraverso un c
 | --- | --- | --- |
 | Vendite | Partner, Prodotti/Servizi | Documenti, Pagamenti, Magazzino |
 | Acquisti | Partner, Prodotti/Servizi | Documenti, Pagamenti, Magazzino |
+| Inventory Engine | Prodotti/Servizi | Sales, Purchases e verticali invocano il servizio o consumano l'outbox; nessuno scrive direttamente `StockBalance` |
 | CRM | Partner, Notifiche | Integrazioni |
 | Restaurant | Partner, Prodotti/Servizi | Magazzino per ricette con scarico; Pagamenti/Integrazioni per POS |
 | Hotel | Partner, Prodotti/Servizi | Documenti/Pagamenti per Front Desk; Restaurant per addebito camera |

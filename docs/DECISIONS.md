@@ -182,4 +182,34 @@ Gli ADR sono accettati come baseline di prodotto. Un cambiamento richiede un nuo
 
 **Alternative rifiutate.** Tabelle globali condivise fra tenant; campi testo su Partner/Item; una tabella EAV generica; eliminazione fisica; sei CRUD senza contratto comune.
 
+## ADR-019: ledger Inventory immutabile e storni compensativi
+
+**Contesto.** La giacenza deve essere auditabile e ricostruibile anche quando un'operazione viene corretta.
+
+**Decisione.** `InventoryMovement` è un ledger append-only: un movimento registrato non viene modificato o eliminato. Le correzioni creano un movimento `REVERSAL` collegato univocamente all'originale e con direzione opposta. Ogni scrittura deriva Company e autore dal server, valida tutti i riferimenti nello stesso tenant e registra l'evento outbox nella medesima transazione. Il serial number è univoco per Company, scelta più restrittiva che evita identità ambigue fra Item.
+
+**Conseguenze.** Storico e saldo sono riconciliabili; trasferimenti e inventari fisici producono movimenti atomici. Il soft delete riguarda le anagrafiche, non il ledger.
+
+**Alternative rifiutate.** Update della quantità; cancellazione fisica; saldo come unica fonte; compensazioni non collegate.
+
+## ADR-020: StockBalance materializzato e ricostruibile
+
+**Contesto.** Sommare l'intero ledger a ogni lettura non scala, mentre una giacenza non riconciliabile perde affidabilità.
+
+**Decisione.** `StockBalance` materializza quantità, costo medio ponderato e valore per Company, Warehouse e Item. Il servizio lo aggiorna nella stessa transazione serializzabile del movimento. Ubicazione, lotto e seriale restano dimensioni del ledger. Il saldo è ricostruibile tramite `quantity * direction`; la V1 usa il costo medio ponderato e il costo standard come fallback iniziale.
+
+**Conseguenze.** Le letture operative sono efficienti senza creare una seconda fonte autoritativa. La quantità V1 è stock reale contabilizzato: prenotato, disponibile e futuro non sono ancora separati. La valorizzazione non genera scritture contabili e non include FIFO/LIFO, landed cost o rivalutazioni.
+
+**Alternative rifiutate.** Somma completa a ogni richiesta; saldi per combinazioni nullable con unicità fragile; valorizzazione non deterministica.
+
+## ADR-021: integrazione Inventory tramite outbox
+
+**Contesto.** Acquisti, vendite e verticali devono generare o reagire a variazioni di stock senza accoppiarsi alle tabelle Inventory.
+
+**Decisione.** Il servizio registra `DomainEvent` insieme al dominio. Gli eventi iniziali sono `InventoryMovementPosted`, `InventoryTransferCompleted`, `InventoryCountPosted`, `StockBelowMinimum` e `InventoryLotExpiringSoon`. Consumer idempotenti useranno `processedAt` per distinguere gli eventi ancora da elaborare.
+
+**Conseguenze.** Non esiste dual-write fra ledger e messaggistica; i moduli invocano il servizio o consumano eventi senza scrivere direttamente i saldi.
+
+**Alternative rifiutate.** Chiamate sincrone incrociate; eventi prima del commit; polling dei saldi come integrazione.
+
 Vedere [Visione](VISION.md), [Architettura](ARCHITECTURE.md) e [Roadmap](ROADMAP.md).

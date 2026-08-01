@@ -2,7 +2,7 @@
 
 ## Stato e obiettivo
 
-Nexus ERP è un'applicazione web TypeScript basata su Next.js 16 App Router, React 19, Auth.js, Prisma 7 e PostgreSQL. Lo schema attuale contiene le fondazioni di identità, Company, Membership, ruoli, Partner e attivazione moduli per Company. Le sedi e gran parte dei domini descritti qui sono architettura target, non funzionalità già disponibili.
+Nexus ERP è un'applicazione web TypeScript basata su Next.js 16 App Router, React 19, Auth.js, Prisma 7 e PostgreSQL. Lo schema attuale contiene identità, Company, Membership, ruoli, Partner, catalogo Item, Configuration Engine, sedi e Inventory Engine, oltre all'attivazione moduli per Company. Gran parte dei verticali descritti qui resta architettura target.
 
 `prisma/schema.prisma` resta il riferimento eseguibile; `docs/database/schema.dbml` ne documenta la struttura relazionale corrente.
 
@@ -195,6 +195,23 @@ La piattaforma orchestra integrazioni certificate dove necessario; non incorpora
 ## Caching e protezione dati
 
 La cache non deve mescolare tenant: chiavi e tag includono Company, Membership/scope e modulo quando il risultato dipende da essi. Dopo mutazioni si usa invalidazione mirata. Dati Prisma completi non attraversano il confine verso Client Components; si espongono DTO serializzabili e minimali.
+
+## Inventory Engine
+
+`CORE_INVENTORY` dipende da `CORE_PRODUCTS` e movimenta soltanto Item `PRODUCT` o `INGREDIENT` con `stockManaged=true`. La catena è `Company → Location → Warehouse → WarehouseBin`; ogni relazione critica include il tenant. Route e Server Action richiedono sessione, modulo attivo e ruolo `SUPER_ADMIN`, `ADMIN`, `MANAGER` o `WAREHOUSE`.
+
+```mermaid
+flowchart LR
+  UI[Route e Server Action] --> AUTH[Auth, Company, modulo e ruolo]
+  AUTH --> SVC[Inventory Service]
+  SVC --> TX[Transazione serializzabile]
+  TX --> LEDGER[InventoryMovement append-only]
+  TX --> BAL[StockBalance]
+  TX --> OUTBOX[DomainEvent outbox]
+  LEDGER --> REBUILD[Ricostruzione saldo]
+```
+
+Gli ingressi aggiornano il costo medio ponderato; le uscite usano il costo medio corrente e sono rifiutate sotto zero salvo opt-in del magazzino. Lotto, seriale, scadenza, precisione dell'unità e appartenenza dell'ubicazione sono invarianti del servizio. Trasferimenti e conteggi sono bozze fino alla contabilizzazione atomica; gli errori si correggono con storni.
 
 ## Criteri di qualità architetturale
 

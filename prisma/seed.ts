@@ -45,7 +45,7 @@ const moduleDefinitions = [
   [MODULE_CODES.CORE_PRICE_LISTS, "Listini", "SHARED", false, "AVAILABLE"],
   [MODULE_CODES.CORE_SALES, "Vendite", "SHARED", false, "PLANNED"],
   [MODULE_CODES.CORE_PURCHASES, "Acquisti", "SHARED", false, "PLANNED"],
-  [MODULE_CODES.CORE_INVENTORY, "Magazzino", "SHARED", false, "PLANNED"],
+  [MODULE_CODES.CORE_INVENTORY, "Magazzino", "SHARED", false, "AVAILABLE"],
   [MODULE_CODES.CORE_PAYMENTS, "Pagamenti", "SHARED", false, "AVAILABLE"],
   [MODULE_CODES.CORE_TREASURY, "Tesoreria", "SHARED", false, "FUTURE"],
   [MODULE_CODES.CORE_ACCOUNTING, "Contabilità V1", "SHARED", false, "PLANNED"],
@@ -206,6 +206,10 @@ async function main() {
     },
   });
 
+  for (const [code, name] of [["ADMIN", "Administrator"], ["MANAGER", "Manager"], ["WAREHOUSE", "Warehouse operator"]] as const) {
+    await prisma.role.upsert({ where: { code }, update: { name }, create: { code, name } });
+  }
+
   for (const [code, name, category, mandatory, status] of moduleDefinitions) {
     await prisma.moduleDefinition.upsert({
       where: { code },
@@ -219,7 +223,7 @@ async function main() {
       OR: [
         { mandatory: true },
         { status: "AVAILABLE", category: "CORE" },
-        { code: { in: [MODULE_CODES.CORE_PRODUCTS, MODULE_CODES.CORE_PRICE_LISTS, MODULE_CODES.CORE_PAYMENTS] } },
+        { code: { in: [MODULE_CODES.CORE_PRODUCTS, MODULE_CODES.CORE_PRICE_LISTS, MODULE_CODES.CORE_PAYMENTS, MODULE_CODES.CORE_INVENTORY] } },
       ],
     },
     select: { id: true },
@@ -452,7 +456,7 @@ async function main() {
 
   const ingredient = await prisma.item.upsert({
     where: { companyId_code: { companyId: company.id, code: "DEMO-ING-001" } },
-    update: {},
+    update: { stockManaged: true, trackLots: true, trackExpiration: true },
     create: {
       companyId: company.id,
       code: "DEMO-ING-001",
@@ -466,6 +470,7 @@ async function main() {
       purchasable: true,
       stockManaged: true,
       trackExpiration: true,
+      trackLots: true,
       createdById: user.id,
       updatedById: user.id,
     },
@@ -676,13 +681,52 @@ async function main() {
     await prisma.priceListItem.upsert({ where: { companyId_priceListId_itemId: { companyId: company.id, priceListId: defaultPriceList.id, itemId } }, update: { price, active: true, deletedAt: null, updatedById: user.id }, create: { companyId: company.id, priceListId: defaultPriceList.id, itemId, price, createdById: user.id, updatedById: user.id } });
   }
 
+  const location = await prisma.location.upsert({
+    where: { companyId_code: { companyId: company.id, code: "MAIN" } },
+    update: { name: "Sede principale", active: true, deletedAt: null },
+    create: { companyId: company.id, code: "MAIN", name: "Sede principale", city: "Milano" },
+  });
+  const mainWarehouse = await prisma.warehouse.upsert({
+    where: { companyId_code: { companyId: company.id, code: "MAIN" } },
+    update: { name: "Magazzino principale", locationId: location.id, active: true, deletedAt: null, updatedById: user.id },
+    create: { companyId: company.id, locationId: location.id, code: "MAIN", name: "Magazzino principale", createdById: user.id, updatedById: user.id },
+  });
+  const secondaryWarehouse = await prisma.warehouse.upsert({
+    where: { companyId_code: { companyId: company.id, code: "SECONDARY" } },
+    update: { name: "Magazzino secondario", locationId: location.id, active: true, deletedAt: null, updatedById: user.id },
+    create: { companyId: company.id, locationId: location.id, code: "SECONDARY", name: "Magazzino secondario", createdById: user.id, updatedById: user.id },
+  });
+  const bins = new Map<string, string>();
+  for (const [warehouseId, code, name] of [[mainWarehouse.id, "RECEIVING", "Ricevimento"], [mainWarehouse.id, "STORAGE", "Stoccaggio"], [mainWarehouse.id, "OUTBOUND", "Uscita"], [secondaryWarehouse.id, "STORAGE", "Stoccaggio"]] as const) {
+    const bin = await prisma.warehouseBin.upsert({ where: { companyId_warehouseId_code: { companyId: company.id, warehouseId, code } }, update: { name, active: true, deletedAt: null }, create: { companyId: company.id, warehouseId, code, name } });
+    bins.set(`${warehouseId}:${code}`, bin.id);
+  }
+  const expirationDate = new Date(); expirationDate.setDate(expirationDate.getDate() + 20);
+  const demoLot = await prisma.inventoryLot.upsert({
+    where: { companyId_itemId_lotNumber: { companyId: company.id, itemId: ingredient.id, lotNumber: "DEMO-LOT-001" } },
+    update: { expirationDate, active: true },
+    create: { companyId: company.id, itemId: ingredient.id, lotNumber: "DEMO-LOT-001", expirationDate },
+  });
+  for (const entry of [
+    { referenceId: "DEMO-OPEN-PRODUCT", itemId: product.id, unitOfMeasureId: units.get("PZ")!, binId: bins.get(`${mainWarehouse.id}:STORAGE`), quantity: 48, cost: 0.55, lotId: null },
+    { referenceId: "DEMO-OPEN-INGREDIENT", itemId: ingredient.id, unitOfMeasureId: units.get("KG")!, binId: bins.get(`${mainWarehouse.id}:STORAGE`), quantity: 20, cost: 2.2, lotId: demoLot.id },
+  ]) {
+    const existing = await prisma.inventoryMovement.findFirst({ where: { companyId: company.id, referenceType: "SEED", referenceId: entry.referenceId }, select: { id: true } });
+    if (!existing) {
+      const postedAt = new Date();
+      const movement = await prisma.inventoryMovement.create({ data: { companyId: company.id, warehouseId: mainWarehouse.id, binId: entry.binId, itemId: entry.itemId, movementType: "OPENING", quantity: entry.quantity, direction: 1, unitOfMeasureId: entry.unitOfMeasureId, lotId: entry.lotId, unitCost: entry.cost, totalCost: entry.quantity * entry.cost, referenceType: "SEED", referenceId: entry.referenceId, reason: "Apertura demo", occurredAt: postedAt, postedAt, postedById: user.id } });
+      await prisma.stockBalance.upsert({ where: { companyId_warehouseId_itemId: { companyId: company.id, warehouseId: mainWarehouse.id, itemId: entry.itemId } }, update: { quantity: entry.quantity, averageCost: entry.cost, stockValue: entry.quantity * entry.cost }, create: { companyId: company.id, warehouseId: mainWarehouse.id, itemId: entry.itemId, quantity: entry.quantity, averageCost: entry.cost, stockValue: entry.quantity * entry.cost } });
+      await prisma.domainEvent.create({ data: { companyId: company.id, eventType: "InventoryMovementPosted", aggregateType: "InventoryMovement", aggregateId: movement.id, payload: { source: "seed", movementId: movement.id }, occurredAt: new Date() } });
+    }
+  }
+
   console.log("✅ Seed completato");
   console.log("Email: admin@nexuserp.local");
   console.log("Password: Admin123!");
 }
 
 main()
-  .catch(console.error)
+  .catch((error) => { console.error(error); process.exitCode = 1; })
   .finally(async () => {
     await prisma.$disconnect();
   });

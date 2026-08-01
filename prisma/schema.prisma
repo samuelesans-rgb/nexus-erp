@@ -47,6 +47,42 @@ enum ModuleStatus {
   FUTURE
 }
 
+enum InventoryMovementType {
+  OPENING
+  RECEIPT
+  ISSUE
+  TRANSFER_OUT
+  TRANSFER_IN
+  ADJUSTMENT_IN
+  ADJUSTMENT_OUT
+  INVENTORY_GAIN
+  INVENTORY_LOSS
+  CONSUMPTION
+  PRODUCTION
+  RETURN_IN
+  RETURN_OUT
+  REVERSAL
+}
+
+enum InventorySerialStatus {
+  AVAILABLE
+  RESERVED
+  ISSUED
+  BLOCKED
+}
+
+enum InventoryTransferStatus {
+  DRAFT
+  COMPLETED
+  CANCELLED
+}
+
+enum InventoryCountStatus {
+  DRAFT
+  POSTED
+  CANCELLED
+}
+
 model Company {
   id        String  @id @default(cuid())
   name      String
@@ -64,17 +100,29 @@ model Company {
   active    Boolean @default(true)
   logo      String?
 
-  memberships    Membership[]
-  partners       Partner[]
-  modules        CompanyModule[]
-  items          Item[]
-  itemCategories ItemCategory[]
-  unitsOfMeasure UnitOfMeasure[]
-  vatRates       VatRate[]
-  priceLists     PriceList[]
-  priceListItems PriceListItem[]
-  paymentMethods PaymentMethod[]
-  paymentTerms   PaymentTerm[]
+  memberships            Membership[]
+  partners               Partner[]
+  modules                CompanyModule[]
+  items                  Item[]
+  itemCategories         ItemCategory[]
+  unitsOfMeasure         UnitOfMeasure[]
+  vatRates               VatRate[]
+  priceLists             PriceList[]
+  priceListItems         PriceListItem[]
+  paymentMethods         PaymentMethod[]
+  paymentTerms           PaymentTerm[]
+  locations              Location[]
+  warehouses             Warehouse[]
+  warehouseBins          WarehouseBin[]
+  inventoryLots          InventoryLot[]
+  inventorySerials       InventorySerial[]
+  inventoryMovements     InventoryMovement[]
+  inventoryTransfers     InventoryTransfer[]
+  inventoryTransferLines InventoryTransferLine[]
+  inventoryCounts        InventoryCount[]
+  inventoryCountLines    InventoryCountLine[]
+  stockBalances          StockBalance[]
+  domainEvents           DomainEvent[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -134,25 +182,32 @@ model User {
   locale   String @default("it-IT")
   timeZone String @default("Europe/Rome")
 
-  memberships           Membership[]
-  partnersCreated       Partner[]       @relation("PartnerCreatedBy")
-  partnersUpdated       Partner[]       @relation("PartnerUpdatedBy")
-  itemsCreated          Item[]          @relation("ItemCreatedBy")
-  itemsUpdated          Item[]          @relation("ItemUpdatedBy")
-  itemCategoriesCreated ItemCategory[]  @relation("ItemCategoryCreatedBy")
-  itemCategoriesUpdated ItemCategory[]  @relation("ItemCategoryUpdatedBy")
-  unitsCreated          UnitOfMeasure[] @relation("UnitOfMeasureCreatedBy")
-  unitsUpdated          UnitOfMeasure[] @relation("UnitOfMeasureUpdatedBy")
-  vatRatesCreated       VatRate[]       @relation("VatRateCreatedBy")
-  vatRatesUpdated       VatRate[]       @relation("VatRateUpdatedBy")
-  priceListsCreated     PriceList[]     @relation("PriceListCreatedBy")
-  priceListsUpdated     PriceList[]     @relation("PriceListUpdatedBy")
-  priceListItemsCreated PriceListItem[] @relation("PriceListItemCreatedBy")
-  priceListItemsUpdated PriceListItem[] @relation("PriceListItemUpdatedBy")
-  paymentMethodsCreated PaymentMethod[] @relation("PaymentMethodCreatedBy")
-  paymentMethodsUpdated PaymentMethod[] @relation("PaymentMethodUpdatedBy")
-  paymentTermsCreated   PaymentTerm[]   @relation("PaymentTermCreatedBy")
-  paymentTermsUpdated   PaymentTerm[]   @relation("PaymentTermUpdatedBy")
+  memberships              Membership[]
+  partnersCreated          Partner[]           @relation("PartnerCreatedBy")
+  partnersUpdated          Partner[]           @relation("PartnerUpdatedBy")
+  itemsCreated             Item[]              @relation("ItemCreatedBy")
+  itemsUpdated             Item[]              @relation("ItemUpdatedBy")
+  itemCategoriesCreated    ItemCategory[]      @relation("ItemCategoryCreatedBy")
+  itemCategoriesUpdated    ItemCategory[]      @relation("ItemCategoryUpdatedBy")
+  unitsCreated             UnitOfMeasure[]     @relation("UnitOfMeasureCreatedBy")
+  unitsUpdated             UnitOfMeasure[]     @relation("UnitOfMeasureUpdatedBy")
+  vatRatesCreated          VatRate[]           @relation("VatRateCreatedBy")
+  vatRatesUpdated          VatRate[]           @relation("VatRateUpdatedBy")
+  priceListsCreated        PriceList[]         @relation("PriceListCreatedBy")
+  priceListsUpdated        PriceList[]         @relation("PriceListUpdatedBy")
+  priceListItemsCreated    PriceListItem[]     @relation("PriceListItemCreatedBy")
+  priceListItemsUpdated    PriceListItem[]     @relation("PriceListItemUpdatedBy")
+  paymentMethodsCreated    PaymentMethod[]     @relation("PaymentMethodCreatedBy")
+  paymentMethodsUpdated    PaymentMethod[]     @relation("PaymentMethodUpdatedBy")
+  paymentTermsCreated      PaymentTerm[]       @relation("PaymentTermCreatedBy")
+  paymentTermsUpdated      PaymentTerm[]       @relation("PaymentTermUpdatedBy")
+  warehousesCreated        Warehouse[]         @relation("WarehouseCreatedBy")
+  warehousesUpdated        Warehouse[]         @relation("WarehouseUpdatedBy")
+  inventoryMovementsPosted InventoryMovement[] @relation("InventoryMovementPostedBy")
+  transfersCreated         InventoryTransfer[] @relation("InventoryTransferCreatedBy")
+  transfersCompleted       InventoryTransfer[] @relation("InventoryTransferCompletedBy")
+  countsCreated            InventoryCount[]    @relation("InventoryCountCreatedBy")
+  countsPosted             InventoryCount[]    @relation("InventoryCountPostedBy")
 
   accounts Account[]
   sessions Session[]
@@ -366,14 +421,17 @@ model UnitOfMeasure {
   active      Boolean   @default(true)
   deletedAt   DateTime?
 
-  company           Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  items             Item[]
-  recipeComponents  RecipeComponent[]
-  packageComponents PackageComponent[]
-  createdById       String?
-  createdBy         User?              @relation("UnitOfMeasureCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  updatedById       String?
-  updatedBy         User?              @relation("UnitOfMeasureUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  company                Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  items                  Item[]
+  recipeComponents       RecipeComponent[]
+  packageComponents      PackageComponent[]
+  inventoryMovements     InventoryMovement[]
+  inventoryTransferLines InventoryTransferLine[]
+  inventoryCountLines    InventoryCountLine[]
+  createdById            String?
+  createdBy              User?                   @relation("UnitOfMeasureCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedById            String?
+  updatedBy              User?                   @relation("UnitOfMeasureUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -550,19 +608,25 @@ model Item {
   createdBy     User?          @relation("ItemCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   updatedBy     User?          @relation("ItemUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
 
-  productProfile       ProductProfile?
-  serviceProfile       ServiceProfile?
-  ingredientProfile    IngredientProfile?
-  recipeProfile        RecipeProfile?
-  beautyServiceProfile BeautyServiceProfile?
-  hotelRoomProfile     HotelRoomProfile?
-  packageProfile       PackageProfile?
-  giftCardProfile      GiftCardProfile?
-  recipeComponents     RecipeComponent[]     @relation("RecipeOwner")
-  usedInRecipes        RecipeComponent[]     @relation("RecipeComponentItem")
-  packageComponents    PackageComponent[]    @relation("PackageOwner")
-  usedInPackages       PackageComponent[]    @relation("PackageComponentItem")
-  priceLists           PriceListItem[]
+  productProfile         ProductProfile?
+  serviceProfile         ServiceProfile?
+  ingredientProfile      IngredientProfile?
+  recipeProfile          RecipeProfile?
+  beautyServiceProfile   BeautyServiceProfile?
+  hotelRoomProfile       HotelRoomProfile?
+  packageProfile         PackageProfile?
+  giftCardProfile        GiftCardProfile?
+  recipeComponents       RecipeComponent[]       @relation("RecipeOwner")
+  usedInRecipes          RecipeComponent[]       @relation("RecipeComponentItem")
+  packageComponents      PackageComponent[]      @relation("PackageOwner")
+  usedInPackages         PackageComponent[]      @relation("PackageComponentItem")
+  priceLists             PriceListItem[]
+  inventoryLots          InventoryLot[]
+  inventorySerials       InventorySerial[]
+  inventoryMovements     InventoryMovement[]
+  inventoryTransferLines InventoryTransferLine[]
+  inventoryCountLines    InventoryCountLine[]
+  stockBalances          StockBalance[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -747,4 +811,286 @@ model GiftCardProfile {
 
   @@unique([companyId, itemId])
   @@index([companyId])
+}
+
+model Location {
+  id         String      @id @default(cuid())
+  companyId  String
+  code       String
+  name       String
+  address    String?
+  city       String?
+  active     Boolean     @default(true)
+  deletedAt  DateTime?
+  company    Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  warehouses Warehouse[]
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  @@unique([companyId, code])
+  @@unique([companyId, id])
+  @@index([companyId, active, deletedAt])
+}
+
+model Warehouse {
+  id                   String              @id @default(cuid())
+  companyId            String
+  locationId           String
+  code                 String
+  name                 String
+  description          String?
+  active               Boolean             @default(true)
+  allowNegativeStock   Boolean             @default(false)
+  deletedAt            DateTime?
+  company              Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location             Location            @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+  bins                 WarehouseBin[]
+  movements            InventoryMovement[]
+  sourceTransfers      InventoryTransfer[] @relation("TransferSourceWarehouse")
+  destinationTransfers InventoryTransfer[] @relation("TransferDestinationWarehouse")
+  counts               InventoryCount[]
+  balances             StockBalance[]
+  createdById          String?
+  createdBy            User?               @relation("WarehouseCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedById          String?
+  updatedBy            User?               @relation("WarehouseUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+
+  @@unique([companyId, code])
+  @@unique([companyId, id])
+  @@index([companyId, locationId, active, deletedAt])
+}
+
+model WarehouseBin {
+  id                   String              @id @default(cuid())
+  companyId            String
+  warehouseId          String
+  code                 String
+  name                 String
+  description          String?
+  binType              String?
+  active               Boolean             @default(true)
+  deletedAt            DateTime?
+  company              Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  warehouse            Warehouse           @relation(fields: [companyId, warehouseId], references: [companyId, id], onDelete: Cascade)
+  movements            InventoryMovement[]
+  sourceTransfers      InventoryTransfer[] @relation("TransferSourceBin")
+  destinationTransfers InventoryTransfer[] @relation("TransferDestinationBin")
+  counts               InventoryCount[]
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+
+  @@unique([companyId, warehouseId, code])
+  @@unique([companyId, id])
+  @@index([companyId, warehouseId, active, deletedAt])
+}
+
+model InventoryLot {
+  id              String                  @id @default(cuid())
+  companyId       String
+  itemId          String
+  lotNumber       String
+  manufactureDate DateTime?
+  expirationDate  DateTime?
+  supplierLot     String?
+  active          Boolean                 @default(true)
+  company         Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  item            Item                    @relation(fields: [companyId, itemId], references: [companyId, id], onDelete: Restrict)
+  movements       InventoryMovement[]
+  transferLines   InventoryTransferLine[]
+  countLines      InventoryCountLine[]
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+
+  @@unique([companyId, itemId, lotNumber])
+  @@unique([companyId, id])
+  @@index([companyId, expirationDate, active])
+}
+
+model InventorySerial {
+  id            String                  @id @default(cuid())
+  companyId     String
+  itemId        String
+  serialNumber  String
+  status        InventorySerialStatus   @default(AVAILABLE)
+  company       Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  item          Item                    @relation(fields: [companyId, itemId], references: [companyId, id], onDelete: Restrict)
+  movements     InventoryMovement[]
+  transferLines InventoryTransferLine[]
+  countLines    InventoryCountLine[]
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+
+  @@unique([companyId, serialNumber])
+  @@unique([companyId, id])
+  @@index([companyId, itemId, status])
+}
+
+model InventoryMovement {
+  id              String                @id @default(cuid())
+  companyId       String
+  warehouseId     String
+  binId           String?
+  itemId          String
+  movementType    InventoryMovementType
+  quantity        Decimal               @db.Decimal(15, 3)
+  direction       Int
+  unitOfMeasureId String
+  lotId           String?
+  serialId        String?
+  unitCost        Decimal?              @db.Decimal(15, 4)
+  totalCost       Decimal?              @db.Decimal(15, 2)
+  referenceType   String?
+  referenceId     String?
+  reason          String?
+  note            String?
+  occurredAt      DateTime
+  postedAt        DateTime
+  postedById      String
+  reversalOfId    String?               @unique
+  company         Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  warehouse       Warehouse             @relation(fields: [companyId, warehouseId], references: [companyId, id], onDelete: Restrict)
+  bin             WarehouseBin?         @relation(fields: [companyId, binId], references: [companyId, id], onDelete: Restrict)
+  item            Item                  @relation(fields: [companyId, itemId], references: [companyId, id], onDelete: Restrict)
+  unitOfMeasure   UnitOfMeasure         @relation(fields: [companyId, unitOfMeasureId], references: [companyId, id], onDelete: Restrict)
+  lot             InventoryLot?         @relation(fields: [companyId, lotId], references: [companyId, id], onDelete: Restrict)
+  serial          InventorySerial?      @relation(fields: [companyId, serialId], references: [companyId, id], onDelete: Restrict)
+  postedBy        User                  @relation("InventoryMovementPostedBy", fields: [postedById], references: [id], onDelete: Restrict)
+  reversalOf      InventoryMovement?    @relation("MovementReversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
+  reversedBy      InventoryMovement?    @relation("MovementReversal")
+  createdAt       DateTime              @default(now())
+
+  @@unique([companyId, id])
+  @@index([companyId, warehouseId, itemId, postedAt])
+  @@index([companyId, lotId, postedAt])
+  @@index([companyId, serialId, postedAt])
+  @@index([companyId, referenceType, referenceId])
+}
+
+model InventoryTransfer {
+  id                     String                  @id @default(cuid())
+  companyId              String
+  code                   String
+  sourceWarehouseId      String
+  destinationWarehouseId String
+  sourceBinId            String?
+  destinationBinId       String?
+  status                 InventoryTransferStatus @default(DRAFT)
+  requestedAt            DateTime                @default(now())
+  completedAt            DateTime?
+  createdById            String
+  completedById          String?
+  company                Company                 @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  sourceWarehouse        Warehouse               @relation("TransferSourceWarehouse", fields: [companyId, sourceWarehouseId], references: [companyId, id], onDelete: Restrict)
+  destinationWarehouse   Warehouse               @relation("TransferDestinationWarehouse", fields: [companyId, destinationWarehouseId], references: [companyId, id], onDelete: Restrict)
+  sourceBin              WarehouseBin?           @relation("TransferSourceBin", fields: [companyId, sourceBinId], references: [companyId, id], onDelete: Restrict)
+  destinationBin         WarehouseBin?           @relation("TransferDestinationBin", fields: [companyId, destinationBinId], references: [companyId, id], onDelete: Restrict)
+  lines                  InventoryTransferLine[]
+  createdBy              User                    @relation("InventoryTransferCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  completedBy            User?                   @relation("InventoryTransferCompletedBy", fields: [completedById], references: [id], onDelete: Restrict)
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+
+  @@unique([companyId, code])
+  @@unique([companyId, id])
+  @@index([companyId, status, requestedAt])
+}
+
+model InventoryTransferLine {
+  id              String            @id @default(cuid())
+  companyId       String
+  transferId      String
+  itemId          String
+  quantity        Decimal           @db.Decimal(15, 3)
+  unitOfMeasureId String
+  lotId           String?
+  serialId        String?
+  company         Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  transfer        InventoryTransfer @relation(fields: [companyId, transferId], references: [companyId, id], onDelete: Cascade)
+  item            Item              @relation(fields: [companyId, itemId], references: [companyId, id], onDelete: Restrict)
+  unitOfMeasure   UnitOfMeasure     @relation(fields: [companyId, unitOfMeasureId], references: [companyId, id], onDelete: Restrict)
+  lot             InventoryLot?     @relation(fields: [companyId, lotId], references: [companyId, id], onDelete: Restrict)
+  serial          InventorySerial?  @relation(fields: [companyId, serialId], references: [companyId, id], onDelete: Restrict)
+
+  @@index([companyId, transferId])
+}
+
+model InventoryCount {
+  id          String               @id @default(cuid())
+  companyId   String
+  warehouseId String
+  binId       String?
+  code        String
+  status      InventoryCountStatus @default(DRAFT)
+  countedAt   DateTime?
+  postedAt    DateTime?
+  createdById String
+  postedById  String?
+  company     Company              @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  warehouse   Warehouse            @relation(fields: [companyId, warehouseId], references: [companyId, id], onDelete: Restrict)
+  bin         WarehouseBin?        @relation(fields: [companyId, binId], references: [companyId, id], onDelete: Restrict)
+  lines       InventoryCountLine[]
+  createdBy   User                 @relation("InventoryCountCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  postedBy    User?                @relation("InventoryCountPostedBy", fields: [postedById], references: [id], onDelete: Restrict)
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  @@unique([companyId, code])
+  @@unique([companyId, id])
+  @@index([companyId, status, createdAt])
+}
+
+model InventoryCountLine {
+  id               String           @id @default(cuid())
+  companyId        String
+  inventoryCountId String
+  itemId           String
+  lotId            String?
+  serialId         String?
+  expectedQuantity Decimal          @db.Decimal(15, 3)
+  countedQuantity  Decimal          @db.Decimal(15, 3)
+  difference       Decimal          @db.Decimal(15, 3)
+  unitOfMeasureId  String
+  company          Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  inventoryCount   InventoryCount   @relation(fields: [companyId, inventoryCountId], references: [companyId, id], onDelete: Cascade)
+  item             Item             @relation(fields: [companyId, itemId], references: [companyId, id], onDelete: Restrict)
+  unitOfMeasure    UnitOfMeasure    @relation(fields: [companyId, unitOfMeasureId], references: [companyId, id], onDelete: Restrict)
+  lot              InventoryLot?    @relation(fields: [companyId, lotId], references: [companyId, id], onDelete: Restrict)
+  serial           InventorySerial? @relation(fields: [companyId, serialId], references: [companyId, id], onDelete: Restrict)
+
+  @@index([companyId, inventoryCountId])
+}
+
+model StockBalance {
+  id          String    @id @default(cuid())
+  companyId   String
+  warehouseId String
+  itemId      String
+  quantity    Decimal   @default(0) @db.Decimal(15, 3)
+  averageCost Decimal   @default(0) @db.Decimal(15, 4)
+  stockValue  Decimal   @default(0) @db.Decimal(15, 2)
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  warehouse   Warehouse @relation(fields: [companyId, warehouseId], references: [companyId, id], onDelete: Cascade)
+  item        Item      @relation(fields: [companyId, itemId], references: [companyId, id], onDelete: Cascade)
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([companyId, warehouseId, itemId])
+  @@index([companyId, itemId])
+}
+
+model DomainEvent {
+  id            String    @id @default(cuid())
+  companyId     String
+  eventType     String
+  aggregateType String
+  aggregateId   String
+  payload       Json
+  occurredAt    DateTime
+  processedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  company       Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, eventType, processedAt, occurredAt])
+  @@index([aggregateType, aggregateId])
 }
