@@ -24,6 +24,9 @@ export default async function AppSidebar() {
   if (activeCodes.has(MODULE_CODES.CORE_INVENTORY) && session?.user?.roles.some((role) => ["SUPER_ADMIN", "ADMIN", "MANAGER", "WAREHOUSE"].includes(role))) {
     items.push({ label: "Inventory", href: "/inventory" });
   }
+  if (activeCodes.has(MODULE_CODES.CORE_SALES) && session?.user?.roles.some((role) => ["SUPER_ADMIN", "ADMIN", "MANAGER", "SALES", "WAREHOUSE"].includes(role))) {
+    items.push({ label: "Sales", href: "/sales" });
+  }
   if (
     activeCodes.has(MODULE_CODES.CORE_MODULES) &&
     session?.user?.roles.some((role) =>

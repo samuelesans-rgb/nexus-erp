@@ -816,3 +816,26 @@ Table DocumentEvent {
   createdAt timestamp [not null]
   indexes { (companyId, documentId, createdAt) }
 }
+
+Enum DocumentLinkType {
+  QUOTE_TO_ORDER
+  ORDER_TO_DDT
+  DDT_TO_INVOICE
+  ORDER_TO_INVOICE
+  RETURN_TO_CREDIT_NOTE
+}
+
+Table DocumentLink {
+  id varchar [pk]
+  companyId varchar [not null, ref: > Company.id]
+  sourceDocumentId varchar [not null, ref: > BusinessDocument.id]
+  targetDocumentId varchar [not null, ref: > BusinessDocument.id]
+  linkType DocumentLinkType [not null]
+  createdById varchar [not null, ref: > User.id]
+  createdAt timestamp [not null]
+  indexes {
+    (companyId, sourceDocumentId, targetDocumentId, linkType) [unique]
+    (companyId, sourceDocumentId, createdAt)
+    (companyId, targetDocumentId, createdAt)
+  }
+}

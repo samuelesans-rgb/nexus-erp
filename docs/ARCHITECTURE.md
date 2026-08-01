@@ -2,7 +2,7 @@
 
 ## Stato e obiettivo
 
-Nexus ERP è un'applicazione web TypeScript basata su Next.js 16 App Router, React 19, Auth.js, Prisma 7 e PostgreSQL. Lo schema attuale contiene identità, Company, Membership, ruoli, Partner, catalogo Item, Configuration Engine, sedi e Inventory Engine, oltre all'attivazione moduli per Company. Gran parte dei verticali descritti qui resta architettura target.
+Nexus ERP è un'applicazione web TypeScript basata su Next.js 16 App Router, React 19, Auth.js, Prisma 7 e PostgreSQL. Lo schema attuale contiene identità, Company, Membership, ruoli, Partner, catalogo Item, Configuration Engine, sedi, Inventory Engine, Unified Document Engine e Sales Engine, oltre all'attivazione moduli per Company. Gran parte dei verticali descritti qui resta architettura target.
 
 `prisma/schema.prisma` resta il riferimento eseguibile; `docs/database/schema.dbml` ne documenta la struttura relazionale corrente.
 
@@ -231,6 +231,26 @@ flowchart LR
 ```
 
 Il posting persiste stato, storico `DocumentEvent` e outbox nello stesso commit, ma non movimenta direttamente Inventory e non produce scritture contabili. `DocumentAttachment` è soltanto il placeholder metadati: storage, PDF, firma, invio e conservazione arriveranno tramite infrastrutture dedicate.
+
+## Sales Engine
+
+`CORE_SALES` è un layer applicativo sopra Partner, Item, Configuration e Unified Document Engine. Preventivo, ordine, DDT e fattura sono `BusinessDocument`; `DocumentLink` conserva gli archi tenant-scoped `QUOTE_TO_ORDER`, `ORDER_TO_DDT`, `DDT_TO_INVOICE` e `ORDER_TO_INVOICE` senza duplicare Partner, Item o righe commerciali.
+
+```mermaid
+flowchart LR
+  Q[QUOTE] -->|QUOTE_TO_ORDER| O[SALES_ORDER]
+  O -->|ORDER_TO_DDT| D[DELIVERY_NOTE]
+  O -->|ORDER_TO_INVOICE| F[SALES_INVOICE]
+  D -->|DDT_TO_INVOICE| F
+  D -->|Post tramite servizio Inventory| M[InventoryMovement ISSUE]
+  M --> B[StockBalance transazionale]
+  Q --> E[DomainEvent Outbox]
+  O --> E
+  D --> E
+  F --> E
+```
+
+Le conversioni copiano i riferimenti e le righe in un nuovo Draft numerato dal Document Engine. Il posting del DDT invoca esclusivamente l'API Inventory per gli Item stock-managed, con riferimento idempotente alla riga documento; non scrive mai `StockBalance`. Route e Server Action derivano il tenant dalla sessione, richiedono `CORE_SALES` e applicano ruoli di lettura e scrittura. I documenti Posted restano immutabili.
 
 ## Criteri di qualità architetturale
 

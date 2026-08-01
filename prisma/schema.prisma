@@ -103,6 +103,14 @@ enum DocumentStatus {
   CLOSED
 }
 
+enum DocumentLinkType {
+  QUOTE_TO_ORDER
+  ORDER_TO_DDT
+  DDT_TO_INVOICE
+  ORDER_TO_INVOICE
+  RETURN_TO_CREDIT_NOTE
+}
+
 model Company {
   id        String  @id @default(cuid())
   name      String
@@ -148,6 +156,7 @@ model Company {
   businessDocumentLines  BusinessDocumentLine[]
   documentAttachments    DocumentAttachment[]
   documentEvents         DocumentEvent[]
+  documentLinks          DocumentLink[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -236,6 +245,7 @@ model User {
   documentsCreated         BusinessDocument[]  @relation("BusinessDocumentCreatedBy")
   documentsUpdated         BusinessDocument[]  @relation("BusinessDocumentUpdatedBy")
   documentEventsCreated    DocumentEvent[]     @relation("DocumentEventCreatedBy")
+  documentLinksCreated     DocumentLink[]      @relation("DocumentLinkCreatedBy")
 
   accounts Account[]
   sessions Session[]
@@ -1197,6 +1207,8 @@ model BusinessDocument {
   lines           BusinessDocumentLine[]
   attachments     DocumentAttachment[]
   events          DocumentEvent[]
+  sourceLinks     DocumentLink[]         @relation("DocumentLinkSource")
+  targetLinks     DocumentLink[]         @relation("DocumentLinkTarget")
   createdAt       DateTime               @default(now())
   updatedAt       DateTime               @updatedAt
 
@@ -1205,6 +1217,24 @@ model BusinessDocument {
   @@index([companyId, status, documentDate])
   @@index([companyId, documentType, documentDate])
   @@index([companyId, partnerId, documentDate])
+}
+
+model DocumentLink {
+  id               String           @id @default(cuid())
+  companyId        String
+  sourceDocumentId String
+  targetDocumentId String
+  linkType         DocumentLinkType
+  createdById      String
+  company          Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  sourceDocument   BusinessDocument @relation("DocumentLinkSource", fields: [companyId, sourceDocumentId], references: [companyId, id], onDelete: Restrict)
+  targetDocument   BusinessDocument @relation("DocumentLinkTarget", fields: [companyId, targetDocumentId], references: [companyId, id], onDelete: Restrict)
+  createdBy        User             @relation("DocumentLinkCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt        DateTime         @default(now())
+
+  @@unique([companyId, sourceDocumentId, targetDocumentId, linkType])
+  @@index([companyId, sourceDocumentId, createdAt])
+  @@index([companyId, targetDocumentId, createdAt])
 }
 
 model BusinessDocumentLine {

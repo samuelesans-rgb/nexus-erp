@@ -222,4 +222,14 @@ Gli ADR sono accettati come baseline di prodotto. Un cambiamento richiede un nuo
 
 **Alternative rifiutate.** Tabelle per ogni tipo; numerazione calcolata lato client; modifica dei documenti posted; chiamata diretta a Inventory durante il posting.
 
+## ADR-023: Sales Engine basato sul Document Engine
+
+**Contesto.** Preventivo, ordine, DDT e fattura condividono identità documentale, numerazione, righe e riferimenti già governati dal Unified Document Engine. Modelli Sales paralleli duplicherebbero Partner, Item e invarianti fiscali.
+
+**Decisione.** Implementare `CORE_SALES` come orchestratore di `BusinessDocument`. `DocumentLink` rappresenta la genealogia delle conversioni con tipo esplicito e tenant scope. Ogni conversione crea un nuovo Draft copiando le righe e registra un evento outbox. Il posting DDT invoca l'API Inventory per creare movimenti `ISSUE`, referenziati alla riga documento, senza scritture dirette sui saldi.
+
+**Conseguenze.** Il ciclo `QUOTE → SALES_ORDER → DELIVERY_NOTE → SALES_INVOICE` resta tracciabile e riusa numerazione, configurazioni e regole di immutabilità. `CORE_SALES` dipende da Partner, Item e Documenti; Inventory è richiesto quando un DDT stock-managed viene posted. Eventi Sales e Inventory restano osservabili nell'outbox.
+
+**Alternative rifiutate.** Tabelle Quote/Order/Invoice autonome; copia di Partner o Item nelle conversioni; update diretto di `StockBalance`; mutazione di documenti Posted; collegamenti impliciti affidati alle note.
+
 Vedere [Visione](VISION.md), [Architettura](ARCHITECTURE.md) e [Roadmap](ROADMAP.md).

@@ -43,7 +43,7 @@ const moduleDefinitions = [
   [MODULE_CODES.CORE_DASHBOARD, "Dashboard base", "CORE", true, "AVAILABLE"],
   [MODULE_CODES.CORE_PRODUCTS, "Prodotti e servizi", "SHARED", false, "AVAILABLE"],
   [MODULE_CODES.CORE_PRICE_LISTS, "Listini", "SHARED", false, "AVAILABLE"],
-  [MODULE_CODES.CORE_SALES, "Vendite", "SHARED", false, "PLANNED"],
+  [MODULE_CODES.CORE_SALES, "Vendite", "SHARED", false, "AVAILABLE"],
   [MODULE_CODES.CORE_PURCHASES, "Acquisti", "SHARED", false, "PLANNED"],
   [MODULE_CODES.CORE_INVENTORY, "Magazzino", "SHARED", false, "AVAILABLE"],
   [MODULE_CODES.CORE_PAYMENTS, "Pagamenti", "SHARED", false, "AVAILABLE"],
@@ -206,7 +206,7 @@ async function main() {
     },
   });
 
-  for (const [code, name] of [["ADMIN", "Administrator"], ["MANAGER", "Manager"], ["WAREHOUSE", "Warehouse operator"]] as const) {
+  for (const [code, name] of [["ADMIN", "Administrator"], ["MANAGER", "Manager"], ["SALES", "Sales operator"], ["WAREHOUSE", "Warehouse operator"]] as const) {
     await prisma.role.upsert({ where: { code }, update: { name }, create: { code, name } });
   }
 
@@ -223,7 +223,7 @@ async function main() {
       OR: [
         { mandatory: true },
         { status: "AVAILABLE", category: "CORE" },
-        { code: { in: [MODULE_CODES.CORE_PRODUCTS, MODULE_CODES.CORE_PRICE_LISTS, MODULE_CODES.CORE_PAYMENTS, MODULE_CODES.CORE_INVENTORY] } },
+        { code: { in: [MODULE_CODES.CORE_PRODUCTS, MODULE_CODES.CORE_PRICE_LISTS, MODULE_CODES.CORE_PAYMENTS, MODULE_CODES.CORE_INVENTORY, MODULE_CODES.CORE_SALES] } },
       ],
     },
     select: { id: true },
@@ -725,6 +725,7 @@ async function main() {
     ["FATTURE", "Serie fatture", "SALES_INVOICE", "FT-"],
     ["ORDINI", "Serie ordini", "SALES_ORDER", "ORD-"],
     ["PREVENTIVI", "Serie preventivi", "QUOTE", "PREV-"],
+    ["DDT", "Serie DDT", "DELIVERY_NOTE", "DDT-"],
   ] as const;
   const documentSeries = new Map<string, { id: string; nextNumber: number }>();
   for (const [code, name, documentType, prefix] of seriesSeeds) {
@@ -739,6 +740,22 @@ async function main() {
     await prisma.documentSeries.update({ where: { id: demoSeries.id }, data: { nextNumber: { set: Math.max(demoSeries.nextNumber, 2) } } });
     await prisma.documentEvent.create({ data: { companyId: company.id, documentId: document.id, eventType: "DocumentCreated", toStatus: "DRAFT", payload: { source: "seed" }, createdById: user.id } });
     await prisma.domainEvent.create({ data: { companyId: company.id, eventType: "DocumentCreated", aggregateType: "BusinessDocument", aggregateId: document.id, payload: { source: "seed", documentId: document.id }, occurredAt: new Date() } });
+  }
+
+  const salesDemo = async (seriesCode: string, documentNumber: string, documentType: "QUOTE" | "SALES_ORDER" | "DELIVERY_NOTE" | "SALES_INVOICE", status: "CONFIRMED" | "POSTED") => {
+    const series = documentSeries.get(seriesCode)!;
+    const existing = await prisma.businessDocument.findFirst({ where: { companyId: company.id, seriesId: series.id, documentNumber }, select: { id: true } });
+    if (existing) return existing;
+    const document = await prisma.businessDocument.create({ data: { companyId: company.id, seriesId: series.id, documentNumber, documentType, status, partnerId: demoCustomer.id, documentDate: new Date(), postingDate: status === "POSTED" ? new Date() : null, currency: "EUR", exchangeRate: 1, warehouseId: mainWarehouse.id, locationId: location.id, paymentMethodId: defaultPaymentMethod.id, paymentTermId: defaultPaymentTerm.id, priceListId: defaultPriceList.id, subtotal: 30, tax: 6.6, total: 36.6, notes: "Ciclo Sales demo", createdById: user.id, updatedById: user.id, lines: { create: [{ lineNumber: 1, itemId: product.id, description: product.name, quantity: 10, unitOfMeasureId: units.get("PZ")!, unitPrice: 3, vatRateId: vatRates.get("IVA22")!, lineTotal: 30, warehouseId: mainWarehouse.id }] } }, select: { id: true } });
+    await prisma.domainEvent.create({ data: { companyId: company.id, eventType: documentType === "QUOTE" ? "QuoteCreated" : documentType === "SALES_ORDER" ? "OrderCreated" : documentType === "DELIVERY_NOTE" ? "DeliveryCreated" : "InvoiceCreated", aggregateType: "BusinessDocument", aggregateId: document.id, payload: { source: "seed", documentId: document.id }, occurredAt: new Date() } });
+    return document;
+  };
+  const demoQuote = await salesDemo("PREVENTIVI", "PREV-DEMO-001", "QUOTE", "CONFIRMED");
+  const demoOrder = await salesDemo("ORDINI", "ORD-DEMO-001", "SALES_ORDER", "CONFIRMED");
+  const demoDelivery = await salesDemo("DDT", "DDT-DEMO-001", "DELIVERY_NOTE", "POSTED");
+  const demoInvoice = await salesDemo("FATTURE", "FT-DEMO-001", "SALES_INVOICE", "POSTED");
+  for (const [sourceDocumentId, targetDocumentId, linkType] of [[demoQuote.id, demoOrder.id, "QUOTE_TO_ORDER"], [demoOrder.id, demoDelivery.id, "ORDER_TO_DDT"], [demoDelivery.id, demoInvoice.id, "DDT_TO_INVOICE"]] as const) {
+    await prisma.documentLink.upsert({ where: { companyId_sourceDocumentId_targetDocumentId_linkType: { companyId: company.id, sourceDocumentId, targetDocumentId, linkType } }, update: {}, create: { companyId: company.id, sourceDocumentId, targetDocumentId, linkType, createdById: user.id } });
   }
 
   console.log("✅ Seed completato");
