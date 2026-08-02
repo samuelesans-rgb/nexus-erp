@@ -33,6 +33,9 @@ export default async function AppSidebar() {
   if (activeCodes.has(MODULE_CODES.CORE_TREASURY) && session?.user?.roles.some((role) => ["SUPER_ADMIN", "ADMIN", "MANAGER", "ACCOUNTANT", "SALES"].includes(role))) {
     items.push({ label: "Tesoreria", href: session?.user?.roles.includes("SALES") ? "/treasury/receivables" : "/treasury" });
   }
+  if ([MODULE_CODES.RESTAURANT_RESERVATIONS, MODULE_CODES.RESTAURANT_MENU, MODULE_CODES.RESTAURANT_FLOOR, MODULE_CODES.RESTAURANT_KITCHEN].some((code) => activeCodes.has(code)) && session?.user?.roles.some((role) => ["SUPER_ADMIN", "ADMIN", "MANAGER", "SALES", "WAREHOUSE", "ACCOUNTANT"].includes(role))) {
+    items.push({ label: "Restaurant", href: "/restaurant" });
+  }
   if (
     activeCodes.has(MODULE_CODES.CORE_MODULES) &&
     session?.user?.roles.some((role) =>

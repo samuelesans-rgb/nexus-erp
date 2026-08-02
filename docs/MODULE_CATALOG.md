@@ -57,13 +57,13 @@ In questa e nelle tabelle verticali il **Nome** è anche la descrizione funziona
 
 | Code | Nome | Obbl. | Dipendenze | Route future | Permessi principali | Entità previste | Stato |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `RESTAURANT_RESERVATIONS` | Prenotazioni ristorante | No | `CORE_PARTNERS` | `/restaurant/reservations` | `restaurant_reservation.read`, `.manage` | RestaurantReservation, Party | PLANNED |
-| `RESTAURANT_MENU` | Menu | No | `CORE_PRODUCTS`, `CORE_PRICE_LISTS` | `/restaurant/menu` | `restaurant_menu.read`, `.manage` | Menu, MenuCategory, MenuItem, Variant, Allergen | PLANNED |
-| `RESTAURANT_RECIPES` | Ricette e food cost | No | `RESTAURANT_MENU`, `CORE_INVENTORY` | `/restaurant/recipes` | `recipe.read`, `recipe.manage`, `food_cost.read` | Recipe, RecipeIngredient, Preparation, Yield | PLANNED |
-| `RESTAURANT_FLOOR` | Sala e comande | No | `RESTAURANT_MENU` | `/restaurant/floor` | `floor.read`, `order.create`, `order.manage` | DiningArea, Table, Order, OrderLine | PLANNED |
-| `RESTAURANT_KITCHEN` | Cucina | No | `RESTAURANT_FLOOR` | `/restaurant/kitchen` | `kitchen.read`, `kitchen.advance` | KitchenStation, KitchenTicket, PrinterRoute | PLANNED |
-| `RESTAURANT_POS` | Cassa e POS | No | `RESTAURANT_FLOOR`, `CORE_PAYMENTS`, `CORE_INTEGRATIONS` | `/restaurant/pos` | `pos.use`, `pos.close`, `pos.refund` | Check, TillSession, PosTransaction | PLANNED |
-| `RESTAURANT_FOOD_INVENTORY` | Magazzino alimentare | No | `CORE_INVENTORY` | `/restaurant/inventory` | `food_inventory.read`, `.manage` | Lot, Expiry, Waste, FoodInventoryCount | PLANNED |
+| `RESTAURANT_RESERVATIONS` | Prenotazioni ristorante | No | `CORE_PARTNERS` | `/restaurant/reservations` | `restaurant_reservation.read`, `.manage` | RestaurantReservation, RestaurantReservationTable | AVAILABLE |
+| `RESTAURANT_MENU` | Menu | No | `CORE_PRODUCTS`, `CORE_PRICE_LISTS` | `/restaurant/menus` | `restaurant_menu.read`, `.manage` | RestaurantMenu, RestaurantMenuSection, RestaurantMenuItem | AVAILABLE |
+| `RESTAURANT_RECIPES` | Ricette e food cost | No | `RESTAURANT_MENU`, `CORE_INVENTORY` | `/restaurant/recipes` | `recipe.read`, `recipe.manage`, `food_cost.read` | Item RECIPE, RecipeProfile, RecipeComponent | AVAILABLE |
+| `RESTAURANT_FLOOR` | Sala e comande | No | `RESTAURANT_MENU`, `CORE_SALES` | `/restaurant/floor` | `floor.read`, `order.create`, `order.manage` | RestaurantArea, RestaurantTable, RestaurantOrder, RestaurantOrderLine | AVAILABLE |
+| `RESTAURANT_KITCHEN` | Cucina | No | `RESTAURANT_FLOOR` | `/restaurant/kitchen` | `kitchen.read`, `kitchen.advance` | KitchenStation, KitchenTicket, KitchenTicketLine | AVAILABLE |
+| `RESTAURANT_POS` | Conto Restaurant e adapter POS | No | `RESTAURANT_FLOOR`, `CORE_PAYMENTS`, `CORE_TREASURY`, `CORE_DOCUMENTS` | `/restaurant/orders/[id]` | `pos.use`, `pos.close`, `pos.refund` | RestaurantOrder, BusinessDocument, FinancialMovement | AVAILABLE |
+| `RESTAURANT_FOOD_INVENTORY` | Magazzino alimentare | No | `CORE_INVENTORY`, `RESTAURANT_RECIPES` | `/restaurant/recipes` | `food_inventory.read`, `.manage` | InventoryMovement, RecipeConsumption, Lot, Expiry | AVAILABLE |
 | `RESTAURANT_OMNICHANNEL` | Takeaway e delivery | No | `RESTAURANT_MENU`, `RESTAURANT_POS` | `/restaurant/orders` | `restaurant_order.read`, `.manage` | FulfilmentOrder, PickupSlot, Delivery | FUTURE |
 | `RESTAURANT_LOYALTY` | Fidelity e gift card | No | `CORE_PARTNERS`, `CORE_PAYMENTS` | `/restaurant/loyalty` | `loyalty.read`, `loyalty.manage` | LoyaltyAccount, Reward, GiftCard | FUTURE |
 | `RESTAURANT_ANALYTICS` | Analisi ristorante | No | `CORE_REPORTING`, `RESTAURANT_FLOOR` | `/restaurant/reports` | `restaurant_report.read`, `.export` | RestaurantMetric | FUTURE |

@@ -1,5 +1,16 @@
 # Requisiti funzionali
 
+## Restaurant MVP
+
+- Sale e tavoli con stati, capienza, soft delete e campi planimetria futura.
+- Prenotazioni multi-tavolo, waitlist, conferma, seated, completed, cancelled e no-show; sovrapposizioni bloccate salvo override Admin.
+- Menu per sede, sezioni, Item vendibili, prezzo e disponibilità override.
+- Ricette basate su Item/RecipeComponent, costo teorico, food cost, margine e producibilità.
+- Comande multi-riga, portate, note cucina, invio idempotente e Kitchen Display.
+- Consumo Inventory al servizio e storno compensativo.
+- Chiusura conto con documento Sales e incasso Treasury, pagamenti base e parziali.
+- Nessuna fiscalizzazione reale: l'adapter V1 è Noop.
+
 ## Classificazione
 
 La classificazione esprime la priorità di prodotto, non lo stato di implementazione:

@@ -90,6 +90,7 @@ enum DocumentType {
   GOODS_RECEIPT
   DELIVERY_NOTE
   SALES_INVOICE
+  SALES_RECEIPT
   PURCHASE_INVOICE
   INVENTORY_DOCUMENT
   RETURN
@@ -175,6 +176,73 @@ enum ReconciliationStatus {
   MATCHED
 }
 
+enum RestaurantTableStatus {
+  AVAILABLE
+  RESERVED
+  OCCUPIED
+  DIRTY
+  OUT_OF_SERVICE
+}
+
+enum RestaurantReservationStatus {
+  PENDING
+  CONFIRMED
+  SEATED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+  WAITLIST
+}
+
+enum RestaurantReservationSource {
+  PHONE
+  WALK_IN
+  WEBSITE
+  MANUAL
+  THIRD_PARTY
+}
+
+enum RestaurantOrderStatus {
+  OPEN
+  SENT
+  IN_PROGRESS
+  READY
+  SERVED
+  CLOSED
+  CANCELLED
+}
+
+enum RestaurantServiceType {
+  DINE_IN
+  TAKEAWAY
+  DELIVERY
+  EVENT
+}
+
+enum RestaurantPaymentStatus {
+  UNPAID
+  PARTIALLY_PAID
+  PAID
+  REFUNDED
+}
+
+enum RestaurantOrderLineStatus {
+  NEW
+  SENT
+  IN_PREPARATION
+  READY
+  SERVED
+  CANCELLED
+}
+
+enum KitchenTicketStatus {
+  NEW
+  IN_PREPARATION
+  READY
+  COMPLETED
+  CANCELLED
+}
+
 model Company {
   id        String  @id @default(cuid())
   name      String
@@ -192,42 +260,57 @@ model Company {
   active    Boolean @default(true)
   logo      String?
 
-  memberships            Membership[]
-  partners               Partner[]
-  modules                CompanyModule[]
-  items                  Item[]
-  itemCategories         ItemCategory[]
-  unitsOfMeasure         UnitOfMeasure[]
-  vatRates               VatRate[]
-  priceLists             PriceList[]
-  priceListItems         PriceListItem[]
-  paymentMethods         PaymentMethod[]
-  paymentTerms           PaymentTerm[]
-  locations              Location[]
-  warehouses             Warehouse[]
-  warehouseBins          WarehouseBin[]
-  inventoryLots          InventoryLot[]
-  inventorySerials       InventorySerial[]
-  inventoryMovements     InventoryMovement[]
-  inventoryTransfers     InventoryTransfer[]
-  inventoryTransferLines InventoryTransferLine[]
-  inventoryCounts        InventoryCount[]
-  inventoryCountLines    InventoryCountLine[]
-  stockBalances          StockBalance[]
-  domainEvents           DomainEvent[]
-  documentSeries         DocumentSeries[]
-  businessDocuments      BusinessDocument[]
-  businessDocumentLines  BusinessDocumentLine[]
-  documentAttachments    DocumentAttachment[]
-  documentEvents         DocumentEvent[]
-  documentLinks          DocumentLink[]
-  financialAccounts      FinancialAccount[]
-  paymentSchedules       PaymentSchedule[]
-  financialMovements     FinancialMovement[]
-  financialAllocations   FinancialAllocation[]
-  financialTransfers     FinancialTransfer[]
-  bankStatements         BankStatement[]
-  bankStatementLines     BankStatementLine[]
+  memberships                  Membership[]
+  partners                     Partner[]
+  modules                      CompanyModule[]
+  items                        Item[]
+  itemCategories               ItemCategory[]
+  unitsOfMeasure               UnitOfMeasure[]
+  vatRates                     VatRate[]
+  priceLists                   PriceList[]
+  priceListItems               PriceListItem[]
+  paymentMethods               PaymentMethod[]
+  paymentTerms                 PaymentTerm[]
+  locations                    Location[]
+  warehouses                   Warehouse[]
+  warehouseBins                WarehouseBin[]
+  inventoryLots                InventoryLot[]
+  inventorySerials             InventorySerial[]
+  inventoryMovements           InventoryMovement[]
+  inventoryTransfers           InventoryTransfer[]
+  inventoryTransferLines       InventoryTransferLine[]
+  inventoryCounts              InventoryCount[]
+  inventoryCountLines          InventoryCountLine[]
+  stockBalances                StockBalance[]
+  domainEvents                 DomainEvent[]
+  documentSeries               DocumentSeries[]
+  businessDocuments            BusinessDocument[]
+  businessDocumentLines        BusinessDocumentLine[]
+  documentAttachments          DocumentAttachment[]
+  documentEvents               DocumentEvent[]
+  documentLinks                DocumentLink[]
+  financialAccounts            FinancialAccount[]
+  paymentSchedules             PaymentSchedule[]
+  financialMovements           FinancialMovement[]
+  financialAllocations         FinancialAllocation[]
+  financialTransfers           FinancialTransfer[]
+  bankStatements               BankStatement[]
+  bankStatementLines           BankStatementLine[]
+  restaurantAreas              RestaurantArea[]
+  restaurantTables             RestaurantTable[]
+  restaurantReservations       RestaurantReservation[]
+  restaurantReservationTables  RestaurantReservationTable[]
+  restaurantMenus              RestaurantMenu[]
+  restaurantMenuSections       RestaurantMenuSection[]
+  restaurantMenuItems          RestaurantMenuItem[]
+  restaurantOrders             RestaurantOrder[]
+  restaurantOrderLines         RestaurantOrderLine[]
+  restaurantOrderLineModifiers RestaurantOrderLineModifier[]
+  kitchenStations              KitchenStation[]
+  kitchenStationAssignments    KitchenStationAssignment[]
+  kitchenTickets               KitchenTicket[]
+  kitchenTicketLines           KitchenTicketLine[]
+  recipeConsumptions           RecipeConsumption[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -468,15 +551,17 @@ model Partner {
   companyId String
   company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
-  agentId            String?
-  agent              Partner?            @relation("PartnerAgent", fields: [agentId], references: [id], onDelete: SetNull)
-  managedPartners    Partner[]           @relation("PartnerAgent")
-  businessDocuments  BusinessDocument[]
-  paymentSchedules   PaymentSchedule[]
-  financialMovements FinancialMovement[]
-  priceList          PriceList?          @relation(fields: [companyId, priceListId], references: [companyId, id], onDelete: Restrict)
-  paymentMethod      PaymentMethod?      @relation(fields: [companyId, paymentMethodId], references: [companyId, id], onDelete: Restrict)
-  paymentTerm        PaymentTerm?        @relation(fields: [companyId, paymentTermId], references: [companyId, id], onDelete: Restrict)
+  agentId                String?
+  agent                  Partner?                @relation("PartnerAgent", fields: [agentId], references: [id], onDelete: SetNull)
+  managedPartners        Partner[]               @relation("PartnerAgent")
+  businessDocuments      BusinessDocument[]
+  paymentSchedules       PaymentSchedule[]
+  financialMovements     FinancialMovement[]
+  restaurantReservations RestaurantReservation[]
+  restaurantOrders       RestaurantOrder[]
+  priceList              PriceList?              @relation(fields: [companyId, priceListId], references: [companyId, id], onDelete: Restrict)
+  paymentMethod          PaymentMethod?          @relation(fields: [companyId, paymentMethodId], references: [companyId, id], onDelete: Restrict)
+  paymentTerm            PaymentTerm?            @relation(fields: [companyId, paymentTermId], references: [companyId, id], onDelete: Restrict)
 
   createdById String?
   createdBy   User?   @relation("PartnerCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
@@ -521,8 +606,9 @@ model ItemCategory {
   updatedById           String?
   updatedBy             User?                  @relation("ItemCategoryUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
+  kitchenStationAssignments KitchenStationAssignment[]
 
   @@unique([companyId, code])
   @@unique([companyId, id])
@@ -587,6 +673,7 @@ model VatRate {
   createdAt             DateTime               @default(now())
   updatedAt             DateTime               @updatedAt
   businessDocumentLines BusinessDocumentLine[]
+  restaurantOrderLines  RestaurantOrderLine[]
 
   @@unique([companyId, code])
   @@unique([companyId, id])
@@ -736,26 +823,32 @@ model Item {
   createdBy     User?          @relation("ItemCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   updatedBy     User?          @relation("ItemUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
 
-  productProfile         ProductProfile?
-  serviceProfile         ServiceProfile?
-  ingredientProfile      IngredientProfile?
-  recipeProfile          RecipeProfile?
-  beautyServiceProfile   BeautyServiceProfile?
-  hotelRoomProfile       HotelRoomProfile?
-  packageProfile         PackageProfile?
-  giftCardProfile        GiftCardProfile?
-  recipeComponents       RecipeComponent[]       @relation("RecipeOwner")
-  usedInRecipes          RecipeComponent[]       @relation("RecipeComponentItem")
-  packageComponents      PackageComponent[]      @relation("PackageOwner")
-  usedInPackages         PackageComponent[]      @relation("PackageComponentItem")
-  priceLists             PriceListItem[]
-  inventoryLots          InventoryLot[]
-  inventorySerials       InventorySerial[]
-  inventoryMovements     InventoryMovement[]
-  inventoryTransferLines InventoryTransferLine[]
-  inventoryCountLines    InventoryCountLine[]
-  stockBalances          StockBalance[]
-  businessDocumentLines  BusinessDocumentLine[]
+  productProfile               ProductProfile?
+  serviceProfile               ServiceProfile?
+  ingredientProfile            IngredientProfile?
+  recipeProfile                RecipeProfile?
+  beautyServiceProfile         BeautyServiceProfile?
+  hotelRoomProfile             HotelRoomProfile?
+  packageProfile               PackageProfile?
+  giftCardProfile              GiftCardProfile?
+  recipeComponents             RecipeComponent[]             @relation("RecipeOwner")
+  usedInRecipes                RecipeComponent[]             @relation("RecipeComponentItem")
+  packageComponents            PackageComponent[]            @relation("PackageOwner")
+  usedInPackages               PackageComponent[]            @relation("PackageComponentItem")
+  priceLists                   PriceListItem[]
+  inventoryLots                InventoryLot[]
+  inventorySerials             InventorySerial[]
+  inventoryMovements           InventoryMovement[]
+  inventoryTransferLines       InventoryTransferLine[]
+  inventoryCountLines          InventoryCountLine[]
+  stockBalances                StockBalance[]
+  businessDocumentLines        BusinessDocumentLine[]
+  restaurantMenuItems          RestaurantMenuItem[]
+  restaurantOrderLines         RestaurantOrderLine[]
+  restaurantOrderLineModifiers RestaurantOrderLineModifier[]
+  kitchenAssignments           KitchenStationAssignment[]
+  recipeConsumptionRecipes     RecipeConsumption[]           @relation("RecipeConsumptionRecipe")
+  recipeConsumptionComponents  RecipeConsumption[]           @relation("RecipeConsumptionComponent")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -943,19 +1036,27 @@ model GiftCardProfile {
 }
 
 model Location {
-  id                String             @id @default(cuid())
-  companyId         String
-  code              String
-  name              String
-  address           String?
-  city              String?
-  active            Boolean            @default(true)
-  deletedAt         DateTime?
-  company           Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  warehouses        Warehouse[]
-  businessDocuments BusinessDocument[]
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
+  id                     String                  @id @default(cuid())
+  companyId              String
+  code                   String
+  name                   String
+  address                String?
+  city                   String?
+  active                 Boolean                 @default(true)
+  deletedAt              DateTime?
+  company                Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  warehouses             Warehouse[]
+  businessDocuments      BusinessDocument[]
+  restaurantAreas        RestaurantArea[]
+  restaurantTables       RestaurantTable[]
+  restaurantReservations RestaurantReservation[]
+  restaurantMenus        RestaurantMenu[]
+  restaurantOrders       RestaurantOrder[]
+  kitchenStations        KitchenStation[]
+  kitchenTickets         KitchenTicket[]
+  recipeConsumptions     RecipeConsumption[]
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
 
   @@unique([companyId, code])
   @@unique([companyId, id])
@@ -1062,38 +1163,39 @@ model InventorySerial {
 }
 
 model InventoryMovement {
-  id              String                @id @default(cuid())
-  companyId       String
-  warehouseId     String
-  binId           String?
-  itemId          String
-  movementType    InventoryMovementType
-  quantity        Decimal               @db.Decimal(15, 3)
-  direction       Int
-  unitOfMeasureId String
-  lotId           String?
-  serialId        String?
-  unitCost        Decimal?              @db.Decimal(15, 4)
-  totalCost       Decimal?              @db.Decimal(15, 2)
-  referenceType   String?
-  referenceId     String?
-  reason          String?
-  note            String?
-  occurredAt      DateTime
-  postedAt        DateTime
-  postedById      String
-  reversalOfId    String?               @unique
-  company         Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  warehouse       Warehouse             @relation(fields: [companyId, warehouseId], references: [companyId, id], onDelete: Restrict)
-  bin             WarehouseBin?         @relation(fields: [companyId, binId], references: [companyId, id], onDelete: Restrict)
-  item            Item                  @relation(fields: [companyId, itemId], references: [companyId, id], onDelete: Restrict)
-  unitOfMeasure   UnitOfMeasure         @relation(fields: [companyId, unitOfMeasureId], references: [companyId, id], onDelete: Restrict)
-  lot             InventoryLot?         @relation(fields: [companyId, lotId], references: [companyId, id], onDelete: Restrict)
-  serial          InventorySerial?      @relation(fields: [companyId, serialId], references: [companyId, id], onDelete: Restrict)
-  postedBy        User                  @relation("InventoryMovementPostedBy", fields: [postedById], references: [id], onDelete: Restrict)
-  reversalOf      InventoryMovement?    @relation("MovementReversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
-  reversedBy      InventoryMovement?    @relation("MovementReversal")
-  createdAt       DateTime              @default(now())
+  id                 String                @id @default(cuid())
+  companyId          String
+  warehouseId        String
+  binId              String?
+  itemId             String
+  movementType       InventoryMovementType
+  quantity           Decimal               @db.Decimal(15, 3)
+  direction          Int
+  unitOfMeasureId    String
+  lotId              String?
+  serialId           String?
+  unitCost           Decimal?              @db.Decimal(15, 4)
+  totalCost          Decimal?              @db.Decimal(15, 2)
+  referenceType      String?
+  referenceId        String?
+  reason             String?
+  note               String?
+  occurredAt         DateTime
+  postedAt           DateTime
+  postedById         String
+  reversalOfId       String?               @unique
+  company            Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  warehouse          Warehouse             @relation(fields: [companyId, warehouseId], references: [companyId, id], onDelete: Restrict)
+  bin                WarehouseBin?         @relation(fields: [companyId, binId], references: [companyId, id], onDelete: Restrict)
+  item               Item                  @relation(fields: [companyId, itemId], references: [companyId, id], onDelete: Restrict)
+  unitOfMeasure      UnitOfMeasure         @relation(fields: [companyId, unitOfMeasureId], references: [companyId, id], onDelete: Restrict)
+  lot                InventoryLot?         @relation(fields: [companyId, lotId], references: [companyId, id], onDelete: Restrict)
+  serial             InventorySerial?      @relation(fields: [companyId, serialId], references: [companyId, id], onDelete: Restrict)
+  postedBy           User                  @relation("InventoryMovementPostedBy", fields: [postedById], references: [id], onDelete: Restrict)
+  reversalOf         InventoryMovement?    @relation("MovementReversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
+  reversedBy         InventoryMovement?    @relation("MovementReversal")
+  createdAt          DateTime              @default(now())
+  recipeConsumptions RecipeConsumption[]
 
   @@unique([companyId, id])
   @@index([companyId, warehouseId, itemId, postedAt])
@@ -1293,6 +1395,7 @@ model BusinessDocument {
   targetLinks        DocumentLink[]         @relation("DocumentLinkTarget")
   paymentSchedules   PaymentSchedule[]
   financialMovements FinancialMovement[]
+  restaurantOrder    RestaurantOrder?
   createdAt          DateTime               @default(now())
   updatedAt          DateTime               @updatedAt
 
@@ -1419,35 +1522,36 @@ model FinancialAccount {
 }
 
 model PaymentSchedule {
-  id                String                   @id @default(cuid())
-  companyId         String
-  partnerId         String
-  documentId        String?
-  installmentNumber Int                      @default(1)
-  documentType      DocumentType?
-  direction         PaymentScheduleDirection
-  dueDate           DateTime
-  amount            Decimal                  @db.Decimal(15, 2)
-  residualAmount    Decimal                  @db.Decimal(15, 2)
-  currency          String                   @default("EUR")
-  status            PaymentScheduleStatus    @default(OPEN)
-  paymentMethodId   String?
-  paymentTermId     String?
-  notes             String?
-  createdById       String
-  updatedById       String
-  deletedAt         DateTime?
-  company           Company                  @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  partner           Partner                  @relation(fields: [companyId, partnerId], references: [companyId, id], onDelete: Restrict)
-  document          BusinessDocument?        @relation(fields: [companyId, documentId], references: [companyId, id], onDelete: Restrict)
-  paymentMethod     PaymentMethod?           @relation(fields: [companyId, paymentMethodId], references: [companyId, id], onDelete: Restrict)
-  paymentTerm       PaymentTerm?             @relation(fields: [companyId, paymentTermId], references: [companyId, id], onDelete: Restrict)
-  createdBy         User                     @relation("PaymentScheduleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
-  updatedBy         User                     @relation("PaymentScheduleUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
-  movements         FinancialMovement[]
-  allocations       FinancialAllocation[]
-  createdAt         DateTime                 @default(now())
-  updatedAt         DateTime                 @updatedAt
+  id                           String                   @id @default(cuid())
+  companyId                    String
+  partnerId                    String
+  documentId                   String?
+  installmentNumber            Int                      @default(1)
+  documentType                 DocumentType?
+  direction                    PaymentScheduleDirection
+  dueDate                      DateTime
+  amount                       Decimal                  @db.Decimal(15, 2)
+  residualAmount               Decimal                  @db.Decimal(15, 2)
+  currency                     String                   @default("EUR")
+  status                       PaymentScheduleStatus    @default(OPEN)
+  paymentMethodId              String?
+  paymentTermId                String?
+  notes                        String?
+  createdById                  String
+  updatedById                  String
+  deletedAt                    DateTime?
+  company                      Company                  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  partner                      Partner                  @relation(fields: [companyId, partnerId], references: [companyId, id], onDelete: Restrict)
+  document                     BusinessDocument?        @relation(fields: [companyId, documentId], references: [companyId, id], onDelete: Restrict)
+  paymentMethod                PaymentMethod?           @relation(fields: [companyId, paymentMethodId], references: [companyId, id], onDelete: Restrict)
+  paymentTerm                  PaymentTerm?             @relation(fields: [companyId, paymentTermId], references: [companyId, id], onDelete: Restrict)
+  createdBy                    User                     @relation("PaymentScheduleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy                    User                     @relation("PaymentScheduleUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
+  movements                    FinancialMovement[]
+  allocations                  FinancialAllocation[]
+  restaurantReservationDeposit RestaurantReservation?
+  createdAt                    DateTime                 @default(now())
+  updatedAt                    DateTime                 @updatedAt
 
   @@unique([companyId, documentId, installmentNumber])
   @@unique([companyId, id])
@@ -1570,4 +1674,348 @@ model BankStatementLine {
   @@unique([companyId, id])
   @@unique([companyId, matchedMovementId])
   @@index([companyId, bankStatementId, reconciliationStatus])
+}
+
+model RestaurantArea {
+  id          String            @id @default(cuid())
+  companyId   String
+  locationId  String
+  code        String
+  name        String
+  description String?
+  sortOrder   Int               @default(0)
+  active      Boolean           @default(true)
+  createdById String?
+  updatedById String?
+  deletedAt   DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  company     Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  location    Location          @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+  tables      RestaurantTable[]
+
+  @@unique([companyId, locationId, code])
+  @@unique([companyId, id])
+  @@index([companyId, locationId, active, deletedAt])
+}
+
+model RestaurantTable {
+  id           String                       @id @default(cuid())
+  companyId    String
+  locationId   String
+  areaId       String
+  code         String
+  name         String
+  seats        Int
+  minSeats     Int?
+  maxSeats     Int?
+  shape        String?
+  positionX    Decimal?                     @db.Decimal(10, 2)
+  positionY    Decimal?                     @db.Decimal(10, 2)
+  width        Decimal?                     @db.Decimal(10, 2)
+  height       Decimal?                     @db.Decimal(10, 2)
+  status       RestaurantTableStatus        @default(AVAILABLE)
+  combinable   Boolean                      @default(true)
+  active       Boolean                      @default(true)
+  deletedAt    DateTime?
+  createdAt    DateTime                     @default(now())
+  updatedAt    DateTime                     @updatedAt
+  company      Company                      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  location     Location                     @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+  area         RestaurantArea               @relation(fields: [companyId, areaId], references: [companyId, id], onDelete: Restrict)
+  reservations RestaurantReservationTable[]
+  orders       RestaurantOrder[]
+
+  @@unique([companyId, locationId, code])
+  @@unique([companyId, id])
+  @@index([companyId, locationId, status, deletedAt])
+}
+
+model RestaurantReservation {
+  id                String                       @id @default(cuid())
+  companyId         String
+  locationId        String
+  code              String
+  partnerId         String?
+  guestName         String
+  phone             String?
+  email             String?
+  reservationDate   DateTime
+  startTime         DateTime
+  endTime           DateTime?
+  partySize         Int
+  status            RestaurantReservationStatus  @default(PENDING)
+  source            RestaurantReservationSource  @default(MANUAL)
+  notes             String?
+  internalNotes     String?
+  depositAmount     Decimal?                     @db.Decimal(15, 2)
+  depositScheduleId String?
+  createdById       String?
+  updatedById       String?
+  cancelledAt       DateTime?
+  deletedAt         DateTime?
+  createdAt         DateTime                     @default(now())
+  updatedAt         DateTime                     @updatedAt
+  company           Company                      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  location          Location                     @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+  partner           Partner?                     @relation(fields: [companyId, partnerId], references: [companyId, id], onDelete: Restrict)
+  depositSchedule   PaymentSchedule?             @relation(fields: [companyId, depositScheduleId], references: [companyId, id], onDelete: Restrict)
+  tables            RestaurantReservationTable[]
+  orders            RestaurantOrder[]
+
+  @@unique([companyId, code])
+  @@unique([companyId, id])
+  @@unique([companyId, depositScheduleId])
+  @@index([companyId, locationId, reservationDate, status])
+}
+
+model RestaurantReservationTable {
+  companyId     String
+  reservationId String
+  tableId       String
+  createdAt     DateTime              @default(now())
+  company       Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  reservation   RestaurantReservation @relation(fields: [companyId, reservationId], references: [companyId, id], onDelete: Cascade)
+  table         RestaurantTable       @relation(fields: [companyId, tableId], references: [companyId, id], onDelete: Restrict)
+
+  @@id([companyId, reservationId, tableId])
+  @@index([companyId, tableId])
+}
+
+model RestaurantMenu {
+  id          String                  @id @default(cuid())
+  companyId   String
+  locationId  String?
+  code        String
+  name        String
+  description String?
+  validFrom   DateTime?
+  validTo     DateTime?
+  active      Boolean                 @default(true)
+  deletedAt   DateTime?
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+  company     Company                 @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  location    Location?               @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+  sections    RestaurantMenuSection[]
+
+  @@unique([companyId, code])
+  @@unique([companyId, id])
+  @@index([companyId, locationId, active, deletedAt])
+}
+
+model RestaurantMenuSection {
+  id          String               @id @default(cuid())
+  companyId   String
+  menuId      String
+  name        String
+  description String?
+  sortOrder   Int                  @default(0)
+  active      Boolean              @default(true)
+  company     Company              @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  menu        RestaurantMenu       @relation(fields: [companyId, menuId], references: [companyId, id], onDelete: Cascade)
+  items       RestaurantMenuItem[]
+
+  @@unique([companyId, menuId, name])
+  @@unique([companyId, id])
+}
+
+model RestaurantMenuItem {
+  id            String                @id @default(cuid())
+  companyId     String
+  menuSectionId String
+  itemId        String
+  displayName   String?
+  description   String?
+  priceOverride Decimal?              @db.Decimal(15, 2)
+  sortOrder     Int                   @default(0)
+  available     Boolean               @default(true)
+  featured      Boolean               @default(false)
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+  company       Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  section       RestaurantMenuSection @relation(fields: [companyId, menuSectionId], references: [companyId, id], onDelete: Cascade)
+  item          Item                  @relation(fields: [companyId, itemId], references: [companyId, id], onDelete: Restrict)
+
+  @@unique([companyId, menuSectionId, itemId])
+  @@index([companyId, itemId])
+}
+
+model RestaurantOrder {
+  id            String                  @id @default(cuid())
+  companyId     String
+  locationId    String
+  code          String
+  reservationId String?
+  tableId       String?
+  partnerId     String?
+  status        RestaurantOrderStatus   @default(OPEN)
+  serviceType   RestaurantServiceType   @default(DINE_IN)
+  openedAt      DateTime                @default(now())
+  closedAt      DateTime?
+  guestCount    Int                     @default(1)
+  notes         String?
+  documentId    String?
+  paymentStatus RestaurantPaymentStatus @default(UNPAID)
+  createdById   String?
+  updatedById   String?
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+  company       Company                 @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  location      Location                @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+  reservation   RestaurantReservation?  @relation(fields: [companyId, reservationId], references: [companyId, id], onDelete: Restrict)
+  table         RestaurantTable?        @relation(fields: [companyId, tableId], references: [companyId, id], onDelete: Restrict)
+  partner       Partner?                @relation(fields: [companyId, partnerId], references: [companyId, id], onDelete: Restrict)
+  document      BusinessDocument?       @relation(fields: [companyId, documentId], references: [companyId, id], onDelete: Restrict)
+  lines         RestaurantOrderLine[]
+  tickets       KitchenTicket[]
+  consumptions  RecipeConsumption[]
+
+  @@unique([companyId, locationId, code])
+  @@unique([companyId, id])
+  @@unique([companyId, documentId])
+  @@index([companyId, locationId, status])
+}
+
+model RestaurantOrderLine {
+  id           String                        @id @default(cuid())
+  companyId    String
+  orderId      String
+  itemId       String
+  quantity     Decimal                       @db.Decimal(15, 3)
+  unitPrice    Decimal                       @db.Decimal(15, 4)
+  vatRateId    String
+  status       RestaurantOrderLineStatus     @default(NEW)
+  courseNumber Int?
+  seatNumber   Int?
+  notes        String?
+  kitchenNotes String?
+  sentAt       DateTime?
+  startedAt    DateTime?
+  readyAt      DateTime?
+  servedAt     DateTime?
+  cancelledAt  DateTime?
+  createdAt    DateTime                      @default(now())
+  updatedAt    DateTime                      @updatedAt
+  company      Company                       @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  order        RestaurantOrder               @relation(fields: [companyId, orderId], references: [companyId, id], onDelete: Restrict)
+  item         Item                          @relation(fields: [companyId, itemId], references: [companyId, id], onDelete: Restrict)
+  vatRate      VatRate                       @relation(fields: [companyId, vatRateId], references: [companyId, id], onDelete: Restrict)
+  modifiers    RestaurantOrderLineModifier[]
+  ticketLines  KitchenTicketLine[]
+  consumptions RecipeConsumption[]
+
+  @@unique([companyId, id])
+  @@index([companyId, orderId, status])
+}
+
+model RestaurantOrderLineModifier {
+  id          String              @id @default(cuid())
+  companyId   String
+  orderLineId String
+  itemId      String?
+  name        String
+  priceDelta  Decimal             @default(0) @db.Decimal(15, 2)
+  notes       String?
+  company     Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  orderLine   RestaurantOrderLine @relation(fields: [companyId, orderLineId], references: [companyId, id], onDelete: Cascade)
+  item        Item?               @relation(fields: [companyId, itemId], references: [companyId, id], onDelete: Restrict)
+
+  @@index([companyId, orderLineId])
+}
+
+model KitchenStation {
+  id          String                     @id @default(cuid())
+  companyId   String
+  locationId  String
+  code        String
+  name        String
+  description String?
+  active      Boolean                    @default(true)
+  sortOrder   Int                        @default(0)
+  createdAt   DateTime                   @default(now())
+  updatedAt   DateTime                   @updatedAt
+  company     Company                    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  location    Location                   @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+  assignments KitchenStationAssignment[]
+  tickets     KitchenTicket[]
+
+  @@unique([companyId, locationId, code])
+  @@unique([companyId, id])
+}
+
+model KitchenStationAssignment {
+  id               String         @id @default(cuid())
+  companyId        String
+  kitchenStationId String
+  itemId           String?
+  itemCategoryId   String?
+  priority         Int            @default(0)
+  active           Boolean        @default(true)
+  company          Company        @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  station          KitchenStation @relation(fields: [companyId, kitchenStationId], references: [companyId, id], onDelete: Cascade)
+  item             Item?          @relation(fields: [companyId, itemId], references: [companyId, id], onDelete: Restrict)
+  itemCategory     ItemCategory?  @relation(fields: [companyId, itemCategoryId], references: [companyId, id], onDelete: Restrict)
+
+  @@index([companyId, kitchenStationId, active])
+}
+
+model KitchenTicket {
+  id               String              @id @default(cuid())
+  companyId        String
+  locationId       String
+  kitchenStationId String
+  orderId          String
+  status           KitchenTicketStatus @default(NEW)
+  createdAt        DateTime            @default(now())
+  startedAt        DateTime?
+  completedAt      DateTime?
+  company          Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  location         Location            @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+  station          KitchenStation      @relation(fields: [companyId, kitchenStationId], references: [companyId, id], onDelete: Restrict)
+  order            RestaurantOrder     @relation(fields: [companyId, orderId], references: [companyId, id], onDelete: Restrict)
+  lines            KitchenTicketLine[]
+
+  @@unique([companyId, id])
+  @@index([companyId, kitchenStationId, status, createdAt])
+}
+
+model KitchenTicketLine {
+  id          String              @id @default(cuid())
+  companyId   String
+  ticketId    String
+  orderLineId String
+  status      KitchenTicketStatus @default(NEW)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  company     Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  ticket      KitchenTicket       @relation(fields: [companyId, ticketId], references: [companyId, id], onDelete: Cascade)
+  orderLine   RestaurantOrderLine @relation(fields: [companyId, orderLineId], references: [companyId, id], onDelete: Restrict)
+
+  @@unique([companyId, ticketId, orderLineId])
+  @@index([companyId, orderLineId])
+}
+
+model RecipeConsumption {
+  id                  String              @id @default(cuid())
+  companyId           String
+  locationId          String
+  orderId             String
+  orderLineId         String
+  recipeItemId        String
+  inventoryMovementId String
+  componentItemId     String
+  quantity            Decimal             @db.Decimal(15, 3)
+  createdAt           DateTime            @default(now())
+  company             Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  location            Location            @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+  order               RestaurantOrder     @relation(fields: [companyId, orderId], references: [companyId, id], onDelete: Restrict)
+  orderLine           RestaurantOrderLine @relation(fields: [companyId, orderLineId], references: [companyId, id], onDelete: Restrict)
+  recipeItem          Item                @relation("RecipeConsumptionRecipe", fields: [companyId, recipeItemId], references: [companyId, id], onDelete: Restrict)
+  componentItem       Item                @relation("RecipeConsumptionComponent", fields: [companyId, componentItemId], references: [companyId, id], onDelete: Restrict)
+  inventoryMovement   InventoryMovement   @relation(fields: [companyId, inventoryMovementId], references: [companyId, id], onDelete: Restrict)
+
+  @@unique([companyId, orderLineId, componentItemId])
+  @@index([companyId, orderId])
+  @@index([companyId, inventoryMovementId])
 }

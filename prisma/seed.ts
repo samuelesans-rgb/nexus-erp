@@ -38,7 +38,7 @@ const moduleDefinitions = [
     "Notifiche di sistema",
     "CORE",
     true,
-    "PLANNED",
+    "AVAILABLE",
   ],
   [MODULE_CODES.CORE_DASHBOARD, "Dashboard base", "CORE", true, "AVAILABLE"],
   [MODULE_CODES.CORE_PRODUCTS, "Prodotti e servizi", "SHARED", false, "AVAILABLE"],
@@ -66,31 +66,31 @@ const moduleDefinitions = [
     "Prenotazioni ristorante",
     "RESTAURANT",
     false,
-    "PLANNED",
+    "AVAILABLE",
   ],
-  [MODULE_CODES.RESTAURANT_MENU, "Menu", "RESTAURANT", false, "PLANNED"],
+  [MODULE_CODES.RESTAURANT_MENU, "Menu", "RESTAURANT", false, "AVAILABLE"],
   [
     MODULE_CODES.RESTAURANT_RECIPES,
     "Ricette e food cost",
     "RESTAURANT",
     false,
-    "PLANNED",
+    "AVAILABLE",
   ],
   [
     MODULE_CODES.RESTAURANT_FLOOR,
     "Sala e comande",
     "RESTAURANT",
     false,
-    "PLANNED",
+    "AVAILABLE",
   ],
-  [MODULE_CODES.RESTAURANT_KITCHEN, "Cucina", "RESTAURANT", false, "PLANNED"],
-  [MODULE_CODES.RESTAURANT_POS, "Cassa e POS", "RESTAURANT", false, "PLANNED"],
+  [MODULE_CODES.RESTAURANT_KITCHEN, "Cucina", "RESTAURANT", false, "AVAILABLE"],
+  [MODULE_CODES.RESTAURANT_POS, "Cassa e POS", "RESTAURANT", false, "AVAILABLE"],
   [
     MODULE_CODES.RESTAURANT_FOOD_INVENTORY,
     "Magazzino alimentare",
     "RESTAURANT",
     false,
-    "PLANNED",
+    "AVAILABLE",
   ],
   [
     MODULE_CODES.RESTAURANT_OMNICHANNEL,
@@ -223,7 +223,7 @@ async function main() {
       OR: [
         { mandatory: true },
         { status: "AVAILABLE", category: "CORE" },
-        { code: { in: [MODULE_CODES.CORE_PRODUCTS, MODULE_CODES.CORE_PRICE_LISTS, MODULE_CODES.CORE_PAYMENTS, MODULE_CODES.CORE_INVENTORY, MODULE_CODES.CORE_SALES, MODULE_CODES.CORE_PURCHASES, MODULE_CODES.CORE_TREASURY] } },
+        { code: { in: [MODULE_CODES.CORE_PRODUCTS, MODULE_CODES.CORE_PRICE_LISTS, MODULE_CODES.CORE_PAYMENTS, MODULE_CODES.CORE_INVENTORY, MODULE_CODES.CORE_SALES, MODULE_CODES.CORE_PURCHASES, MODULE_CODES.CORE_TREASURY, MODULE_CODES.RESTAURANT_RESERVATIONS, MODULE_CODES.RESTAURANT_MENU, MODULE_CODES.RESTAURANT_RECIPES, MODULE_CODES.RESTAURANT_FLOOR, MODULE_CODES.RESTAURANT_KITCHEN, MODULE_CODES.RESTAURANT_POS, MODULE_CODES.RESTAURANT_FOOD_INVENTORY] } },
       ],
     },
     select: { id: true },
@@ -707,6 +707,19 @@ async function main() {
     const bin = await prisma.warehouseBin.upsert({ where: { companyId_warehouseId_code: { companyId: company.id, warehouseId, code } }, update: { name, active: true, deletedAt: null }, create: { companyId: company.id, warehouseId, code, name } });
     bins.set(`${warehouseId}:${code}`, bin.id);
   }
+
+  const sala = await prisma.restaurantArea.upsert({ where: { companyId_locationId_code: { companyId: company.id, locationId: location.id, code: "SALA" } }, update: { name: "Sala", active: true, deletedAt: null }, create: { companyId: company.id, locationId: location.id, code: "SALA", name: "Sala", createdById: user.id, updatedById: user.id } });
+  const dehors = await prisma.restaurantArea.upsert({ where: { companyId_locationId_code: { companyId: company.id, locationId: location.id, code: "DEHORS" } }, update: { name: "Dehors", active: true, deletedAt: null }, create: { companyId: company.id, locationId: location.id, code: "DEHORS", name: "Dehors", sortOrder: 10, createdById: user.id, updatedById: user.id } });
+  const restaurantTables = [];
+  for (let index = 1; index <= 8; index++) restaurantTables.push(await prisma.restaurantTable.upsert({ where: { companyId_locationId_code: { companyId: company.id, locationId: location.id, code: `T${index}` } }, update: { name: `Tavolo ${index}`, active: true, deletedAt: null }, create: { companyId: company.id, locationId: location.id, areaId: index <= 6 ? sala.id : dehors.id, code: `T${index}`, name: `Tavolo ${index}`, seats: index % 3 === 0 ? 6 : 4 } }));
+  const kitchen = await prisma.kitchenStation.upsert({ where: { companyId_locationId_code: { companyId: company.id, locationId: location.id, code: "CUCINA" } }, update: { name: "Cucina", active: true }, create: { companyId: company.id, locationId: location.id, code: "CUCINA", name: "Cucina" } });
+  await prisma.kitchenStation.upsert({ where: { companyId_locationId_code: { companyId: company.id, locationId: location.id, code: "BAR" } }, update: { name: "Bar", active: true }, create: { companyId: company.id, locationId: location.id, code: "BAR", name: "Bar", sortOrder: 10 } });
+  await prisma.kitchenStationAssignment.upsert({ where: { id: "demo-restaurant-station-recipe" }, update: { active: true }, create: { id: "demo-restaurant-station-recipe", companyId: company.id, kitchenStationId: kitchen.id, itemId: recipe.id, priority: 100 } });
+  const menu = await prisma.restaurantMenu.upsert({ where: { companyId_code: { companyId: company.id, code: "PRINCIPALE" } }, update: { name: "Menu principale", active: true, deletedAt: null }, create: { companyId: company.id, locationId: location.id, code: "PRINCIPALE", name: "Menu principale" } });
+  for (const [id, name, sortOrder] of [["demo-menu-antipasti", "Antipasti", 10], ["demo-menu-primi", "Primi", 20], ["demo-menu-secondi", "Secondi", 30], ["demo-menu-bevande", "Bevande", 40], ["demo-menu-dolci", "Dolci", 50]] as const) await prisma.restaurantMenuSection.upsert({ where: { id }, update: { name, sortOrder, active: true }, create: { id, companyId: company.id, menuId: menu.id, name, sortOrder } });
+  await prisma.restaurantMenuItem.upsert({ where: { companyId_menuSectionId_itemId: { companyId: company.id, menuSectionId: "demo-menu-primi", itemId: recipe.id } }, update: { available: true, priceOverride: 8 }, create: { companyId: company.id, menuSectionId: "demo-menu-primi", itemId: recipe.id, priceOverride: 8 } });
+  await prisma.restaurantReservation.upsert({ where: { companyId_code: { companyId: company.id, code: "RES-DEMO-001" } }, update: {}, create: { companyId: company.id, locationId: location.id, code: "RES-DEMO-001", partnerId: demoCustomer.id, guestName: "Cliente Demo", reservationDate: new Date(), startTime: new Date(Date.now() + 3600000), partySize: 4, status: "CONFIRMED", source: "PHONE", createdById: user.id, updatedById: user.id, tables: { create: { tableId: restaurantTables[0].id } } } });
+  await prisma.restaurantOrder.upsert({ where: { companyId_locationId_code: { companyId: company.id, locationId: location.id, code: "ORD-DEMO-REST" } }, update: {}, create: { companyId: company.id, locationId: location.id, code: "ORD-DEMO-REST", tableId: restaurantTables[1].id, partnerId: demoCustomer.id, guestCount: 2, createdById: user.id, updatedById: user.id, lines: { create: { itemId: recipe.id, quantity: 2, unitPrice: 8, vatRateId: vatRates.get("IVA10") ?? vatRates.get("IVA22")! } } } });
   const expirationDate = new Date(); expirationDate.setDate(expirationDate.getDate() + 20);
   const demoLot = await prisma.inventoryLot.upsert({
     where: { companyId_itemId_lotNumber: { companyId: company.id, itemId: ingredient.id, lotNumber: "DEMO-LOT-001" } },
@@ -729,6 +742,7 @@ async function main() {
   const seriesSeeds = [
     ["DEMO", "Serie demo", "QUOTE", "DEMO-"],
     ["FATTURE", "Serie fatture", "SALES_INVOICE", "FT-"],
+    ["RIST-CONTO", "Conto Restaurant non fiscale", "SALES_RECEIPT", "RC-"],
     ["ORDINI", "Serie ordini", "SALES_ORDER", "ORD-"],
     ["PREVENTIVI", "Serie preventivi", "QUOTE", "PREV-"],
     ["DDT", "Serie DDT", "DELIVERY_NOTE", "DDT-"],

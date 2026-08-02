@@ -1,5 +1,7 @@
 # Nexus ERP
 
+Il primo verticale operativo è Restaurant MVP: sala, prenotazioni, menu, ricette e food cost, comande, cucina, consumi Inventory e chiusura conto Sales/Treasury. L'adapter fiscale incluso è Noop e non sostituisce un registratore telematico.
+
 Nexus ERP è una piattaforma gestionale italiana, multi-azienda e modulare. Un **Nexus Core** condiviso supporta tre verticali:
 
 - **Restaurant**, per prenotazioni, sala, cucina, menu e food cost;

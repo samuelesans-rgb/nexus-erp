@@ -1,5 +1,21 @@
 # Registro delle decisioni architetturali
 
+## ADR-029 — Restaurant come verticale sopra gli Engine Core
+
+Restaurant orchestra Partner, Item, Configuration, Inventory, Document, Sales, Treasury, Module Engine e DomainEvent Outbox. Ogni record operativo è scoped da Company e Location; `companyId` proviene esclusivamente dalla sessione. Non esistono anagrafiche o cataloghi verticali duplicati.
+
+## ADR-030 — Comanda separata da BusinessDocument
+
+`RestaurantOrder` è stato operativo e mutabile fino alla chiusura, non un documento commerciale. La chiusura genera una sola volta un `BusinessDocument` Sales posted collegato tramite `documentId`; `SALES_RECEIPT` rappresenta esclusivamente il conto interno non fiscale, mentre `SALES_INVOICE` viene usato quando è richiesta fattura. I documenti posted restano immutabili.
+
+## ADR-031 — Consumo ingredienti al servizio della riga
+
+Una riga RECIPE consuma componenti quando passa a `SERVED`. Ogni scarico usa l'API Inventory, genera un `RecipeConsumption` univoco per riga/componente e non scrive mai `StockBalance`. Lotto o seriale richiedono selezione esplicita. La mancata transazione multi-movimento è debito tecnico, mitigato da idempotenza e errori visibili.
+
+## ADR-032 — Fiscal adapter esterno e nessun RT proprietario nella V1
+
+`RestaurantFiscalAdapter` è il punto di integrazione futuro. `NoopRestaurantFiscalAdapter` non trasmette corrispettivi, non fiscalizza e non produce documenti fiscalmente validi.
+
 Gli ADR sono accettati come baseline di prodotto. Un cambiamento richiede un nuovo ADR che sostituisca il precedente, senza riscriverne la storia.
 
 ## ADR-001: una sola piattaforma, tre verticali

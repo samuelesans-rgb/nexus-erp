@@ -1,5 +1,9 @@
 # Roadmap di prodotto
 
+## Restaurant MVP — implementato
+
+Sala e tavoli, prenotazioni, menu, ricette/food cost, comande, Kitchen Display V1, consumi Inventory, chiusura conto Sales/Treasury, dashboard e adapter fiscale Noop. Restano futuri RT/POS reali, booking pubblico, delivery provider, WebSocket, worker Outbox e atomicità multi-componente Inventory.
+
 La roadmap definisce sequenza e criteri, non date contrattuali. L'ordine definitivo dei verticali è Restaurant, Beauty, Hotel. Ogni fase eredita i requisiti di sicurezza, tenancy, audit e qualità delle precedenti.
 
 ## Fase 0 — Fondazioni già presenti

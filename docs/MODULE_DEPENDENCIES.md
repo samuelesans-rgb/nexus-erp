@@ -1,5 +1,13 @@
 # Dipendenze fra moduli
 
+## Restaurant MVP
+
+- Reservations richiede Partner ma non Kitchen; Menu può operare senza Orders.
+- Recipes/Food Cost richiede Menu e Inventory.
+- Floor/Orders richiede Menu e Sales; Kitchen richiede Floor.
+- La chiusura conto richiede Documents, Sales, Payments e Treasury tramite `RESTAURANT_POS`.
+- Il consumo ingredienti richiede Recipes e Inventory e non accede direttamente a `StockBalance`.
+
 ## Regole invarianti
 
 1. `CORE_AUTH`, `CORE_COMPANIES`, `CORE_MEMBERSHIPS`, `CORE_LOCATIONS`, `CORE_ROLES_PERMISSIONS`, `CORE_MODULES`, `CORE_PARTNERS`, `CORE_DOCUMENTS`, `CORE_AUDIT`, `CORE_NOTIFICATIONS` e `CORE_DASHBOARD` sono sempre attivi.

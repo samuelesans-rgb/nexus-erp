@@ -1,0 +1,6 @@
+import "server-only";
+import { prisma } from "@/lib/prisma";
+export async function getFoodCost(companyId:string, recipeItemId?:string) {
+  const recipes=await prisma.item.findMany({where:{companyId,type:"RECIPE",active:true,deletedAt:null,id:recipeItemId},include:{recipeProfile:true,recipeComponents:{where:{deletedAt:null},include:{componentItem:{include:{stockBalances:true}}},orderBy:{sortOrder:"asc"}}}});
+  return recipes.map(recipe=>{const portions=Number(recipe.recipeProfile?.portions||1);let missing=false;let producible=true;const components=recipe.recipeComponents.map(c=>{const average=c.componentItem.stockBalances.length?c.componentItem.stockBalances.reduce((s,b)=>s+Number(b.averageCost),0)/c.componentItem.stockBalances.length:Number(c.componentItem.standardCost||0);if(!average)missing=true;const gross=Number(c.quantity)*(1+Number(c.wastePercentage||0)/100);const available=c.componentItem.stockBalances.reduce((s,b)=>s+Number(b.quantity),0);if(c.componentItem.stockManaged&&available<gross)producible=false;return {...c,cost:gross*average,available};});const cost=components.reduce((s,c)=>s+c.cost,0),perPortion=cost/portions,price=Number(recipe.salePrice||0);return{recipe,components,cost,perPortion,foodCostPercent:price?perPortion/price*100:0,margin:price-perPortion,missingCost:missing,producible};});
+}

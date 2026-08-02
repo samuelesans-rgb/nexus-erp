@@ -1,5 +1,9 @@
 # Architettura di Nexus ERP
 
+## Restaurant Engine MVP
+
+Restaurant è un application layer sopra gli Engine Core. Prenotazione, sala, menu, comanda e cucina appartengono al verticale; Partner, Item/Recipe, giacenze, documenti e movimenti finanziari restano dei rispettivi engine. Il flusso è `Reservation → Order → KitchenTicket → served/Inventory consumption → BusinessDocument Sales → Treasury receipt`. Gli eventi sono persistiti in `DomainEvent`; nessun worker Outbox è incluso. Il realtime cucina usa refresh/polling semplice.
+
 ## Stato e obiettivo
 
 Nexus ERP è un'applicazione web TypeScript basata su Next.js 16 App Router, React 19, Auth.js, Prisma 7 e PostgreSQL. Lo schema attuale contiene identità, Company, Membership, ruoli, Partner, catalogo Item, Configuration Engine, sedi, Inventory Engine, Unified Document Engine, Sales Engine, Purchasing Engine e Treasury Engine, oltre all'attivazione moduli per Company. Gran parte dei verticali descritti qui resta architettura target.
