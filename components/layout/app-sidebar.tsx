@@ -30,6 +30,9 @@ export default async function AppSidebar() {
   if (activeCodes.has(MODULE_CODES.CORE_PURCHASES) && session?.user?.roles.some((role) => ["SUPER_ADMIN", "ADMIN", "MANAGER", "ACCOUNTANT", "WAREHOUSE"].includes(role))) {
     items.push({ label: "Acquisti", href: "/purchases" });
   }
+  if (activeCodes.has(MODULE_CODES.CORE_TREASURY) && session?.user?.roles.some((role) => ["SUPER_ADMIN", "ADMIN", "MANAGER", "ACCOUNTANT", "SALES"].includes(role))) {
+    items.push({ label: "Tesoreria", href: session?.user?.roles.includes("SALES") ? "/treasury/receivables" : "/treasury" });
+  }
   if (
     activeCodes.has(MODULE_CODES.CORE_MODULES) &&
     session?.user?.roles.some((role) =>

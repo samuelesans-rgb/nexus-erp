@@ -22,7 +22,7 @@ La roadmap definisce sequenza e criteri, non date contrattuali. L'ordine definit
 
 **Dipendenze.** Fase 0.
 
-**Deliverable.** Sistema moduli e bundle; Configuration Engine condiviso per categorie, unità, IVA, listini, metodi e condizioni di pagamento; più sedi per Company; Inventory Engine con magazzini, ubicazioni, lotti/seriali, ledger, trasferimenti, inventari, saldi e outbox; Unified Document Engine con serie, workflow e outbox; Sales Engine con ciclo attivo; Purchasing Engine con ordini fornitori, ricezioni, fatture passive, resi, genealogia e movimenti Inventory; assegnazioni utenti-sedi e sede attiva; ruoli e permessi granulari; Partner completo; catalogo Item condiviso; allegati; audit minimo; notifiche; dashboard; email SMTP ed Excel/CSV.
+**Deliverable.** Sistema moduli e bundle; Configuration Engine condiviso per categorie, unità, IVA, listini, metodi e condizioni di pagamento; più sedi per Company; Inventory Engine con magazzini, ubicazioni, lotti/seriali, ledger, trasferimenti, inventari, saldi e outbox; Unified Document Engine con serie, workflow e outbox; Sales Engine con ciclo attivo; Purchasing Engine con ordini fornitori, ricezioni, fatture passive, resi, genealogia e movimenti Inventory; Treasury Engine V1 con conti finanziari, scadenzario, incassi/pagamenti, insoluti, giroconti, riconciliazione manuale e cash flow derivato; assegnazioni utenti-sedi e sede attiva; ruoli e permessi granulari; Partner completo; catalogo Item condiviso; allegati; audit minimo; notifiche; dashboard; email SMTP ed Excel/CSV.
 
 **Completamento.** Core obbligatorio attivo; bundle conviventi e moduli singoli attivabili; controlli tenant/modulo/permesso/sede su route e mutazioni; utenti multi-sede; magazzini, casse, prenotazioni e report scoped per sede; nessuna funzione inattiva visibile; audit dei casi critici; test di isolamento.
 
@@ -78,7 +78,7 @@ La roadmap definisce sequenza e criteri, non date contrattuali. L'ordine definit
 
 **Dipendenze.** Core operativo stabilizzato e contratti documentali dei verticali.
 
-**Deliverable.** Vendite, acquisti, fatturazione elettronica tramite provider esterno, prima nota, incassi e pagamenti, scadenziario, riconciliazione bancaria, report essenziali, export per commercialista e open banking.
+**Deliverable.** Consolidamento Treasury già disponibile; fatturazione elettronica tramite provider esterno; prima nota e Accounting Engine separato; report essenziali; export per commercialista; open banking successivo alla riconciliazione manuale V1.
 
 **Completamento.** Cicli attivo/passivo riconciliabili; prima nota e scadenziario verificabili; riconciliazione bancaria operativa; export validato con commercialisti; numerazioni e regole temporali corrette; trasmissioni idempotenti e osservabili.
 

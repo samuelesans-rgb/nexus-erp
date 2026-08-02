@@ -2,6 +2,7 @@ import "server-only";
 
 import { Prisma, type DocumentStatus, type DocumentType } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
+import { generateSchedulesForPostedDocument } from "@/lib/treasury";
 
 export class DocumentDomainError extends Error { constructor(message: string) { super(message); this.name = "DocumentDomainError"; } }
 
@@ -9,10 +10,8 @@ export type DocumentLineInput = { itemId: string; description?: string | null; q
 export type DraftInput = { seriesId: string; partnerId: string; documentDate: Date; currency?: string; exchangeRate?: number; warehouseId?: string | null; locationId?: string | null; paymentMethodId?: string | null; paymentTermId?: string | null; priceListId?: string | null; notes?: string | null; internalNotes?: string | null; lines: DocumentLineInput[] };
 
 async function emit(tx: Prisma.TransactionClient, companyId: string, userId: string, documentId: string, eventType: string, fromStatus: DocumentStatus | null, toStatus: DocumentStatus, payload: Prisma.InputJsonValue = {}) {
-  await Promise.all([
-    tx.documentEvent.create({ data: { companyId, documentId, eventType, fromStatus, toStatus, payload, createdById: userId } }),
-    tx.domainEvent.create({ data: { companyId, eventType, aggregateType: "BusinessDocument", aggregateId: documentId, payload: { documentId, fromStatus, toStatus, ...payload as object }, occurredAt: new Date() } }),
-  ]);
+  await tx.documentEvent.create({ data: { companyId, documentId, eventType, fromStatus, toStatus, payload, createdById: userId } });
+  await tx.domainEvent.create({ data: { companyId, eventType, aggregateType: "BusinessDocument", aggregateId: documentId, payload: { documentId, fromStatus, toStatus, ...payload as object }, occurredAt: new Date() } });
 }
 
 async function allocateNumber(tx: Prisma.TransactionClient, companyId: string, seriesId: string) {
@@ -68,7 +67,7 @@ export async function createDraft(companyId: string, userId: string, input: Draf
 
 export async function updateDraft(companyId: string, userId: string, documentId: string, input: Omit<DraftInput, "seriesId">) { return prisma.$transaction(async (tx) => { const document = await tx.businessDocument.findFirst({ where: { id: documentId, companyId, status: "DRAFT", deletedAt: null }, select: { id: true } }); if (!document) throw new DocumentDomainError("Solo un documento Draft può essere modificato."); const header = await validateHeader(tx, companyId, { ...input, seriesId: "" }); const totals = await prepareLines(tx, companyId, input.lines); await tx.businessDocumentLine.deleteMany({ where: { companyId, documentId } }); await tx.businessDocument.update({ where: { id: document.id }, data: { ...header, subtotal: totals.subtotal, discount: totals.discount, tax: totals.tax, total: totals.total, updatedById: userId, lines: { create: totals.lines } } }); return { id: document.id }; }, { isolationLevel: "Serializable", timeout: 15000 }); }
 
-async function transition(companyId: string, userId: string, documentId: string, from: DocumentStatus, to: DocumentStatus, eventType: string) { return prisma.$transaction(async (tx) => { const document = await tx.businessDocument.findFirst({ where: { id: documentId, companyId, status: from, deletedAt: null }, select: { id: true, lines: { select: { id: true }, take: 1 } } }); if (!document || (to === "CONFIRMED" && !document.lines.length)) throw new DocumentDomainError(`Transizione ${from} → ${to} non consentita.`); await tx.businessDocument.update({ where: { id: document.id }, data: { status: to, postingDate: to === "POSTED" ? new Date() : undefined, updatedById: userId } }); await emit(tx, companyId, userId, document.id, eventType, from, to); return { id: document.id }; }); }
+async function transition(companyId: string, userId: string, documentId: string, from: DocumentStatus, to: DocumentStatus, eventType: string) { return prisma.$transaction(async (tx) => { const document = await tx.businessDocument.findFirst({ where: { id: documentId, companyId, status: from, deletedAt: null }, select: { id: true, lines: { select: { id: true }, take: 1 } } }); if (!document || (to === "CONFIRMED" && !document.lines.length)) throw new DocumentDomainError(`Transizione ${from} → ${to} non consentita.`); if (to === "POSTED") await generateSchedulesForPostedDocument(tx, companyId, userId, document.id); await tx.businessDocument.update({ where: { id: document.id }, data: { status: to, postingDate: to === "POSTED" ? new Date() : undefined, updatedById: userId } }); await emit(tx, companyId, userId, document.id, eventType, from, to); return { id: document.id }; }); }
 export const confirmDocument = (companyId: string, userId: string, id: string) => transition(companyId, userId, id, "DRAFT", "CONFIRMED", "DocumentConfirmed");
 export const postDocument = (companyId: string, userId: string, id: string) => transition(companyId, userId, id, "CONFIRMED", "POSTED", "DocumentPosted");
 export const closeDocument = (companyId: string, userId: string, id: string) => transition(companyId, userId, id, "POSTED", "CLOSED", "DocumentClosed");

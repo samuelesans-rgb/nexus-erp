@@ -2,7 +2,7 @@
 
 ## Stato e obiettivo
 
-Nexus ERP è un'applicazione web TypeScript basata su Next.js 16 App Router, React 19, Auth.js, Prisma 7 e PostgreSQL. Lo schema attuale contiene identità, Company, Membership, ruoli, Partner, catalogo Item, Configuration Engine, sedi, Inventory Engine, Unified Document Engine, Sales Engine e Purchasing Engine, oltre all'attivazione moduli per Company. Gran parte dei verticali descritti qui resta architettura target.
+Nexus ERP è un'applicazione web TypeScript basata su Next.js 16 App Router, React 19, Auth.js, Prisma 7 e PostgreSQL. Lo schema attuale contiene identità, Company, Membership, ruoli, Partner, catalogo Item, Configuration Engine, sedi, Inventory Engine, Unified Document Engine, Sales Engine, Purchasing Engine e Treasury Engine, oltre all'attivazione moduli per Company. Gran parte dei verticali descritti qui resta architettura target.
 
 `prisma/schema.prisma` resta il riferimento eseguibile; `docs/database/schema.dbml` ne documenta la struttura relazionale corrente.
 
@@ -268,6 +268,26 @@ flowchart LR
 ```
 
 Il servizio valida fornitore, Item acquistabili, quantità residue, UOM, IVA e magazzino. I movimenti usano costo riga e riferimenti idempotenti; `StockBalance` è aggiornato soltanto da Inventory. Il posting multi-riga è recuperabile ma non ancora atomico fra documento e tutti i movimenti: un retry completa soltanto le righe mancanti.
+
+## Treasury Engine
+
+`CORE_TREASURY` orchestra Partner, configurazioni di pagamento, Document, Sales e Purchasing senza introdurre contabilità generale. `PaymentSchedule` rappresenta crediti e debiti, può derivare idempotentemente da fatture posted o essere inserita manualmente; le rate usano la `PaymentTerm` e devono totalizzare il 100%. `FinancialMovement` è il ledger append-only di incassi, pagamenti, giroconti, rettifiche e storni. `FinancialAllocation` collega un movimento a una scadenza e consente pagamenti parziali senza riscrivere il ledger.
+
+```mermaid
+flowchart LR
+  D[Documento confermato] --> P[Posting atomico]
+  P --> S[PaymentSchedule]
+  S --> A[FinancialAllocation]
+  M[FinancialMovement posted] --> A
+  M --> B[Saldo conto derivato]
+  T[FinancialTransfer] --> O[TRANSFER_OUT]
+  T --> I[TRANSFER_IN]
+  L[BankStatementLine] -->|match manuale| M
+  S --> F[Cash flow 30/60/90]
+  M --> E[DomainEvent Outbox]
+```
+
+Route e Server Action derivano Company e attore dalla sessione, richiedono `CORE_TREASURY` e applicano capacità per ruolo; `WAREHOUSE` è escluso. Sales e Purchasing disattivati non impediscono scadenze manuali e movimenti, ma bloccano la generazione automatica dalla rispettiva sorgente. Incassi, pagamenti e trasferimenti completati sono immutabili; le correzioni usano un reversal compensativo univoco. La riconciliazione V1 importa dati manuali e consente match/unmatch esatti. Il cash flow è una query derivata da saldi e residui aperti: non è una scrittura contabile, non usa PSD2 e non comprende ancora feed bancari, CAMT/MT940 completi o movimenti pianificati esterni.
 
 ## Criteri di qualità architetturale
 

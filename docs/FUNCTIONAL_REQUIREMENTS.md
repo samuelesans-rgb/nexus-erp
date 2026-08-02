@@ -192,4 +192,6 @@ Il Sales Engine orchestra il ciclo attivo `QUOTE → SALES_ORDER → DELIVERY_NO
 
 Il Purchasing Engine orchestra `PURCHASE_ORDER → GOODS_RECEIPT → PURCHASE_INVOICE`, oltre a fattura diretta, reso e nota di credito. Richiede fornitore attivo, Item acquistabili, righe positive, UOM/IVA coerenti e magazzino per stock-managed. Le conversioni non possono superare il residuo. Ricezioni e resi posted invocano Inventory con `RECEIPT` e `RETURN_OUT`; servizi e fatture passive non generano stock o contabilità. Documenti Posted e doppi posting sono bloccati.
 
+Il Treasury Engine V1 gestisce conti banca/cassa/carta/PayPal/altro, crediti e debiti, incassi, pagamenti parziali, insoluti, trasferimenti interni, saldi derivati, riconciliazione manuale e cash flow 30/60/90. Le fatture posted generano scadenze idempotenti usando metodo e condizione di pagamento; rate invalide sono rifiutate. Un movimento posted non è modificabile o eliminabile e può essere corretto soltanto con reversal compensativo. Nessuna action accetta `companyId`; route, query e riferimenti applicano tenant, modulo e ruolo lato server. `WAREHOUSE` non accede a Treasury. Non rientrano nella V1 contabilità generale, PSD2/open banking, CAMT/MT940 completo, bonifici reali, matching AI o worker Outbox.
+
 Vedere [Catalogo moduli](MODULE_CATALOG.md), [Dipendenze](MODULE_DEPENDENCIES.md) e [Roadmap](ROADMAP.md).

@@ -36,6 +36,13 @@ flowchart TD
     PA --> PU[CORE_PURCHASES]
     PR --> PU
     PR --> IN[CORE_INVENTORY]
+    PA --> PY[CORE_PAYMENTS]
+    DO --> PY
+    PY --> TR[CORE_TREASURY]
+    PA --> TR
+    DO --> TR
+    SA -. scadenze attive se modulo attivo .-> TR
+    PU -. scadenze passive se modulo attivo .-> TR
 
     PA --> RR[Restaurant]
     PR --> RR
@@ -70,6 +77,7 @@ Il collegamento traduce un conto Restaurant in un addebito Hotel attraverso un c
 | Sales Engine | Partner, Prodotti/Servizi, Unified Document Engine | Inventory per posting DDT stock-managed; Pagamenti per incasso futuro |
 | Purchasing Engine | Partner, Prodotti/Servizi, Unified Document Engine | Inventory per ricezioni e resi fisici; servizi acquistabili senza Inventory |
 | Inventory Engine | Prodotti/Servizi | Sales, Purchases e verticali invocano il servizio o consumano l'outbox; nessuno scrive direttamente `StockBalance` |
+| Treasury Engine | Pagamenti, Partner, Unified Document Engine | Sales genera crediti e Purchasing genera debiti soltanto quando attivi; movimenti e scadenze manuali restano autonomi |
 | CRM | Partner, Notifiche | Integrazioni |
 | Restaurant | Partner, Prodotti/Servizi | Magazzino per ricette con scarico; Pagamenti/Integrazioni per POS |
 | Hotel | Partner, Prodotti/Servizi | Documenti/Pagamenti per Front Desk; Restaurant per addebito camera |

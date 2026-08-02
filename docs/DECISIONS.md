@@ -252,4 +252,28 @@ Gli ADR sono accettati come baseline di prodotto. Un cambiamento richiede un nuo
 
 **Alternative rifiutate.** Scrittura diretta dei saldi; movimenti per servizi; fallimenti parziali silenziosi; riscrittura invasiva di Inventory.
 
+## ADR-026: Treasury separato dalla contabilità generale
+
+**Contesto.** Liquidità, incassi e pagamenti servono prima di piano dei conti, prima nota e scritture contabili complete.
+
+**Decisione.** `CORE_TREASURY` governa conti finanziari, scadenze, movimenti, riconciliazione e previsioni senza creare registrazioni contabili. I saldi sono derivati dal ledger finanziario e dal saldo iniziale.
+
+**Conseguenze.** Treasury può evolvere autonomamente e fornire eventi a un futuro Accounting Engine. La V1 non include piano dei conti, IVA, bilancio o adempimenti fiscali.
+
+## ADR-027: scadenzario derivato dai documenti posted
+
+**Contesto.** Fatture attive e passive hanno già Partner, totale, valuta e condizioni di pagamento; copiarne le regole produrrebbe scadenze divergenti.
+
+**Decisione.** Il posting di `SALES_INVOICE`, `PURCHASE_INVOICE` e `CREDIT_NOTE` genera `PaymentSchedule` nella stessa transazione, soltanto se Treasury e il modulo sorgente sono attivi. La chiave documento/rata garantisce idempotenza; le rate riusano `PaymentTerm` e devono totalizzare il 100%. Sono ammesse scadenze manuali autorizzate.
+
+**Conseguenze.** Un fallimento nella generazione impedisce il posting e non lascia documenti senza scadenzario. La disattivazione Sales o Purchasing ferma soltanto la relativa automazione.
+
+## ADR-028: financial ledger immutabile e reversal compensativo
+
+**Contesto.** Modificare un incasso o pagamento posted compromette saldi, allocazioni e riconciliazione.
+
+**Decisione.** `FinancialMovement` è append-only. Le correzioni creano un solo `REVERSAL` collegato all'originale, riaprono le allocazioni interessate e non cancellano dati. I trasferimenti completano atomicamente una gamba OUT e una IN.
+
+**Conseguenze.** Saldi e storico sono ricostruibili. La riconciliazione abbina righe bancarie a movimenti senza trasformarle in scritture contabili.
+
 Vedere [Visione](VISION.md), [Architettura](ARCHITECTURE.md) e [Roadmap](ROADMAP.md).

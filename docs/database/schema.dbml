@@ -844,3 +844,177 @@ Table DocumentLink {
     (companyId, targetDocumentId, createdAt)
   }
 }
+
+Enum FinancialAccountType {
+  BANK
+  CASH
+  CARD
+  PAYPAL
+  OTHER
+}
+Enum PaymentScheduleDirection {
+  RECEIVABLE
+  PAYABLE
+}
+Enum PaymentScheduleStatus {
+  OPEN
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  CANCELLED
+  DISPUTED
+}
+Enum FinancialMovementType {
+  CUSTOMER_RECEIPT
+  SUPPLIER_PAYMENT
+  TRANSFER_OUT
+  TRANSFER_IN
+  FEE
+  INTEREST
+  REFUND_IN
+  REFUND_OUT
+  OPENING
+  ADJUSTMENT
+  REVERSAL
+}
+Enum FinancialMovementDirection {
+  IN
+  OUT
+}
+Enum FinancialTransferStatus {
+  DRAFT
+  COMPLETED
+  CANCELLED
+}
+Enum BankStatementStatus {
+  IMPORTED
+  PARTIALLY_RECONCILED
+  RECONCILED
+}
+Enum ReconciliationStatus {
+  UNMATCHED
+  MATCHED
+}
+
+Table FinancialAccount {
+  id varchar [pk]
+  companyId varchar [not null, ref: > Company.id]
+  code varchar [not null]
+  name varchar [not null]
+  type FinancialAccountType [not null]
+  currency varchar [not null, default: "EUR"]
+  iban varchar
+  bic varchar
+  bankName varchar
+  openingBalance decimal [not null, default: 0]
+  allowOverdraft boolean [not null, default: false]
+  active boolean [not null, default: true]
+  deletedAt timestamp
+  createdById varchar [not null, ref: > User.id]
+  updatedById varchar [not null, ref: > User.id]
+  createdAt timestamp [not null]
+  updatedAt timestamp [not null]
+  indexes { (companyId, code) [unique] (companyId, id) [unique] }
+}
+
+Table PaymentSchedule {
+  id varchar [pk]
+  companyId varchar [not null, ref: > Company.id]
+  partnerId varchar [not null, ref: > Partner.id]
+  documentId varchar [ref: > BusinessDocument.id]
+  installmentNumber int [not null, default: 1]
+  documentType DocumentType
+  direction PaymentScheduleDirection [not null]
+  dueDate timestamp [not null]
+  amount decimal [not null]
+  residualAmount decimal [not null]
+  currency varchar [not null, default: "EUR"]
+  status PaymentScheduleStatus [not null]
+  paymentMethodId varchar [ref: > PaymentMethod.id]
+  paymentTermId varchar [ref: > PaymentTerm.id]
+  notes varchar
+  createdById varchar [not null, ref: > User.id]
+  updatedById varchar [not null, ref: > User.id]
+  deletedAt timestamp
+  createdAt timestamp [not null]
+  updatedAt timestamp [not null]
+  indexes { (companyId, documentId, installmentNumber) [unique] (companyId, id) [unique] (companyId, direction, status, dueDate) }
+}
+
+Table FinancialMovement {
+  id varchar [pk]
+  companyId varchar [not null, ref: > Company.id]
+  financialAccountId varchar [not null, ref: > FinancialAccount.id]
+  partnerId varchar [ref: > Partner.id]
+  paymentScheduleId varchar [ref: > PaymentSchedule.id]
+  documentId varchar [ref: > BusinessDocument.id]
+  movementType FinancialMovementType [not null]
+  direction FinancialMovementDirection [not null]
+  amount decimal [not null]
+  currency varchar [not null]
+  exchangeRate decimal [not null]
+  occurredAt timestamp [not null]
+  valueDate timestamp
+  reference varchar
+  notes varchar
+  postedAt timestamp [not null]
+  postedById varchar [not null, ref: > User.id]
+  reversalOfId varchar [unique, ref: > FinancialMovement.id]
+  createdAt timestamp [not null]
+  indexes { (companyId, id) [unique] (companyId, financialAccountId, occurredAt) }
+}
+
+Table FinancialAllocation {
+  id varchar [pk]
+  companyId varchar [not null, ref: > Company.id]
+  movementId varchar [not null, ref: > FinancialMovement.id]
+  scheduleId varchar [not null, ref: > PaymentSchedule.id]
+  amount decimal [not null]
+  reversedAt timestamp
+  createdAt timestamp [not null]
+  indexes { (companyId, movementId, scheduleId) [unique] }
+}
+
+Table FinancialTransfer {
+  id varchar [pk]
+  companyId varchar [not null, ref: > Company.id]
+  sourceAccountId varchar [not null, ref: > FinancialAccount.id]
+  destinationAccountId varchar [not null, ref: > FinancialAccount.id]
+  amount decimal [not null]
+  currency varchar [not null]
+  transferDate timestamp [not null]
+  status FinancialTransferStatus [not null]
+  createdById varchar [not null, ref: > User.id]
+  completedById varchar [ref: > User.id]
+  createdAt timestamp [not null]
+  completedAt timestamp
+  indexes { (companyId, id) [unique] }
+}
+
+Table BankStatement {
+  id varchar [pk]
+  companyId varchar [not null, ref: > Company.id]
+  financialAccountId varchar [not null, ref: > FinancialAccount.id]
+  statementDate timestamp [not null]
+  openingBalance decimal [not null]
+  closingBalance decimal [not null]
+  status BankStatementStatus [not null]
+  createdAt timestamp [not null]
+  updatedAt timestamp [not null]
+  indexes { (companyId, financialAccountId, statementDate) [unique] (companyId, id) [unique] }
+}
+
+Table BankStatementLine {
+  id varchar [pk]
+  companyId varchar [not null, ref: > Company.id]
+  bankStatementId varchar [not null, ref: > BankStatement.id]
+  transactionDate timestamp [not null]
+  valueDate timestamp
+  amount decimal [not null]
+  description varchar [not null]
+  reference varchar
+  matchedMovementId varchar [ref: > FinancialMovement.id]
+  reconciliationStatus ReconciliationStatus [not null]
+  createdAt timestamp [not null]
+  indexes { (companyId, id) [unique] (companyId, matchedMovementId) [unique] }
+}

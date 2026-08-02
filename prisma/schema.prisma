@@ -117,6 +117,64 @@ enum DocumentLinkType {
   PURCHASE_RETURN_TO_CREDIT_NOTE
 }
 
+enum FinancialAccountType {
+  BANK
+  CASH
+  CARD
+  PAYPAL
+  OTHER
+}
+
+enum PaymentScheduleDirection {
+  RECEIVABLE
+  PAYABLE
+}
+
+enum PaymentScheduleStatus {
+  OPEN
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  CANCELLED
+  DISPUTED
+}
+
+enum FinancialMovementType {
+  CUSTOMER_RECEIPT
+  SUPPLIER_PAYMENT
+  TRANSFER_OUT
+  TRANSFER_IN
+  FEE
+  INTEREST
+  REFUND_IN
+  REFUND_OUT
+  OPENING
+  ADJUSTMENT
+  REVERSAL
+}
+
+enum FinancialMovementDirection {
+  IN
+  OUT
+}
+
+enum FinancialTransferStatus {
+  DRAFT
+  COMPLETED
+  CANCELLED
+}
+
+enum BankStatementStatus {
+  IMPORTED
+  PARTIALLY_RECONCILED
+  RECONCILED
+}
+
+enum ReconciliationStatus {
+  UNMATCHED
+  MATCHED
+}
+
 model Company {
   id        String  @id @default(cuid())
   name      String
@@ -163,6 +221,13 @@ model Company {
   documentAttachments    DocumentAttachment[]
   documentEvents         DocumentEvent[]
   documentLinks          DocumentLink[]
+  financialAccounts      FinancialAccount[]
+  paymentSchedules       PaymentSchedule[]
+  financialMovements     FinancialMovement[]
+  financialAllocations   FinancialAllocation[]
+  financialTransfers     FinancialTransfer[]
+  bankStatements         BankStatement[]
+  bankStatementLines     BankStatementLine[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -222,36 +287,43 @@ model User {
   locale   String @default("it-IT")
   timeZone String @default("Europe/Rome")
 
-  memberships              Membership[]
-  partnersCreated          Partner[]           @relation("PartnerCreatedBy")
-  partnersUpdated          Partner[]           @relation("PartnerUpdatedBy")
-  itemsCreated             Item[]              @relation("ItemCreatedBy")
-  itemsUpdated             Item[]              @relation("ItemUpdatedBy")
-  itemCategoriesCreated    ItemCategory[]      @relation("ItemCategoryCreatedBy")
-  itemCategoriesUpdated    ItemCategory[]      @relation("ItemCategoryUpdatedBy")
-  unitsCreated             UnitOfMeasure[]     @relation("UnitOfMeasureCreatedBy")
-  unitsUpdated             UnitOfMeasure[]     @relation("UnitOfMeasureUpdatedBy")
-  vatRatesCreated          VatRate[]           @relation("VatRateCreatedBy")
-  vatRatesUpdated          VatRate[]           @relation("VatRateUpdatedBy")
-  priceListsCreated        PriceList[]         @relation("PriceListCreatedBy")
-  priceListsUpdated        PriceList[]         @relation("PriceListUpdatedBy")
-  priceListItemsCreated    PriceListItem[]     @relation("PriceListItemCreatedBy")
-  priceListItemsUpdated    PriceListItem[]     @relation("PriceListItemUpdatedBy")
-  paymentMethodsCreated    PaymentMethod[]     @relation("PaymentMethodCreatedBy")
-  paymentMethodsUpdated    PaymentMethod[]     @relation("PaymentMethodUpdatedBy")
-  paymentTermsCreated      PaymentTerm[]       @relation("PaymentTermCreatedBy")
-  paymentTermsUpdated      PaymentTerm[]       @relation("PaymentTermUpdatedBy")
-  warehousesCreated        Warehouse[]         @relation("WarehouseCreatedBy")
-  warehousesUpdated        Warehouse[]         @relation("WarehouseUpdatedBy")
-  inventoryMovementsPosted InventoryMovement[] @relation("InventoryMovementPostedBy")
-  transfersCreated         InventoryTransfer[] @relation("InventoryTransferCreatedBy")
-  transfersCompleted       InventoryTransfer[] @relation("InventoryTransferCompletedBy")
-  countsCreated            InventoryCount[]    @relation("InventoryCountCreatedBy")
-  countsPosted             InventoryCount[]    @relation("InventoryCountPostedBy")
-  documentsCreated         BusinessDocument[]  @relation("BusinessDocumentCreatedBy")
-  documentsUpdated         BusinessDocument[]  @relation("BusinessDocumentUpdatedBy")
-  documentEventsCreated    DocumentEvent[]     @relation("DocumentEventCreatedBy")
-  documentLinksCreated     DocumentLink[]      @relation("DocumentLinkCreatedBy")
+  memberships                 Membership[]
+  partnersCreated             Partner[]           @relation("PartnerCreatedBy")
+  partnersUpdated             Partner[]           @relation("PartnerUpdatedBy")
+  itemsCreated                Item[]              @relation("ItemCreatedBy")
+  itemsUpdated                Item[]              @relation("ItemUpdatedBy")
+  itemCategoriesCreated       ItemCategory[]      @relation("ItemCategoryCreatedBy")
+  itemCategoriesUpdated       ItemCategory[]      @relation("ItemCategoryUpdatedBy")
+  unitsCreated                UnitOfMeasure[]     @relation("UnitOfMeasureCreatedBy")
+  unitsUpdated                UnitOfMeasure[]     @relation("UnitOfMeasureUpdatedBy")
+  vatRatesCreated             VatRate[]           @relation("VatRateCreatedBy")
+  vatRatesUpdated             VatRate[]           @relation("VatRateUpdatedBy")
+  priceListsCreated           PriceList[]         @relation("PriceListCreatedBy")
+  priceListsUpdated           PriceList[]         @relation("PriceListUpdatedBy")
+  priceListItemsCreated       PriceListItem[]     @relation("PriceListItemCreatedBy")
+  priceListItemsUpdated       PriceListItem[]     @relation("PriceListItemUpdatedBy")
+  paymentMethodsCreated       PaymentMethod[]     @relation("PaymentMethodCreatedBy")
+  paymentMethodsUpdated       PaymentMethod[]     @relation("PaymentMethodUpdatedBy")
+  paymentTermsCreated         PaymentTerm[]       @relation("PaymentTermCreatedBy")
+  paymentTermsUpdated         PaymentTerm[]       @relation("PaymentTermUpdatedBy")
+  warehousesCreated           Warehouse[]         @relation("WarehouseCreatedBy")
+  warehousesUpdated           Warehouse[]         @relation("WarehouseUpdatedBy")
+  inventoryMovementsPosted    InventoryMovement[] @relation("InventoryMovementPostedBy")
+  transfersCreated            InventoryTransfer[] @relation("InventoryTransferCreatedBy")
+  transfersCompleted          InventoryTransfer[] @relation("InventoryTransferCompletedBy")
+  countsCreated               InventoryCount[]    @relation("InventoryCountCreatedBy")
+  countsPosted                InventoryCount[]    @relation("InventoryCountPostedBy")
+  documentsCreated            BusinessDocument[]  @relation("BusinessDocumentCreatedBy")
+  documentsUpdated            BusinessDocument[]  @relation("BusinessDocumentUpdatedBy")
+  documentEventsCreated       DocumentEvent[]     @relation("DocumentEventCreatedBy")
+  documentLinksCreated        DocumentLink[]      @relation("DocumentLinkCreatedBy")
+  financialAccountsCreated    FinancialAccount[]  @relation("FinancialAccountCreatedBy")
+  financialAccountsUpdated    FinancialAccount[]  @relation("FinancialAccountUpdatedBy")
+  paymentSchedulesCreated     PaymentSchedule[]   @relation("PaymentScheduleCreatedBy")
+  paymentSchedulesUpdated     PaymentSchedule[]   @relation("PaymentScheduleUpdatedBy")
+  financialMovementsPosted    FinancialMovement[] @relation("FinancialMovementPostedBy")
+  financialTransfersCreated   FinancialTransfer[] @relation("FinancialTransferCreatedBy")
+  financialTransfersCompleted FinancialTransfer[] @relation("FinancialTransferCompletedBy")
 
   accounts Account[]
   sessions Session[]
@@ -396,13 +468,15 @@ model Partner {
   companyId String
   company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
-  agentId           String?
-  agent             Partner?           @relation("PartnerAgent", fields: [agentId], references: [id], onDelete: SetNull)
-  managedPartners   Partner[]          @relation("PartnerAgent")
-  businessDocuments BusinessDocument[]
-  priceList         PriceList?         @relation(fields: [companyId, priceListId], references: [companyId, id], onDelete: Restrict)
-  paymentMethod     PaymentMethod?     @relation(fields: [companyId, paymentMethodId], references: [companyId, id], onDelete: Restrict)
-  paymentTerm       PaymentTerm?       @relation(fields: [companyId, paymentTermId], references: [companyId, id], onDelete: Restrict)
+  agentId            String?
+  agent              Partner?            @relation("PartnerAgent", fields: [agentId], references: [id], onDelete: SetNull)
+  managedPartners    Partner[]           @relation("PartnerAgent")
+  businessDocuments  BusinessDocument[]
+  paymentSchedules   PaymentSchedule[]
+  financialMovements FinancialMovement[]
+  priceList          PriceList?          @relation(fields: [companyId, priceListId], references: [companyId, id], onDelete: Restrict)
+  paymentMethod      PaymentMethod?      @relation(fields: [companyId, paymentMethodId], references: [companyId, id], onDelete: Restrict)
+  paymentTerm        PaymentTerm?        @relation(fields: [companyId, paymentTermId], references: [companyId, id], onDelete: Restrict)
 
   createdById String?
   createdBy   User?   @relation("PartnerCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
@@ -578,6 +652,7 @@ model PaymentMethod {
   company           Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
   partners          Partner[]
   businessDocuments BusinessDocument[]
+  paymentSchedules  PaymentSchedule[]
   createdById       String?
   createdBy         User?              @relation("PaymentMethodCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   updatedById       String?
@@ -604,6 +679,7 @@ model PaymentTerm {
   company           Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
   partners          Partner[]
   businessDocuments BusinessDocument[]
+  paymentSchedules  PaymentSchedule[]
   createdById       String?
   createdBy         User?              @relation("PaymentTermCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   updatedById       String?
@@ -1175,48 +1251,50 @@ model DocumentSeries {
 }
 
 model BusinessDocument {
-  id              String                 @id @default(cuid())
-  companyId       String
-  seriesId        String
-  documentNumber  String
-  documentType    DocumentType
-  status          DocumentStatus         @default(DRAFT)
-  partnerId       String
-  documentDate    DateTime
-  postingDate     DateTime?
-  currency        String                 @default("EUR")
-  exchangeRate    Decimal                @default(1) @db.Decimal(18, 6)
-  warehouseId     String?
-  locationId      String?
-  paymentMethodId String?
-  paymentTermId   String?
-  priceListId     String?
-  subtotal        Decimal                @default(0) @db.Decimal(15, 2)
-  discount        Decimal                @default(0) @db.Decimal(15, 2)
-  tax             Decimal                @default(0) @db.Decimal(15, 2)
-  total           Decimal                @default(0) @db.Decimal(15, 2)
-  notes           String?
-  internalNotes   String?
-  createdById     String
-  updatedById     String
-  deletedAt       DateTime?
-  company         Company                @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  series          DocumentSeries         @relation(fields: [companyId, seriesId], references: [companyId, id], onDelete: Restrict)
-  partner         Partner                @relation(fields: [companyId, partnerId], references: [companyId, id], onDelete: Restrict)
-  warehouse       Warehouse?             @relation(fields: [companyId, warehouseId], references: [companyId, id], onDelete: Restrict)
-  location        Location?              @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
-  paymentMethod   PaymentMethod?         @relation(fields: [companyId, paymentMethodId], references: [companyId, id], onDelete: Restrict)
-  paymentTerm     PaymentTerm?           @relation(fields: [companyId, paymentTermId], references: [companyId, id], onDelete: Restrict)
-  priceList       PriceList?             @relation(fields: [companyId, priceListId], references: [companyId, id], onDelete: Restrict)
-  createdBy       User                   @relation("BusinessDocumentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
-  updatedBy       User                   @relation("BusinessDocumentUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
-  lines           BusinessDocumentLine[]
-  attachments     DocumentAttachment[]
-  events          DocumentEvent[]
-  sourceLinks     DocumentLink[]         @relation("DocumentLinkSource")
-  targetLinks     DocumentLink[]         @relation("DocumentLinkTarget")
-  createdAt       DateTime               @default(now())
-  updatedAt       DateTime               @updatedAt
+  id                 String                 @id @default(cuid())
+  companyId          String
+  seriesId           String
+  documentNumber     String
+  documentType       DocumentType
+  status             DocumentStatus         @default(DRAFT)
+  partnerId          String
+  documentDate       DateTime
+  postingDate        DateTime?
+  currency           String                 @default("EUR")
+  exchangeRate       Decimal                @default(1) @db.Decimal(18, 6)
+  warehouseId        String?
+  locationId         String?
+  paymentMethodId    String?
+  paymentTermId      String?
+  priceListId        String?
+  subtotal           Decimal                @default(0) @db.Decimal(15, 2)
+  discount           Decimal                @default(0) @db.Decimal(15, 2)
+  tax                Decimal                @default(0) @db.Decimal(15, 2)
+  total              Decimal                @default(0) @db.Decimal(15, 2)
+  notes              String?
+  internalNotes      String?
+  createdById        String
+  updatedById        String
+  deletedAt          DateTime?
+  company            Company                @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  series             DocumentSeries         @relation(fields: [companyId, seriesId], references: [companyId, id], onDelete: Restrict)
+  partner            Partner                @relation(fields: [companyId, partnerId], references: [companyId, id], onDelete: Restrict)
+  warehouse          Warehouse?             @relation(fields: [companyId, warehouseId], references: [companyId, id], onDelete: Restrict)
+  location           Location?              @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+  paymentMethod      PaymentMethod?         @relation(fields: [companyId, paymentMethodId], references: [companyId, id], onDelete: Restrict)
+  paymentTerm        PaymentTerm?           @relation(fields: [companyId, paymentTermId], references: [companyId, id], onDelete: Restrict)
+  priceList          PriceList?             @relation(fields: [companyId, priceListId], references: [companyId, id], onDelete: Restrict)
+  createdBy          User                   @relation("BusinessDocumentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy          User                   @relation("BusinessDocumentUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
+  lines              BusinessDocumentLine[]
+  attachments        DocumentAttachment[]
+  events             DocumentEvent[]
+  sourceLinks        DocumentLink[]         @relation("DocumentLinkSource")
+  targetLinks        DocumentLink[]         @relation("DocumentLinkTarget")
+  paymentSchedules   PaymentSchedule[]
+  financialMovements FinancialMovement[]
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
 
   @@unique([companyId, seriesId, documentNumber])
   @@unique([companyId, id])
@@ -1307,4 +1385,189 @@ model DocumentEvent {
   createdAt   DateTime         @default(now())
 
   @@index([companyId, documentId, createdAt])
+}
+
+model FinancialAccount {
+  id                String               @id @default(cuid())
+  companyId         String
+  code              String
+  name              String
+  type              FinancialAccountType
+  currency          String               @default("EUR")
+  iban              String?
+  bic               String?
+  bankName          String?
+  openingBalance    Decimal              @default(0) @db.Decimal(15, 2)
+  allowOverdraft    Boolean              @default(false)
+  active            Boolean              @default(true)
+  deletedAt         DateTime?
+  createdById       String
+  updatedById       String
+  company           Company              @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  createdBy         User                 @relation("FinancialAccountCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy         User                 @relation("FinancialAccountUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
+  movements         FinancialMovement[]
+  outgoingTransfers FinancialTransfer[]  @relation("FinancialTransferSource")
+  incomingTransfers FinancialTransfer[]  @relation("FinancialTransferDestination")
+  bankStatements    BankStatement[]
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  @@unique([companyId, code])
+  @@unique([companyId, id])
+  @@index([companyId, active, deletedAt])
+}
+
+model PaymentSchedule {
+  id                String                   @id @default(cuid())
+  companyId         String
+  partnerId         String
+  documentId        String?
+  installmentNumber Int                      @default(1)
+  documentType      DocumentType?
+  direction         PaymentScheduleDirection
+  dueDate           DateTime
+  amount            Decimal                  @db.Decimal(15, 2)
+  residualAmount    Decimal                  @db.Decimal(15, 2)
+  currency          String                   @default("EUR")
+  status            PaymentScheduleStatus    @default(OPEN)
+  paymentMethodId   String?
+  paymentTermId     String?
+  notes             String?
+  createdById       String
+  updatedById       String
+  deletedAt         DateTime?
+  company           Company                  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  partner           Partner                  @relation(fields: [companyId, partnerId], references: [companyId, id], onDelete: Restrict)
+  document          BusinessDocument?        @relation(fields: [companyId, documentId], references: [companyId, id], onDelete: Restrict)
+  paymentMethod     PaymentMethod?           @relation(fields: [companyId, paymentMethodId], references: [companyId, id], onDelete: Restrict)
+  paymentTerm       PaymentTerm?             @relation(fields: [companyId, paymentTermId], references: [companyId, id], onDelete: Restrict)
+  createdBy         User                     @relation("PaymentScheduleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy         User                     @relation("PaymentScheduleUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
+  movements         FinancialMovement[]
+  allocations       FinancialAllocation[]
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+
+  @@unique([companyId, documentId, installmentNumber])
+  @@unique([companyId, id])
+  @@index([companyId, direction, status, dueDate])
+  @@index([companyId, partnerId, dueDate])
+}
+
+model FinancialMovement {
+  id                    String                     @id @default(cuid())
+  companyId             String
+  financialAccountId    String
+  partnerId             String?
+  paymentScheduleId     String?
+  documentId            String?
+  movementType          FinancialMovementType
+  direction             FinancialMovementDirection
+  amount                Decimal                    @db.Decimal(15, 2)
+  currency              String                     @default("EUR")
+  exchangeRate          Decimal                    @default(1) @db.Decimal(18, 6)
+  occurredAt            DateTime
+  valueDate             DateTime?
+  reference             String?
+  notes                 String?
+  postedAt              DateTime                   @default(now())
+  postedById            String
+  reversalOfId          String?
+  company               Company                    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  financialAccount      FinancialAccount           @relation(fields: [companyId, financialAccountId], references: [companyId, id], onDelete: Restrict)
+  partner               Partner?                   @relation(fields: [companyId, partnerId], references: [companyId, id], onDelete: Restrict)
+  paymentSchedule       PaymentSchedule?           @relation(fields: [companyId, paymentScheduleId], references: [companyId, id], onDelete: Restrict)
+  document              BusinessDocument?          @relation(fields: [companyId, documentId], references: [companyId, id], onDelete: Restrict)
+  postedBy              User                       @relation("FinancialMovementPostedBy", fields: [postedById], references: [id], onDelete: Restrict)
+  reversalOf            FinancialMovement?         @relation("FinancialMovementReversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
+  reversals             FinancialMovement[]        @relation("FinancialMovementReversal")
+  allocations           FinancialAllocation[]
+  matchedStatementLines BankStatementLine[]
+  createdAt             DateTime                   @default(now())
+
+  @@unique([companyId, id])
+  @@unique([reversalOfId])
+  @@index([companyId, financialAccountId, occurredAt])
+  @@index([companyId, partnerId, occurredAt])
+  @@index([companyId, paymentScheduleId])
+}
+
+model FinancialAllocation {
+  id         String            @id @default(cuid())
+  companyId  String
+  movementId String
+  scheduleId String
+  amount     Decimal           @db.Decimal(15, 2)
+  reversedAt DateTime?
+  company    Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  movement   FinancialMovement @relation(fields: [companyId, movementId], references: [companyId, id], onDelete: Restrict)
+  schedule   PaymentSchedule   @relation(fields: [companyId, scheduleId], references: [companyId, id], onDelete: Restrict)
+  createdAt  DateTime          @default(now())
+
+  @@unique([companyId, movementId, scheduleId])
+  @@index([companyId, scheduleId, reversedAt])
+}
+
+model FinancialTransfer {
+  id                   String                  @id @default(cuid())
+  companyId            String
+  sourceAccountId      String
+  destinationAccountId String
+  amount               Decimal                 @db.Decimal(15, 2)
+  currency             String                  @default("EUR")
+  transferDate         DateTime
+  status               FinancialTransferStatus @default(DRAFT)
+  createdById          String
+  completedById        String?
+  company              Company                 @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  sourceAccount        FinancialAccount        @relation("FinancialTransferSource", fields: [companyId, sourceAccountId], references: [companyId, id], onDelete: Restrict)
+  destinationAccount   FinancialAccount        @relation("FinancialTransferDestination", fields: [companyId, destinationAccountId], references: [companyId, id], onDelete: Restrict)
+  createdBy            User                    @relation("FinancialTransferCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  completedBy          User?                   @relation("FinancialTransferCompletedBy", fields: [completedById], references: [id], onDelete: Restrict)
+  createdAt            DateTime                @default(now())
+  completedAt          DateTime?
+
+  @@unique([companyId, id])
+  @@index([companyId, status, transferDate])
+}
+
+model BankStatement {
+  id                 String              @id @default(cuid())
+  companyId          String
+  financialAccountId String
+  statementDate      DateTime
+  openingBalance     Decimal             @db.Decimal(15, 2)
+  closingBalance     Decimal             @db.Decimal(15, 2)
+  status             BankStatementStatus @default(IMPORTED)
+  company            Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  financialAccount   FinancialAccount    @relation(fields: [companyId, financialAccountId], references: [companyId, id], onDelete: Restrict)
+  lines              BankStatementLine[]
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  @@unique([companyId, financialAccountId, statementDate])
+  @@unique([companyId, id])
+  @@index([companyId, status, statementDate])
+}
+
+model BankStatementLine {
+  id                   String               @id @default(cuid())
+  companyId            String
+  bankStatementId      String
+  transactionDate      DateTime
+  valueDate            DateTime?
+  amount               Decimal              @db.Decimal(15, 2)
+  description          String
+  reference            String?
+  matchedMovementId    String?
+  reconciliationStatus ReconciliationStatus @default(UNMATCHED)
+  company              Company              @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  bankStatement        BankStatement        @relation(fields: [companyId, bankStatementId], references: [companyId, id], onDelete: Cascade)
+  matchedMovement      FinancialMovement?   @relation(fields: [companyId, matchedMovementId], references: [companyId, id], onDelete: Restrict)
+  createdAt            DateTime             @default(now())
+
+  @@unique([companyId, id])
+  @@unique([companyId, matchedMovementId])
+  @@index([companyId, bankStatementId, reconciliationStatus])
 }
