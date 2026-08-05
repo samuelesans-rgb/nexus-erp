@@ -3,8 +3,11 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma, RestaurantTableStatus } from "@/generated/prisma/client";
 
 export class RestaurantDomainError extends Error {}
+export async function emitRestaurantEventTx(tx: Prisma.TransactionClient, companyId: string, eventType: string, aggregateType: string, aggregateId: string, payload: Prisma.InputJsonValue = {}) {
+  return tx.domainEvent.create({ data: { companyId, eventType, aggregateType, aggregateId, payload, occurredAt: new Date() } });
+}
 export async function emitRestaurantEvent(companyId: string, eventType: string, aggregateType: string, aggregateId: string, payload: Prisma.InputJsonValue = {}) {
-  return prisma.domainEvent.create({ data: { companyId, eventType, aggregateType, aggregateId, payload, occurredAt: new Date() } });
+  return prisma.$transaction((tx) => emitRestaurantEventTx(tx, companyId, eventType, aggregateType, aggregateId, payload));
 }
 export async function getRestaurantOptions(companyId: string) {
   const [locations, partners, items, areas, tables, stations, warehouses, accounts, series] = await Promise.all([

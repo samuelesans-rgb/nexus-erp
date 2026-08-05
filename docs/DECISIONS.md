@@ -293,3 +293,35 @@ Gli ADR sono accettati come baseline di prodotto. Un cambiamento richiede un nuo
 **Conseguenze.** Saldi e storico sono ricostruibili. La riconciliazione abbina righe bancarie a movimenti senza trasformarle in scritture contabili.
 
 Vedere [Visione](VISION.md), [Architettura](ARCHITECTURE.md) e [Roadmap](ROADMAP.md).
+
+## ADR-033: comandi critici idempotenti
+
+**Contesto.** Retry HTTP e richieste concorrenti possono duplicare incassi, documenti o movimenti di magazzino.
+
+**Decisione.** I comandi critici usano `IdempotencyRecord`, tenant-scoped e univoco per `(companyId, commandType, idempotencyKey)`. La chiave nasce sul chiamante affidabile (la UI genera un UUID per ogni submit), resta stabile per tutti i retry dello stesso intento e non viene riusata per intenti diversi. `SUCCEEDED` restituisce il risultato persistito; `FAILED` è reclamabile da un retry. Il record `PROCESSING` vive nella stessa transazione dell'effetto: un crash normalmente provoca rollback; un record eccezionalmente persistito è reclamabile dopo cinque minuti mediante update condizionale.
+
+**Conseguenze.** Il vincolo database, non una sequenza query/insert, arbitra la concorrenza. Idempotenza evita la ripetizione dello stesso comando; reversal e compensazioni correggono invece effetti già validamente contabilizzati.
+
+## ADR-034: API Core transaction-aware
+
+**Contesto.** Gli orchestratori devono comporre Document, Treasury e Inventory senza transazioni annidate o dual write.
+
+**Decisione.** Le operazioni Core espongono varianti `*Tx` che ricevono il `Prisma.TransactionClient`; le API pubbliche esistenti restano wrapper transazionali. La logica di dominio è unica e tutte le query conservano il `companyId` server-side.
+
+**Conseguenze.** Un orchestratore può includere documento, ledger, saldi e outbox nello stesso commit PostgreSQL senza cambiare le chiamate autonome esistenti.
+
+## ADR-035: batch Inventory atomico
+
+**Contesto.** Una ricetta o un trasferimento può richiedere più movimenti e non può lasciare stock parzialmente aggiornato.
+
+**Decisione.** `postInventoryMovementsBatch` richiede una idempotency key e registra tutti i movimenti, `StockBalance` ed eventi nella stessa transazione serializzabile. Errori su tenant, quantità, lotto, seriale, scadenza o stock annullano l'intero batch. Gli storni sono batch compensativi append-only.
+
+**Conseguenze.** Retry e richieste concorrenti con la stessa chiave restituiscono un solo risultato; nessun consumer scrive direttamente `StockBalance`.
+
+## ADR-036: chiusura ordine Restaurant atomica
+
+**Contesto.** La precedente sequenza poteva lasciare un documento posted senza pagamento o un pagamento non collegato alla chiusura.
+
+**Decisione.** `closeRestaurantOrderAtomic` ricalcola il totale dal documento server-side e compone creazione/posting, movimenti Treasury collegati tramite `documentId`, stato pagamento, ordine, tavolo e outbox in una transazione serializzabile idempotente. Pagamenti parziali e multipli sono ammessi; `CLOSED` richiede residuo zero.
+
+**Conseguenze.** Un errore intermedio effettua rollback completo e un ordine chiuso non è riaddebitabile. La trasmissione fiscale esterna resta fuori transazione e richiederà un consumer Outbox quando esisterà un adapter reale.

@@ -10,12 +10,13 @@ export default function LoginPage() {
 
         <form action={loginAction} className="space-y-4">
           <div>
-            <label className="mb-1 block text-sm font-medium">
+            <label htmlFor="email" className="mb-1 block text-sm font-medium">
               Email
             </label>
 
             <input
-              name='email'
+              id="email"
+              name="email"
               type="email"
               className="w-full rounded-lg border p-3"
               placeholder="admin@nexuserp.local"
@@ -23,12 +24,13 @@ export default function LoginPage() {
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium">
+            <label htmlFor="password" className="mb-1 block text-sm font-medium">
               Password
             </label>
 
             <input
-              name='password'
+              id="password"
+              name="password"
               type="password"
               className="w-full rounded-lg border p-3"
             />

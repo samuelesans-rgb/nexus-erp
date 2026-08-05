@@ -295,6 +295,23 @@ Route e Server Action derivano Company e attore dalla sessione, richiedono `CORE
 
 ## Criteri di qualità architetturale
 
+## Transazioni Core e idempotenza
+
+Document, Treasury e Inventory espongono API transaction-aware che ricevono una transazione Prisma già aperta. Gli orchestratori Restaurant possono quindi comporre documento, pagamento, consumo ricetta, saldi derivati e `DomainEvent` nello stesso commit PostgreSQL. Le API autonome restano wrapper con isolamento serializzabile.
+
+```mermaid
+flowchart LR
+  K[Idempotency key] --> R[IdempotencyRecord univoco]
+  R --> T[Transazione serializzabile]
+  T --> D[Document]
+  T --> F[FinancialMovement]
+  T --> I[InventoryMovement batch]
+  T --> O[DomainEvent Outbox]
+  T --> S[Stato Restaurant]
+```
+
+Una chiusura Restaurant collega i movimenti finanziari al `BusinessDocument` mediante `documentId`, non mediante riferimenti testuali. `SUCCEEDED` conserva e restituisce il risultato; un comando fallito può essere ritentato con la stessa chiave. Il rollback gestisce i fallimenti prima del commit; reversal e batch compensativi gestiscono correzioni successive.
+
 - Nessuna query tenant senza scope verificabile.
 - Nessuna mutation autorizzata solo perché il pulsante è nascosto.
 - Nessun modulo disattivato raggiungibile o automatizzato.

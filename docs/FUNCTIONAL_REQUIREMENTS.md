@@ -187,6 +187,8 @@ La V1 comprende prima nota, incassi e pagamenti, scadenziario, riconciliazione b
 
 ## Regole trasversali di accettazione
 
+I comandi critici di posting Inventory, servizio ricetta e chiusura Restaurant richiedono una idempotency key persistita. Retry e richieste concorrenti dello stesso intento devono produrre un solo effetto e restituire il risultato già concluso. Il batch Inventory è tutto-o-niente; la chiusura Restaurant crea o riusa il documento, registra pagamenti collegati tramite `documentId`, aggiorna ordine e tavolo e pubblica gli eventi nella stessa transazione. Un pagamento parziale mantiene l'ordine aperto e sono ammessi più mezzi di pagamento; soltanto residuo zero porta a `CLOSED`.
+
 Ogni funzione deve rispettare tenant, sede quando applicabile, moduli attivi e permessi. Le operazioni sensibili producono audit; gli export applicano le stesse autorizzazioni delle viste. Dati fiscali, consensi e integrazioni conservano versione e periodo di validità.
 
 Il catalogo Item è condiviso: `PRODUCT`, `SERVICE`, `INGREDIENT`, `RECIPE`, `BEAUTY_SERVICE`, `HOTEL_ROOM`, `PACKAGE` e `GIFT_CARD` riusano dati comuni e profili specifici. Item rappresenta ciò che viene venduto, acquistato, consumato o configurato; non rappresenta una comanda, un appuntamento, una prenotazione o un soggiorno. Componenti Recipe/Package, categorie, unità e IVA devono appartenere alla stessa Company.

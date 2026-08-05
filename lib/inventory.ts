@@ -2,6 +2,7 @@ import "server-only";
 
 import { Prisma, type InventoryMovementType } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
+import { executeIdempotent } from "@/lib/idempotency";
 
 export class InventoryDomainError extends Error {
   constructor(message: string) { super(message); this.name = "InventoryDomainError"; }
@@ -79,6 +80,24 @@ async function postWithTx(tx: Prisma.TransactionClient, companyId: string, userI
   const minimum = Number(item.productProfile?.minimumStock ?? item.productProfile?.reorderPoint ?? 0);
   if (minimum > 0 && newQuantity < minimum) await emit(tx, companyId, "StockBelowMinimum", "Item", item.id, { warehouseId: warehouse.id, quantity: newQuantity, minimum });
   return movement;
+}
+
+export async function postInventoryMovementTx(tx: Prisma.TransactionClient, companyId: string, userId: string, input: MovementInput) {
+  return postWithTx(tx, companyId, userId, input);
+}
+
+export async function postInventoryMovementsBatchTx(tx: Prisma.TransactionClient, companyId: string, userId: string, inputs: MovementInput[]) {
+  if (!inputs.length) throw new InventoryDomainError("Il batch Inventory richiede almeno un movimento.");
+  const movements: Array<{ id: string }> = [];
+  for (const input of inputs) movements.push(await postInventoryMovementTx(tx, companyId, userId, input));
+  return movements;
+}
+
+export async function postInventoryMovementsBatch(companyId: string, userId: string, idempotencyKey: string, inputs: MovementInput[]) {
+  return executeIdempotent(companyId, "InventoryMovementBatch", idempotencyKey, async (tx) => {
+    const movements = await postInventoryMovementsBatchTx(tx, companyId, userId, inputs);
+    return { aggregateId: movements[0]?.id ?? "", movementIds: movements.map(({ id }) => id) };
+  }, { aggregateType: "InventoryMovementBatch", timeout: 30000 });
 }
 
 export async function postInventoryMovement(companyId: string, userId: string, input: MovementInput) {

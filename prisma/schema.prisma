@@ -243,6 +243,12 @@ enum KitchenTicketStatus {
   CANCELLED
 }
 
+enum IdempotencyStatus {
+  PROCESSING
+  SUCCEEDED
+  FAILED
+}
+
 model Company {
   id        String  @id @default(cuid())
   name      String
@@ -311,6 +317,7 @@ model Company {
   kitchenTickets               KitchenTicket[]
   kitchenTicketLines           KitchenTicketLine[]
   recipeConsumptions           RecipeConsumption[]
+  idempotencyRecords           IdempotencyRecord[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1329,6 +1336,27 @@ model DomainEvent {
 
   @@index([companyId, eventType, processedAt, occurredAt])
   @@index([aggregateType, aggregateId])
+}
+
+model IdempotencyRecord {
+  id             String            @id @default(cuid())
+  companyId      String
+  commandType    String
+  idempotencyKey String
+  status         IdempotencyStatus @default(PROCESSING)
+  aggregateType  String?
+  aggregateId    String?
+  result         Json?
+  error          Json?
+  startedAt      DateTime          @default(now())
+  completedAt    DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  company        Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, commandType, idempotencyKey])
+  @@index([companyId, status, startedAt])
+  @@index([companyId, aggregateType, aggregateId])
 }
 
 model DocumentSeries {

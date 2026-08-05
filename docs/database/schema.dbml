@@ -739,6 +739,33 @@ Table DomainEvent {
   indexes { (processedAt, occurredAt) (companyId, eventType, occurredAt) }
 }
 
+Enum IdempotencyStatus {
+  PROCESSING
+  SUCCEEDED
+  FAILED
+}
+
+Table IdempotencyRecord {
+  id varchar [pk]
+  companyId varchar [not null, ref: > Company.id]
+  commandType varchar [not null]
+  idempotencyKey varchar [not null]
+  status IdempotencyStatus [not null]
+  aggregateType varchar
+  aggregateId varchar
+  result json
+  error json
+  startedAt timestamp [not null]
+  completedAt timestamp
+  createdAt timestamp [not null]
+  updatedAt timestamp [not null]
+  indexes {
+    (companyId, commandType, idempotencyKey) [unique]
+    (companyId, status, startedAt)
+    (companyId, aggregateType, aggregateId)
+  }
+}
+
 Table DocumentSeries {
   id varchar [pk]
   companyId varchar [not null, ref: > Company.id]

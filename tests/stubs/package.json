@@ -1,0 +1,8 @@
+{
+  "name": "test-stubs",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    "server-only": "./server-only/index.js"
+  }
+}
