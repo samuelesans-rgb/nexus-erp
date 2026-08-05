@@ -12,6 +12,10 @@ Nexus Core è sempre attivo. Restaurant, Beauty e Hotel sono bundle commerciali 
 
 > Il progetto è in sviluppo attivo. Le specifiche descrivono anche capacità pianificate: non tutto ciò che compare nei documenti è già disponibile.
 
+## CORE_LOCATIONS foundation
+
+Le sedi sono anagrafiche tenant-scoped: ogni Company ha una headquarters attiva e ogni Membership persiste la sede corrente in `defaultLocationId`. Lo switcher nell'header aggiorna il valore lato server. Inventory, Documents, Treasury e verticali non sono ancora filtrati automaticamente per sede.
+
 ## Stack
 
 - Next.js 16 con App Router e React 19
@@ -22,7 +26,7 @@ Nexus Core è sempre attivo. Restaurant, Beauty e Hotel sono bundle commerciali 
 
 ## Stato attuale
 
-Sono presenti autenticazione, sessione, multi-azienda tramite Membership, ruoli, Partner tenant-scoped e la prima versione del sistema moduli per Company. Permessi granulari, multi-sede e verticali sono pianificati nella roadmap, nell'ordine Restaurant, Beauty e Hotel. `prisma/schema.prisma` è il riferimento eseguibile corrente; il DBML in `docs/database/` ne documenta la struttura relazionale.
+Sono presenti autenticazione, sessione, multi-azienda tramite Membership, ruoli, Partner tenant-scoped, sistema moduli per Company e foundation multi-sede. Lo scope operativo Location resta pianificato per uno sprint dedicato. `prisma/schema.prisma` è il riferimento eseguibile corrente; il DBML in `docs/database/` ne documenta la struttura relazionale.
 
 ## Documentazione
 

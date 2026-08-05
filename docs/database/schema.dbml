@@ -100,10 +100,12 @@ Table Membership {
   companyId varchar [not null, ref: > Company.id]
   active boolean [not null, default: true]
   isDefault boolean [not null, default: false]
+  defaultLocationId varchar
   joinedAt timestamp [not null]
 
   indexes {
     (userId, companyId) [unique]
+    (companyId, defaultLocationId)
   }
 }
 
@@ -564,10 +566,21 @@ Table Location {
   companyId varchar [not null, ref: > Company.id]
   code varchar [not null]
   name varchar [not null]
+  description text
+  email varchar
+  phone varchar
   address varchar
   city varchar
+  province varchar
+  postalCode varchar
+  country varchar [not null, default: "IT"]
+  timezone varchar [not null, default: "Europe/Rome"]
+  currency varchar [not null, default: "EUR"]
+  isHeadquarters boolean [not null, default: false]
   active boolean [not null, default: true]
   deletedAt timestamp
+  createdById varchar [ref: > User.id]
+  updatedById varchar [ref: > User.id]
   createdAt timestamp [not null]
   updatedAt timestamp [not null]
   indexes { (companyId, code) [unique] (companyId, id) [unique] }

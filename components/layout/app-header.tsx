@@ -1,8 +1,16 @@
 import { auth, signOut } from "@/auth";
+import { getLocations, getCurrentLocation } from "@/lib/locations";
+import { changeCurrentLocation } from "@/app/(dashboard)/settings/locations/actions";
 
 export default async function AppHeader() {
   const session = await auth();
   const userName = session?.user?.name ?? session?.user?.email ?? "Utente";
+  const [currentLocation, locations] = session?.user?.companyId
+    ? await Promise.all([
+        getCurrentLocation(session.user.companyId, session.user.membershipId),
+        getLocations(session.user.companyId),
+      ])
+    : [null, []];
 
   async function logout() {
     "use server";
@@ -16,6 +24,15 @@ export default async function AppHeader() {
       </h2>
 
         <div className="flex items-center gap-3">
+          {currentLocation && (
+            <form action={changeCurrentLocation} className="flex items-center gap-2">
+              <label className="sr-only" htmlFor="current-location">Sede corrente</label>
+              <select id="current-location" name="locationId" defaultValue={currentLocation.id} className="rounded-lg border px-2 py-1 text-sm">
+                {locations.filter((location) => location.active && !location.deletedAt).map((location) => <option key={location.id} value={location.id}>{location.code} · {location.name}</option>)}
+              </select>
+              <button type="submit" className="rounded-lg border px-2 py-1 text-xs">Cambia sede</button>
+            </form>
+          )}
           <div className="h-10 w-10 rounded-full bg-slate-200" />
           <div className="leading-tight">
             <p className="font-medium">{userName}</p>

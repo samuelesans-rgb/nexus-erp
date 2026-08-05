@@ -9,8 +9,10 @@
     "start": "next start",
     "lint": "eslint",
     "test:integration:core": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test tests/integration/core-transaction-idempotency.test.ts",
+    "test:integration:locations": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test tests/integration/locations.test.ts",
     "test:e2e": "playwright test",
     "test:e2e:restaurant": "playwright test tests/e2e/restaurant-core-hardening.spec.ts",
+    "test:e2e:locations": "playwright test tests/e2e/locations.spec.ts",
     "test:e2e:ui": "playwright test --ui"
   },
   "prisma": {

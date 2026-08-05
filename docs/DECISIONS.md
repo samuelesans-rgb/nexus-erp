@@ -325,3 +325,11 @@ Vedere [Visione](VISION.md), [Architettura](ARCHITECTURE.md) e [Roadmap](ROADMAP
 **Decisione.** `closeRestaurantOrderAtomic` ricalcola il totale dal documento server-side e compone creazione/posting, movimenti Treasury collegati tramite `documentId`, stato pagamento, ordine, tavolo e outbox in una transazione serializzabile idempotente. Pagamenti parziali e multipli sono ammessi; `CLOSED` richiede residuo zero.
 
 **Conseguenze.** Un errore intermedio effettua rollback completo e un ordine chiuso non è riaddebitabile. La trasmissione fiscale esterna resta fuori transazione e richiederà un consumer Outbox quando esisterà un adapter reale.
+
+## ADR-037: contesto Location server-side su Membership
+
+**Contesto.** Il foundation multi-sede deve evitare che URL, stato browser o input client determinino lo scope tenant.
+
+**Decisione.** `Location` resta figlia di `Company`; `Membership.defaultLocationId` persiste la sede corrente V1. Il servizio verifica membership attiva, Company, sede attiva e non archiviata. Headquarters è unica fra le sedi attive e il cambio è una transazione serializzabile. JWT e sessione non duplicano ancora il valore per evitare stale session e complessità Auth.js.
+
+**Conseguenze.** CRUD e switcher sono sicuri senza mutare gli Engine esistenti. Warehouse, Inventory, Documents, Treasury e verticali adotteranno lo scoping in uno sprint dedicato.

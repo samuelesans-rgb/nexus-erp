@@ -30,7 +30,7 @@ La classificazione esprime la priorità di prodotto, non lo stato di implementaz
 | Utenti | CORE | Profilo, stato e preferenze personali |
 | Membership | CORE | Relazione utente-azienda e azienda predefinita |
 | Aziende | CORE | Dati legali, operativi e localizzazione |
-| Sedi | CORE | Unità operative appartenenti a una Company |
+| Sedi | CORE | Anagrafica soft-delete tenant-scoped, una headquarters attiva, CRUD amministrativo e sede corrente persistita su Membership; gli Engine operativi saranno location-scoped nello sprint successivo |
 | Assegnazioni utenti-sedi | CORE | Accesso a una o più sedi per Membership |
 | Sede attiva | CORE | Contesto operativo corrente, subordinato alla Company |
 | Ruoli | CORE | Ruoli valutati nel contesto della Membership |

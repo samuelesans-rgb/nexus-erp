@@ -47,7 +47,7 @@ Documento generato dall'analisi completa del repository. Riflette lo stato al **
 ### Core Condiviso Attivabile — **MANCANTI**
 | Modulo | Stato Catalogo | Priorità | Note |
 |--------|----------------|----------|------|
-| `CORE_LOCATIONS` | PLANNED | **P0** | Schema `Location` esiste, mancano: UI, assegnazioni utenti-sedi, sede attiva, scope sede su magazzini/casse/prenotazioni/report |
+| `CORE_LOCATIONS` | AVAILABLE (foundation) | **P0** | Anagrafica, headquarters, CRUD e sede corrente Membership completati; resta lo scope operativo su magazzini/casse/prenotazioni/report |
 | `CORE_AUDIT` | PLANNED | **P0** | Solo `DomainEvent` outbox; manca AuditEvent strutturato, retention policy, export, UI amministrativa |
 | `CORE_NOTIFICATIONS` | PLANNED | **P1** | Email SMTP (integrazione #1), preferenze, canali, template |
 | `CORE_ACCOUNTING` | PLANNED | **P1** | Prima nota, piano conti, scritture contabili, bilancio, export commercialista — **escluso da V1 per ADR-013** |

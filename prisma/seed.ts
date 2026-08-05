@@ -15,7 +15,7 @@ const moduleDefinitions = [
   [MODULE_CODES.CORE_AUTH, "Autenticazione", "CORE", true, "AVAILABLE"],
   [MODULE_CODES.CORE_COMPANIES, "Company", "CORE", true, "AVAILABLE"],
   [MODULE_CODES.CORE_MEMBERSHIPS, "Membership", "CORE", true, "AVAILABLE"],
-  [MODULE_CODES.CORE_LOCATIONS, "Sedi", "CORE", true, "PLANNED"],
+  [MODULE_CODES.CORE_LOCATIONS, "Sedi", "CORE", true, "AVAILABLE"],
   [
     MODULE_CODES.CORE_ROLES_PERMISSIONS,
     "Ruoli e permessi",
@@ -689,9 +689,10 @@ async function main() {
 
   const location = await prisma.location.upsert({
     where: { companyId_code: { companyId: company.id, code: "MAIN" } },
-    update: { name: "Sede principale", active: true, deletedAt: null },
-    create: { companyId: company.id, code: "MAIN", name: "Sede principale", city: "Milano" },
+    update: { name: "Sede principale", city: "Milano", country: "IT", timezone: "Europe/Rome", currency: "EUR", isHeadquarters: true, active: true, deletedAt: null, createdById: user.id, updatedById: user.id },
+    create: { companyId: company.id, code: "MAIN", name: "Sede principale", city: "Milano", country: "IT", timezone: "Europe/Rome", currency: "EUR", isHeadquarters: true, createdById: user.id, updatedById: user.id },
   });
+  await prisma.membership.updateMany({ where: { companyId: company.id, defaultLocationId: null }, data: { defaultLocationId: location.id } });
   const mainWarehouse = await prisma.warehouse.upsert({
     where: { companyId_code: { companyId: company.id, code: "MAIN" } },
     update: { name: "Magazzino principale", locationId: location.id, active: true, deletedAt: null, updatedById: user.id },

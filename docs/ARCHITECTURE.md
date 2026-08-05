@@ -94,7 +94,7 @@ Una futura policy PostgreSQL Row-Level Security può aggiungere difesa in profon
 
 ### Multi-sede
 
-`Location` sarà figlia di Company. Nella V1 una Company supporta più sedi, una Membership può essere assegnata a una o più sedi e ogni operazione usa una sede attiva verificata. Lo scope di sede restringe il tenant, non lo rimpiazza. Cataloghi e Partner possono essere aziendali; magazzini, casse, prenotazioni e report sono collegati alla sede. Permessi cross-location devono essere espliciti. Consolidamento societario e flussi complessi fra società diverse sono esclusi dalla V1.
+`Location` è figlia di Company e ha codice tenant-unique, lifecycle soft-delete, dati operativi e una sola headquarters attiva garantita dal servizio transazionale. La sede corrente V1 è `Membership.defaultLocationId`, validata server-side contro Company, stato attivo e soft delete; non deriva da URL o stato client. Lo scope Location restringe il tenant, non lo rimpiazza. Questo foundation non filtra ancora gli Engine operativi: Warehouse, Inventory, Documents, Treasury, Restaurant, Beauty e Hotel adotteranno lo scoping nello sprint successivo.
 
 ## Moduli e feature flag
 

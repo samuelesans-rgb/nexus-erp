@@ -19,6 +19,7 @@
 7. Disattivare un modulo non cancella, anonimizza o modifica i suoi dati.
 8. I bundle Restaurant, Beauty e Hotel possono convivere nella stessa Company; l'attivazione di un bundle applica i suoi default e risolve le dipendenze senza duplicare il Core.
 9. Il catalogo unico richiede `CORE_PRODUCTS`; la visibilità e le mutazioni dei tipi verticali richiedono anche il modulo proprietario: `RECIPE`/`INGREDIENT` usano `RESTAURANT_RECIPES`, `BEAUTY_SERVICE` usa `BEAUTY_APPOINTMENTS`, `HOTEL_ROOM` usa `HOTEL_ROOMS`, `PACKAGE` usa `BEAUTY_PACKAGES`. `GIFT_CARD` resta visibile solo con uno dei moduli loyalty pianificati.
+10. `CORE_LOCATIONS` fornisce anagrafica, headquarters e sede corrente Membership; lo scoping degli Engine operativi resta uno sprint successivo.
 
 ## Grafo principale
 

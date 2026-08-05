@@ -378,6 +378,8 @@ model User {
   timeZone String @default("Europe/Rome")
 
   memberships                 Membership[]
+  locationsCreated            Location[]          @relation("LocationCreatedBy")
+  locationsUpdated            Location[]          @relation("LocationUpdatedBy")
   partnersCreated             Partner[]           @relation("PartnerCreatedBy")
   partnersUpdated             Partner[]           @relation("PartnerUpdatedBy")
   itemsCreated                Item[]              @relation("ItemCreatedBy")
@@ -428,16 +430,19 @@ model Membership {
   userId    String
   companyId String
 
-  active    Boolean  @default(true)
-  isDefault Boolean  @default(false)
-  joinedAt  DateTime @default(now())
+  active            Boolean  @default(true)
+  isDefault         Boolean  @default(false)
+  defaultLocationId String?
+  joinedAt          DateTime @default(now())
 
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company         Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  defaultLocation Location? @relation("MembershipDefaultLocation", fields: [companyId, defaultLocationId], references: [companyId, id], onDelete: Restrict)
 
   roles MembershipRole[]
 
   @@unique([userId, companyId])
+  @@index([companyId, defaultLocationId])
 }
 
 model Role {
@@ -1047,8 +1052,17 @@ model Location {
   companyId              String
   code                   String
   name                   String
+  description            String?
+  email                  String?
+  phone                  String?
   address                String?
   city                   String?
+  province               String?
+  postalCode             String?
+  country                String                  @default("IT")
+  timezone               String                  @default("Europe/Rome")
+  currency               String                  @default("EUR")
+  isHeadquarters         Boolean                 @default(false)
   active                 Boolean                 @default(true)
   deletedAt              DateTime?
   company                Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -1062,6 +1076,11 @@ model Location {
   kitchenStations        KitchenStation[]
   kitchenTickets         KitchenTicket[]
   recipeConsumptions     RecipeConsumption[]
+  defaultMemberships     Membership[]            @relation("MembershipDefaultLocation")
+  createdById            String?
+  createdBy              User?                   @relation("LocationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedById            String?
+  updatedBy              User?                   @relation("LocationUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
   createdAt              DateTime                @default(now())
   updatedAt              DateTime                @updatedAt
 
