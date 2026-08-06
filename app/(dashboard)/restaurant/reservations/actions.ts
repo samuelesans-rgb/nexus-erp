@@ -1,6 +1,7 @@
 "use server";
 
 import type { RestaurantReservationStatus } from "@/generated/prisma/client";
+import { cancelBookingWithNotifications } from "@/lib/booking-email";
 import { requireCurrentLocation } from "@/lib/location-access";
 import { MODULE_CODES } from "@/lib/module-catalog";
 import { requireRestaurantContext } from "@/lib/restaurant-access";
@@ -43,7 +44,8 @@ export async function transitionBookingAction(formData: FormData) {
   const id = text(formData, "id");
   const status = text(formData, "status") as RestaurantReservationStatus;
   try {
-    await transitionReservation(context.companyId, context.locationId, id, status, context.userId);
+    if (status === "CANCELLED") await cancelBookingWithNotifications(context.companyId, context.locationId, id, context.userId);
+    else await transitionReservation(context.companyId, context.locationId, id, status, context.userId);
   } catch (error) {
     redirect(failurePath(id, error));
   }

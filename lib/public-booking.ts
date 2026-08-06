@@ -1,6 +1,11 @@
 import "server-only";
 
+import { createHash } from "node:crypto";
+import { sendBookingConfirmationEmails, sendBookingCancellationEmails } from "@/lib/booking-email";
+import type { EmailProvider } from "@/lib/email";
+import { getEmailProvider } from "@/lib/email";
 import { createReservation } from "@/lib/restaurant-booking";
+import { transitionReservation } from "@/lib/restaurant-booking";
 import { getAvailableSlots } from "@/lib/restaurant-availability";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
@@ -77,7 +82,7 @@ export async function getPublicSlots(slug: string, date: Date, partySize: number
   return getAvailableSlots(location.companyId, location.id, { date, partySize });
 }
 
-export async function submitPublicBooking(slug: string, rateKey: string, input: PublicBookingInput, limiter = rateLimiter) {
+export async function submitPublicBooking(slug: string, rateKey: string, input: PublicBookingInput, limiter = rateLimiter, emailProvider: EmailProvider = getEmailProvider(), baseUrl = process.env.AUTH_URL ?? "http://localhost:3000") {
   const parsed = publicBookingSchema.safeParse(input);
   if (!parsed.success) throw new PublicBookingError(parsed.error.issues[0]?.message ?? "Dati prenotazione non validi.");
   const location = await resolveLocation(slug);
@@ -87,24 +92,19 @@ export async function submitPublicBooking(slug: string, rateKey: string, input: 
     where: { companyId_commandType_idempotencyKey: { companyId: location.companyId, commandType: "RestaurantBookingCreate", idempotencyKey: parsed.data.idempotencyKey } },
     select: { status: true, result: true },
   });
-  const replay = z.object({ reservationId: z.string(), code: z.string() }).safeParse(existing?.status === "SUCCEEDED" ? existing.result : null);
-  if (replay.success) return {
-    reservationId: replay.data.reservationId,
-    code: replay.data.code,
-    startTime: parsed.data.startTime,
-    partySize: parsed.data.partySize,
-    locationName: location.name,
-    confirmationMessage: location.restaurantBookingSettings?.confirmationMessage ?? "La prenotazione è stata registrata. Attendi la conferma dello staff.",
-  };
-  const result = await createReservation(location.companyId, null, parsed.data.idempotencyKey, {
-    locationId: location.id,
-    guestName: parsed.data.guestName,
-    phone: parsed.data.phone,
-    email: parsed.data.email,
-    notes: parsed.data.notes,
-    partySize: parsed.data.partySize,
-    startTime: parsed.data.startTime,
-    source: "WEBSITE",
+  const replay = z.object({ reservationId: z.string(), code: z.string(), cancellationToken: z.string() }).safeParse(existing?.status === "SUCCEEDED" ? existing.result : null);
+  const result = replay.success ? replay.data : await createReservation(location.companyId, null, parsed.data.idempotencyKey, {
+      locationId: location.id,
+      guestName: parsed.data.guestName,
+      phone: parsed.data.phone,
+      email: parsed.data.email,
+      notes: parsed.data.notes,
+      partySize: parsed.data.partySize,
+      startTime: parsed.data.startTime,
+      source: "WEBSITE",
+    });
+  await sendBookingConfirmationEmails(location.companyId, location.id, result.reservationId, result.cancellationToken, baseUrl, emailProvider).catch((error) => {
+    console.warn(JSON.stringify({ scope: "booking-email", notification: "confirmation", outcome: "FAILED", error: error instanceof Error ? error.name : "EmailError" }));
   });
   return {
     reservationId: result.reservationId,
@@ -114,4 +114,25 @@ export async function submitPublicBooking(slug: string, rateKey: string, input: 
     locationName: location.name,
     confirmationMessage: location.restaurantBookingSettings?.confirmationMessage ?? "La prenotazione è stata registrata. Attendi la conferma dello staff.",
   };
+}
+
+export async function cancelPublicBooking(slug: string, cancellationToken: string, emailProvider: EmailProvider = getEmailProvider()) {
+  const location = await resolveLocation(slug);
+  if (!location) throw new PublicBookingError("Sede non disponibile.");
+  const parsedToken = z.string().min(32).max(128).safeParse(cancellationToken);
+  if (!parsedToken.success) throw new PublicBookingError("Link di cancellazione non valido.");
+  const tokenHash = createHash("sha256").update(parsedToken.data).digest("hex");
+  const reservation = await prisma.restaurantReservation.findFirst({
+    where: { companyId: location.companyId, locationId: location.id, cancellationTokenHash: tokenHash, deletedAt: null },
+    select: { id: true, code: true, status: true },
+  });
+  if (!reservation) throw new PublicBookingError("Prenotazione non trovata.");
+  if (reservation.status !== "CANCELLED") {
+    if (!["PENDING", "CONFIRMED"].includes(reservation.status)) throw new PublicBookingError("La prenotazione non può essere annullata.");
+    await transitionReservation(location.companyId, location.id, reservation.id, "CANCELLED");
+  }
+  await sendBookingCancellationEmails(location.companyId, location.id, reservation.id, emailProvider).catch((error) => {
+    console.warn(JSON.stringify({ scope: "booking-email", notification: "cancellation", outcome: "FAILED", error: error instanceof Error ? error.name : "EmailError" }));
+  });
+  return { code: reservation.code, locationName: location.name };
 }

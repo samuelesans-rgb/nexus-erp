@@ -51,6 +51,7 @@ after(async () => {
   await prisma.domainEvent.deleteMany({ where: { companyId, aggregateType: "RestaurantReservation", aggregateId: { in: reservationIds } } });
   await prisma.restaurantReservationTable.deleteMany({ where: { companyId, reservationId: { in: reservationIds } } });
   await prisma.restaurantReservation.deleteMany({ where: { id: { in: reservationIds } } });
+  await prisma.idempotencyRecord.deleteMany({ where: { companyId, aggregateType: "RestaurantReservation", aggregateId: { in: reservationIds } } });
   await prisma.idempotencyRecord.deleteMany({ where: { companyId, commandType: "RestaurantBookingCreate", idempotencyKey: { in: idempotencyKeys } } });
   await prisma.restaurantBookingSettings.deleteMany({ where: { companyId, locationId } });
   await prisma.restaurantTable.deleteMany({ where: { id: tableId } });
