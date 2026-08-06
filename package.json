@@ -13,6 +13,7 @@
     "test:integration:booking": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/restaurant-booking.test.ts tests/integration/restaurant-booking-dashboard.test.ts tests/integration/restaurant-booking-public.test.ts",
     "test:integration:booking-public": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test tests/integration/restaurant-booking-public.test.ts",
     "test:integration:booking-email": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test tests/integration/restaurant-booking-email.test.ts",
+    "test:integration:widget": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/restaurant-booking-widget.test.ts",
     "test:e2e": "playwright test",
     "test:e2e:restaurant": "playwright test tests/e2e/restaurant-core-hardening.spec.ts",
     "test:e2e:locations": "playwright test tests/e2e/locations.spec.ts",

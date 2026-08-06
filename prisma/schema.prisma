@@ -306,6 +306,7 @@ model Company {
   restaurantTables             RestaurantTable[]
   restaurantReservations       RestaurantReservation[]
   restaurantBookingSettings    RestaurantBookingSettings[]
+  restaurantBookingWidgets     RestaurantBookingWidget[]
   restaurantReservationTables  RestaurantReservationTable[]
   restaurantMenus              RestaurantMenu[]
   restaurantMenuSections       RestaurantMenuSection[]
@@ -1093,6 +1094,7 @@ model Location {
   createdAt                 DateTime                   @default(now())
   updatedAt                 DateTime                   @updatedAt
   restaurantBookingSettings RestaurantBookingSettings?
+  restaurantBookingWidget   RestaurantBookingWidget?
 
   @@unique([companyId, code])
   @@unique([companyId, id])
@@ -1865,6 +1867,38 @@ model RestaurantBookingSettings {
 
   @@unique([companyId, locationId])
   @@index([companyId, locationId, enabled])
+}
+
+model RestaurantBookingWidget {
+  id             String   @id @default(cuid())
+  companyId      String
+  locationId     String
+  enabled        Boolean  @default(false)
+  publicKey      String   @unique
+  allowedDomains String[] @default([])
+  mode           String   @default("INLINE")
+  theme          String   @default("LIGHT")
+  primaryColor   String   @default("#0f172a")
+  secondaryColor String   @default("#ffffff")
+  accentColor    String   @default("#059669")
+  borderRadius   Int      @default(16)
+  fontFamily     String   @default("system-ui")
+  buttonLabel    String   @default("Prenota ora")
+  heading        String   @default("Prenota un tavolo")
+  description    String?
+  privacyUrl     String?
+  successMessage String   @default("Prenotazione ricevuta.")
+  requirePhone   Boolean  @default(true)
+  requireEmail   Boolean  @default(true)
+  showNotes      Boolean  @default(true)
+  locale         String   @default("it-IT")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location       Location @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Cascade)
+
+  @@unique([companyId, locationId])
+  @@index([companyId, enabled])
 }
 
 model RestaurantReservationTable {
