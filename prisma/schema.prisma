@@ -305,6 +305,7 @@ model Company {
   restaurantAreas              RestaurantArea[]
   restaurantTables             RestaurantTable[]
   restaurantReservations       RestaurantReservation[]
+  restaurantBookingSettings    RestaurantBookingSettings[]
   restaurantReservationTables  RestaurantReservationTable[]
   restaurantMenus              RestaurantMenu[]
   restaurantMenuSections       RestaurantMenuSection[]
@@ -1048,48 +1049,49 @@ model GiftCardProfile {
 }
 
 model Location {
-  id                     String                  @id @default(cuid())
-  companyId              String
-  code                   String
-  name                   String
-  description            String?
-  email                  String?
-  phone                  String?
-  address                String?
-  city                   String?
-  province               String?
-  postalCode             String?
-  country                String                  @default("IT")
-  timezone               String                  @default("Europe/Rome")
-  currency               String                  @default("EUR")
-  isHeadquarters         Boolean                 @default(false)
-  active                 Boolean                 @default(true)
-  deletedAt              DateTime?
-  company                Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  warehouses             Warehouse[]
-  businessDocuments      BusinessDocument[]
-  restaurantAreas        RestaurantArea[]
-  restaurantTables       RestaurantTable[]
-  restaurantReservations RestaurantReservation[]
-  restaurantMenus        RestaurantMenu[]
-  restaurantOrders       RestaurantOrder[]
-  kitchenStations        KitchenStation[]
-  kitchenTickets         KitchenTicket[]
-  recipeConsumptions     RecipeConsumption[]
-  inventoryLots          InventoryLot[]
-  inventorySerials       InventorySerial[]
-  inventoryMovements     InventoryMovement[]
-  inventoryTransfersFrom InventoryTransfer[]     @relation("TransferSourceLocation")
-  inventoryTransfersTo   InventoryTransfer[]     @relation("TransferDestinationLocation")
-  inventoryCounts        InventoryCount[]
-  stockBalances          StockBalance[]
-  defaultMemberships     Membership[]            @relation("MembershipDefaultLocation")
-  createdById            String?
-  createdBy              User?                   @relation("LocationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  updatedById            String?
-  updatedBy              User?                   @relation("LocationUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
-  createdAt              DateTime                @default(now())
-  updatedAt              DateTime                @updatedAt
+  id                        String                     @id @default(cuid())
+  companyId                 String
+  code                      String
+  name                      String
+  description               String?
+  email                     String?
+  phone                     String?
+  address                   String?
+  city                      String?
+  province                  String?
+  postalCode                String?
+  country                   String                     @default("IT")
+  timezone                  String                     @default("Europe/Rome")
+  currency                  String                     @default("EUR")
+  isHeadquarters            Boolean                    @default(false)
+  active                    Boolean                    @default(true)
+  deletedAt                 DateTime?
+  company                   Company                    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  warehouses                Warehouse[]
+  businessDocuments         BusinessDocument[]
+  restaurantAreas           RestaurantArea[]
+  restaurantTables          RestaurantTable[]
+  restaurantReservations    RestaurantReservation[]
+  restaurantMenus           RestaurantMenu[]
+  restaurantOrders          RestaurantOrder[]
+  kitchenStations           KitchenStation[]
+  kitchenTickets            KitchenTicket[]
+  recipeConsumptions        RecipeConsumption[]
+  inventoryLots             InventoryLot[]
+  inventorySerials          InventorySerial[]
+  inventoryMovements        InventoryMovement[]
+  inventoryTransfersFrom    InventoryTransfer[]        @relation("TransferSourceLocation")
+  inventoryTransfersTo      InventoryTransfer[]        @relation("TransferDestinationLocation")
+  inventoryCounts           InventoryCount[]
+  stockBalances             StockBalance[]
+  defaultMemberships        Membership[]               @relation("MembershipDefaultLocation")
+  createdById               String?
+  createdBy                 User?                      @relation("LocationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedById               String?
+  updatedBy                 User?                      @relation("LocationUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
+  restaurantBookingSettings RestaurantBookingSettings?
 
   @@unique([companyId, code])
   @@unique([companyId, id])
@@ -1801,41 +1803,67 @@ model RestaurantTable {
 }
 
 model RestaurantReservation {
-  id                String                       @id @default(cuid())
-  companyId         String
-  locationId        String
-  code              String
-  partnerId         String?
-  guestName         String
-  phone             String?
-  email             String?
-  reservationDate   DateTime
-  startTime         DateTime
-  endTime           DateTime?
-  partySize         Int
-  status            RestaurantReservationStatus  @default(PENDING)
-  source            RestaurantReservationSource  @default(MANUAL)
-  notes             String?
-  internalNotes     String?
-  depositAmount     Decimal?                     @db.Decimal(15, 2)
-  depositScheduleId String?
-  createdById       String?
-  updatedById       String?
-  cancelledAt       DateTime?
-  deletedAt         DateTime?
-  createdAt         DateTime                     @default(now())
-  updatedAt         DateTime                     @updatedAt
-  company           Company                      @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  location          Location                     @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
-  partner           Partner?                     @relation(fields: [companyId, partnerId], references: [companyId, id], onDelete: Restrict)
-  depositSchedule   PaymentSchedule?             @relation(fields: [companyId, depositScheduleId], references: [companyId, id], onDelete: Restrict)
-  tables            RestaurantReservationTable[]
-  orders            RestaurantOrder[]
+  id                    String                       @id @default(cuid())
+  companyId             String
+  locationId            String
+  code                  String
+  partnerId             String?
+  guestName             String
+  phone                 String?
+  email                 String?
+  reservationDate       DateTime
+  startTime             DateTime
+  endTime               DateTime?
+  partySize             Int
+  durationMinutes       Int                          @default(120)
+  status                RestaurantReservationStatus  @default(PENDING)
+  source                RestaurantReservationSource  @default(MANUAL)
+  notes                 String?
+  internalNotes         String?
+  confirmationTokenHash String?                      @unique
+  cancellationTokenHash String?                      @unique
+  privacyConsentAt      DateTime?
+  depositAmount         Decimal?                     @db.Decimal(15, 2)
+  depositScheduleId     String?
+  createdById           String?
+  updatedById           String?
+  cancelledAt           DateTime?
+  deletedAt             DateTime?
+  createdAt             DateTime                     @default(now())
+  updatedAt             DateTime                     @updatedAt
+  company               Company                      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  location              Location                     @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+  partner               Partner?                     @relation(fields: [companyId, partnerId], references: [companyId, id], onDelete: Restrict)
+  depositSchedule       PaymentSchedule?             @relation(fields: [companyId, depositScheduleId], references: [companyId, id], onDelete: Restrict)
+  tables                RestaurantReservationTable[]
+  orders                RestaurantOrder[]
 
   @@unique([companyId, code])
   @@unique([companyId, id])
   @@unique([companyId, depositScheduleId])
   @@index([companyId, locationId, reservationDate, status])
+}
+
+model RestaurantBookingSettings {
+  id                        String   @id @default(cuid())
+  companyId                 String
+  locationId                String
+  enabled                   Boolean  @default(true)
+  openingHours              Json     @default("{}")
+  slotIntervalMinutes       Int      @default(30)
+  defaultDurationMinutes    Int      @default(120)
+  minAdvanceMinutes         Int      @default(60)
+  maxAdvanceDays            Int      @default(90)
+  maxCoversPerSlot          Int      @default(0)
+  confirmationMessage       String?
+  internalNotificationEmail String?
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+  company                   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location                  Location @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Cascade)
+
+  @@unique([companyId, locationId])
+  @@index([companyId, locationId, enabled])
 }
 
 model RestaurantReservationTable {
