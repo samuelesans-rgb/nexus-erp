@@ -1,17 +1,19 @@
 import { type InventoryMovementType } from "@/generated/prisma/client";
 import { getInventoryMovements, getInventoryOptions } from "@/lib/inventory";
 import { requireInventoryContext } from "@/lib/inventory-access";
+import { requireCurrentLocation } from "@/lib/location-access";
 import Link from "next/link";
 
 type Query = { q?: string; page?: string; type?: string; warehouse?: string; item?: string; from?: string; to?: string };
 
 export default async function MovementsPage({ searchParams }: { searchParams: Promise<Query> }) {
   const { companyId } = await requireInventoryContext();
+  const location = await requireCurrentLocation();
   const query = await searchParams;
   const page = Math.max(Number(query.page ?? "1"), 1);
   const [result, options] = await Promise.all([
-    getInventoryMovements(companyId, { query: query.q, movementType: query.type as InventoryMovementType | undefined, warehouseId: query.warehouse, itemId: query.item, from: query.from ? new Date(query.from) : undefined, to: query.to ? new Date(`${query.to}T23:59:59.999`) : undefined }, page),
-    getInventoryOptions(companyId),
+    getInventoryMovements(companyId, location.id, { query: query.q, movementType: query.type as InventoryMovementType | undefined, warehouseId: query.warehouse, itemId: query.item, from: query.from ? new Date(query.from) : undefined, to: query.to ? new Date(`${query.to}T23:59:59.999`) : undefined }, page),
+    getInventoryOptions(companyId, location.id),
   ]);
   const params = new URLSearchParams(Object.entries(query).filter((entry): entry is [string, string] => Boolean(entry[1])));
   return <div className="space-y-5">

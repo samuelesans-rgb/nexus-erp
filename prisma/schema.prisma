@@ -1076,6 +1076,13 @@ model Location {
   kitchenStations        KitchenStation[]
   kitchenTickets         KitchenTicket[]
   recipeConsumptions     RecipeConsumption[]
+  inventoryLots          InventoryLot[]
+  inventorySerials       InventorySerial[]
+  inventoryMovements     InventoryMovement[]
+  inventoryTransfersFrom InventoryTransfer[]     @relation("TransferSourceLocation")
+  inventoryTransfersTo   InventoryTransfer[]     @relation("TransferDestinationLocation")
+  inventoryCounts        InventoryCount[]
+  stockBalances          StockBalance[]
   defaultMemberships     Membership[]            @relation("MembershipDefaultLocation")
   createdById            String?
   createdBy              User?                   @relation("LocationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
@@ -1148,6 +1155,7 @@ model WarehouseBin {
 model InventoryLot {
   id                    String                  @id @default(cuid())
   companyId             String
+  locationId            String
   itemId                String
   lotNumber             String
   manufactureDate       DateTime?
@@ -1155,6 +1163,7 @@ model InventoryLot {
   supplierLot           String?
   active                Boolean                 @default(true)
   company               Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location              Location                @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
   item                  Item                    @relation(fields: [companyId, itemId], references: [companyId, id], onDelete: Restrict)
   movements             InventoryMovement[]
   transferLines         InventoryTransferLine[]
@@ -1165,16 +1174,18 @@ model InventoryLot {
 
   @@unique([companyId, itemId, lotNumber])
   @@unique([companyId, id])
-  @@index([companyId, expirationDate, active])
+  @@index([companyId, locationId, expirationDate, active])
 }
 
 model InventorySerial {
   id                    String                  @id @default(cuid())
   companyId             String
+  locationId            String
   itemId                String
   serialNumber          String
   status                InventorySerialStatus   @default(AVAILABLE)
   company               Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location              Location                @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
   item                  Item                    @relation(fields: [companyId, itemId], references: [companyId, id], onDelete: Restrict)
   movements             InventoryMovement[]
   transferLines         InventoryTransferLine[]
@@ -1185,12 +1196,13 @@ model InventorySerial {
 
   @@unique([companyId, serialNumber])
   @@unique([companyId, id])
-  @@index([companyId, itemId, status])
+  @@index([companyId, locationId, itemId, status])
 }
 
 model InventoryMovement {
   id                 String                @id @default(cuid())
   companyId          String
+  locationId         String
   warehouseId        String
   binId              String?
   itemId             String
@@ -1211,6 +1223,7 @@ model InventoryMovement {
   postedById         String
   reversalOfId       String?               @unique
   company            Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  location           Location              @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
   warehouse          Warehouse             @relation(fields: [companyId, warehouseId], references: [companyId, id], onDelete: Restrict)
   bin                WarehouseBin?         @relation(fields: [companyId, binId], references: [companyId, id], onDelete: Restrict)
   item               Item                  @relation(fields: [companyId, itemId], references: [companyId, id], onDelete: Restrict)
@@ -1224,7 +1237,7 @@ model InventoryMovement {
   recipeConsumptions RecipeConsumption[]
 
   @@unique([companyId, id])
-  @@index([companyId, warehouseId, itemId, postedAt])
+  @@index([companyId, locationId, warehouseId, itemId, postedAt])
   @@index([companyId, lotId, postedAt])
   @@index([companyId, serialId, postedAt])
   @@index([companyId, referenceType, referenceId])
@@ -1233,6 +1246,8 @@ model InventoryMovement {
 model InventoryTransfer {
   id                     String                  @id @default(cuid())
   companyId              String
+  sourceLocationId       String
+  destinationLocationId  String
   code                   String
   sourceWarehouseId      String
   destinationWarehouseId String
@@ -1244,6 +1259,8 @@ model InventoryTransfer {
   createdById            String
   completedById          String?
   company                Company                 @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  sourceLocation         Location                @relation("TransferSourceLocation", fields: [companyId, sourceLocationId], references: [companyId, id], onDelete: Restrict)
+  destinationLocation    Location                @relation("TransferDestinationLocation", fields: [companyId, destinationLocationId], references: [companyId, id], onDelete: Restrict)
   sourceWarehouse        Warehouse               @relation("TransferSourceWarehouse", fields: [companyId, sourceWarehouseId], references: [companyId, id], onDelete: Restrict)
   destinationWarehouse   Warehouse               @relation("TransferDestinationWarehouse", fields: [companyId, destinationWarehouseId], references: [companyId, id], onDelete: Restrict)
   sourceBin              WarehouseBin?           @relation("TransferSourceBin", fields: [companyId, sourceBinId], references: [companyId, id], onDelete: Restrict)
@@ -1256,7 +1273,8 @@ model InventoryTransfer {
 
   @@unique([companyId, code])
   @@unique([companyId, id])
-  @@index([companyId, status, requestedAt])
+  @@index([companyId, sourceLocationId, status, requestedAt])
+  @@index([companyId, destinationLocationId, status, requestedAt])
 }
 
 model InventoryTransferLine {
@@ -1281,6 +1299,7 @@ model InventoryTransferLine {
 model InventoryCount {
   id          String               @id @default(cuid())
   companyId   String
+  locationId  String
   warehouseId String
   binId       String?
   code        String
@@ -1290,6 +1309,7 @@ model InventoryCount {
   createdById String
   postedById  String?
   company     Company              @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  location    Location             @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
   warehouse   Warehouse            @relation(fields: [companyId, warehouseId], references: [companyId, id], onDelete: Restrict)
   bin         WarehouseBin?        @relation(fields: [companyId, binId], references: [companyId, id], onDelete: Restrict)
   lines       InventoryCountLine[]
@@ -1300,7 +1320,7 @@ model InventoryCount {
 
   @@unique([companyId, code])
   @@unique([companyId, id])
-  @@index([companyId, status, createdAt])
+  @@index([companyId, locationId, status, createdAt])
 }
 
 model InventoryCountLine {
@@ -1327,18 +1347,20 @@ model InventoryCountLine {
 model StockBalance {
   id          String    @id @default(cuid())
   companyId   String
+  locationId  String
   warehouseId String
   itemId      String
   quantity    Decimal   @default(0) @db.Decimal(15, 3)
   averageCost Decimal   @default(0) @db.Decimal(15, 4)
   stockValue  Decimal   @default(0) @db.Decimal(15, 2)
   company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location    Location  @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
   warehouse   Warehouse @relation(fields: [companyId, warehouseId], references: [companyId, id], onDelete: Cascade)
   item        Item      @relation(fields: [companyId, itemId], references: [companyId, id], onDelete: Cascade)
   updatedAt   DateTime  @updatedAt
 
   @@unique([companyId, warehouseId, itemId])
-  @@index([companyId, itemId])
+  @@index([companyId, locationId, itemId])
 }
 
 model DomainEvent {

@@ -724,8 +724,8 @@ async function main() {
   const expirationDate = new Date(); expirationDate.setDate(expirationDate.getDate() + 20);
   const demoLot = await prisma.inventoryLot.upsert({
     where: { companyId_itemId_lotNumber: { companyId: company.id, itemId: ingredient.id, lotNumber: "DEMO-LOT-001" } },
-    update: { expirationDate, active: true },
-    create: { companyId: company.id, itemId: ingredient.id, lotNumber: "DEMO-LOT-001", expirationDate },
+    update: { locationId: location.id, expirationDate, active: true },
+    create: { companyId: company.id, locationId: location.id, itemId: ingredient.id, lotNumber: "DEMO-LOT-001", expirationDate },
   });
   for (const entry of [
     { referenceId: "DEMO-OPEN-PRODUCT", itemId: product.id, unitOfMeasureId: units.get("PZ")!, binId: bins.get(`${mainWarehouse.id}:STORAGE`), quantity: 48, cost: 0.55, lotId: null },
@@ -734,8 +734,8 @@ async function main() {
     const existing = await prisma.inventoryMovement.findFirst({ where: { companyId: company.id, referenceType: "SEED", referenceId: entry.referenceId }, select: { id: true } });
     if (!existing) {
       const postedAt = new Date();
-      const movement = await prisma.inventoryMovement.create({ data: { companyId: company.id, warehouseId: mainWarehouse.id, binId: entry.binId, itemId: entry.itemId, movementType: "OPENING", quantity: entry.quantity, direction: 1, unitOfMeasureId: entry.unitOfMeasureId, lotId: entry.lotId, unitCost: entry.cost, totalCost: entry.quantity * entry.cost, referenceType: "SEED", referenceId: entry.referenceId, reason: "Apertura demo", occurredAt: postedAt, postedAt, postedById: user.id } });
-      await prisma.stockBalance.upsert({ where: { companyId_warehouseId_itemId: { companyId: company.id, warehouseId: mainWarehouse.id, itemId: entry.itemId } }, update: { quantity: entry.quantity, averageCost: entry.cost, stockValue: entry.quantity * entry.cost }, create: { companyId: company.id, warehouseId: mainWarehouse.id, itemId: entry.itemId, quantity: entry.quantity, averageCost: entry.cost, stockValue: entry.quantity * entry.cost } });
+      const movement = await prisma.inventoryMovement.create({ data: { companyId: company.id, locationId: location.id, warehouseId: mainWarehouse.id, binId: entry.binId, itemId: entry.itemId, movementType: "OPENING", quantity: entry.quantity, direction: 1, unitOfMeasureId: entry.unitOfMeasureId, lotId: entry.lotId, unitCost: entry.cost, totalCost: entry.quantity * entry.cost, referenceType: "SEED", referenceId: entry.referenceId, reason: "Apertura demo", occurredAt: postedAt, postedAt, postedById: user.id } });
+      await prisma.stockBalance.upsert({ where: { companyId_warehouseId_itemId: { companyId: company.id, warehouseId: mainWarehouse.id, itemId: entry.itemId } }, update: { locationId: location.id, quantity: entry.quantity, averageCost: entry.cost, stockValue: entry.quantity * entry.cost }, create: { companyId: company.id, locationId: location.id, warehouseId: mainWarehouse.id, itemId: entry.itemId, quantity: entry.quantity, averageCost: entry.cost, stockValue: entry.quantity * entry.cost } });
       await prisma.domainEvent.create({ data: { companyId: company.id, eventType: "InventoryMovementPosted", aggregateType: "InventoryMovement", aggregateId: movement.id, payload: { source: "seed", movementId: movement.id }, occurredAt: new Date() } });
     }
   }
