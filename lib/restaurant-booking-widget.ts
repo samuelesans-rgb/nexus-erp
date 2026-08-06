@@ -16,6 +16,9 @@ export class BookingWidgetError extends Error {
 
 const keySchema = z.string().trim().min(32).max(128).regex(/^[A-Za-z0-9_-]+$/);
 const colorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/, "Colore non valido.");
+const httpUrlSchema = z.string().trim().url().max(500).refine((value) => ["http:", "https:"].includes(new URL(value).protocol), "URL non valido.");
+export const WIDGET_FONT_FAMILIES = ["system-ui", "Arial", "Georgia", "Verdana", "Trebuchet MS"] as const;
+export const WIDGET_MODES = ["INLINE", "MODAL", "FLOATING_BUTTON"] as const;
 const domainSchema = z.string().trim().max(253).transform((value, context) => {
   try {
     const url = new URL(value.includes("://") ? value : `https://${value}`);
@@ -30,17 +33,20 @@ const domainSchema = z.string().trim().max(253).transform((value, context) => {
 export const widgetSettingsSchema = z.object({
   enabled: z.boolean(),
   allowedDomains: z.array(domainSchema).max(50),
-  mode: z.enum(["INLINE", "MODAL"]),
+  mode: z.enum(WIDGET_MODES),
   theme: z.enum(["LIGHT", "DARK", "AUTO"]),
+  logoUrl: httpUrlSchema.nullable(),
   primaryColor: colorSchema,
   secondaryColor: colorSchema,
   accentColor: colorSchema,
+  backgroundColor: colorSchema,
+  textColor: colorSchema,
   borderRadius: z.number().int().min(0).max(40),
-  fontFamily: z.string().trim().min(1).max(100).regex(/^[\p{L}\p{N} ,_-]+$/u, "Font non valido."),
+  fontFamily: z.enum(WIDGET_FONT_FAMILIES, { error: "Font non ammesso." }),
   buttonLabel: z.string().trim().min(1).max(80),
   heading: z.string().trim().min(1).max(120).refine((value) => !/[<>&]/.test(value), "Titolo non valido."),
   description: z.string().trim().max(500).nullable(),
-  privacyUrl: z.string().trim().url().max(500).nullable().refine((value) => value === null || ["http:", "https:"].includes(new URL(value).protocol), "URL privacy non valido."),
+  privacyUrl: httpUrlSchema.nullable(),
   successMessage: z.string().trim().min(1).max(500),
   requirePhone: z.boolean(),
   requireEmail: z.boolean(),
@@ -115,9 +121,12 @@ export async function getWidgetPublicConfig(publicKey: string, origin: string | 
     publicKey: widget.publicKey,
     mode: widget.mode,
     theme: widget.theme,
+    logoUrl: widget.logoUrl,
     primaryColor: widget.primaryColor,
     secondaryColor: widget.secondaryColor,
     accentColor: widget.accentColor,
+    backgroundColor: widget.backgroundColor,
+    textColor: widget.textColor,
     borderRadius: widget.borderRadius,
     fontFamily: widget.fontFamily,
     buttonLabel: widget.buttonLabel,
@@ -186,4 +195,12 @@ export async function saveWidgetAdminConfig(companyId: string, locationId: strin
 export async function regenerateWidgetPublicKey(companyId: string, locationId: string) {
   const result = await prisma.restaurantBookingWidget.updateMany({ where: { companyId, locationId }, data: { publicKey: generateWidgetPublicKey() } });
   if (!result.count) throw new BookingWidgetError("Configura prima il widget.", 404);
+}
+
+export function buildWidgetSnippet(origin: string, publicKey: string, mode: string) {
+  const parsedKey = keySchema.parse(publicKey);
+  const parsedMode = z.enum(WIDGET_MODES).parse(mode);
+  const base = new URL(origin);
+  if (!["http:", "https:"].includes(base.protocol)) throw new BookingWidgetError("Origine snippet non valida.");
+  return `<script async src="${base.origin}/widget/v1/widget.js" data-nexus-booking="${parsedKey}" data-mode="${parsedMode}"></script>`;
 }

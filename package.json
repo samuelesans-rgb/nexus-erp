@@ -14,10 +14,12 @@
     "test:integration:booking-public": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test tests/integration/restaurant-booking-public.test.ts",
     "test:integration:booking-email": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test tests/integration/restaurant-booking-email.test.ts",
     "test:integration:widget": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/restaurant-booking-widget.test.ts",
+    "test:integration:widget-designer": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/restaurant-booking-widget-designer.test.ts",
     "test:e2e": "playwright test",
     "test:e2e:restaurant": "playwright test tests/e2e/restaurant-core-hardening.spec.ts",
     "test:e2e:locations": "playwright test tests/e2e/locations.spec.ts",
     "test:e2e:booking-public": "SMTP_HOST= SMTP_FROM= playwright test tests/e2e/restaurant-booking-public.spec.ts",
+    "test:e2e:widget-designer": "SMTP_HOST= SMTP_FROM= playwright test tests/e2e/restaurant-booking-widget-designer.spec.ts",
     "test:e2e:ui": "playwright test --ui"
   },
   "prisma": {
