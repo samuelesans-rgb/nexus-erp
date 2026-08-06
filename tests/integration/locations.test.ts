@@ -41,11 +41,15 @@ async function create(code: string) {
 
 test("Locations: creazione, modifica e unicità codice per Company", async () => {
   const location = await create(`LOC-${randomUUID().slice(0, 8)}`);
-  await updateLocation(companyId, userId, location.id, { code: location.code, name: "Sede aggiornata", country: "it" });
+  assert.match(location.slug, /^sede-loc-[a-z0-9-]+$/);
+  await updateLocation(companyId, userId, location.id, { slug: location.slug, code: location.code, name: "Sede aggiornata", country: "it" });
   const updated = await prisma.location.findUniqueOrThrow({ where: { id: location.id } });
-  assert.equal(updated.name, "Sede aggiornata"); assert.equal(updated.country, "IT");
+  assert.equal(updated.name, "Sede aggiornata"); assert.equal(updated.country, "IT"); assert.equal(updated.slug, location.slug);
+  await assert.rejects(updateLocation(companyId, userId, location.id, { slug: "slug-modificato", code: location.code, name: location.name }), LocationDomainError);
+  await assert.rejects(createLocation(otherCompanyId, userId, { slug: location.slug, code: "SLUG-DUP", name: "Slug duplicato" }), LocationDomainError);
   await assert.rejects(createLocation(companyId, userId, { code: location.code, name: "Duplicata" }));
   const other = await createLocation(otherCompanyId, userId, { code: location.code, name: "Stesso codice, altro tenant" });
+  assert.notEqual(other.slug, location.slug);
   await prisma.location.delete({ where: { id: other.id } });
 });
 

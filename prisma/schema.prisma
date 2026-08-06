@@ -1050,6 +1050,7 @@ model GiftCardProfile {
 
 model Location {
   id                        String                     @id @default(cuid())
+  slug                      String                     @unique @default(cuid())
   companyId                 String
   code                      String
   name                      String

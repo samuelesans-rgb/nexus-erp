@@ -690,7 +690,7 @@ async function main() {
   const location = await prisma.location.upsert({
     where: { companyId_code: { companyId: company.id, code: "MAIN" } },
     update: { name: "Sede principale", city: "Milano", country: "IT", timezone: "Europe/Rome", currency: "EUR", isHeadquarters: true, active: true, deletedAt: null, createdById: user.id, updatedById: user.id },
-    create: { companyId: company.id, code: "MAIN", name: "Sede principale", city: "Milano", country: "IT", timezone: "Europe/Rome", currency: "EUR", isHeadquarters: true, createdById: user.id, updatedById: user.id },
+    create: { companyId: company.id, slug: "sede-principale", code: "MAIN", name: "Sede principale", city: "Milano", country: "IT", timezone: "Europe/Rome", currency: "EUR", isHeadquarters: true, createdById: user.id, updatedById: user.id },
   });
   await prisma.membership.updateMany({ where: { companyId: company.id, defaultLocationId: null }, data: { defaultLocationId: location.id } });
   const mainWarehouse = await prisma.warehouse.upsert({

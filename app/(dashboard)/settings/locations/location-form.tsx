@@ -9,6 +9,7 @@ export default function LocationForm({ action, defaults }: { action: (formData: 
   return <form action={action} className="space-y-5 rounded-xl border bg-white p-5">
     {hasId && <input type="hidden" name="id" value={String(defaults.id)} />}
     <div className="grid gap-4 md:grid-cols-2"><Field name="code" label="Codice" value={defaults?.code}/><Field name="name" label="Nome" value={defaults?.name}/></div>
+    <label className="block text-sm font-medium">Slug pubblico<input name="slug" readOnly={hasId} pattern="[a-z0-9]+(?:-[a-z0-9]+)*" maxLength={120} defaultValue={typeof defaults?.slug === "string" ? defaults.slug : ""} placeholder="Generato automaticamente dal nome" className={`${input} ${hasId ? "bg-slate-100 text-slate-600" : ""}`}/><span className="mt-1 block text-xs font-normal text-slate-500">Minuscolo, URL-safe e non modificabile dopo la creazione.</span></label>
     <Field name="description" label="Descrizione" value={defaults?.description}/>
     <div className="grid gap-4 md:grid-cols-2"><Field name="email" label="Email" type="email" value={defaults?.email}/><Field name="phone" label="Telefono" value={defaults?.phone}/></div>
     <Field name="address" label="Indirizzo" value={defaults?.address}/>

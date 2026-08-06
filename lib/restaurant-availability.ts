@@ -58,7 +58,7 @@ function overlaps(start: Date, end: Date, otherStart: Date, otherEnd: Date) {
   return otherStart < end && otherEnd > start;
 }
 
-export async function checkAvailability(companyId: string, locationId: string, input: { startTime: Date; partySize: number; durationMinutes?: number; tableId?: string | null }) {
+export async function checkAvailability(companyId: string, locationId: string, input: { startTime: Date; partySize: number; durationMinutes?: number; tableId?: string | null; excludeReservationId?: string }) {
   if (!Number.isInteger(input.partySize) || input.partySize < 1) throw new RestaurantAvailabilityError("Numero coperti non valido.");
   const settings = await getBookingSettings(companyId, locationId);
   if (!settings.enabled) throw new RestaurantAvailabilityError("Le prenotazioni online non sono disponibili per questa sede.");
@@ -74,7 +74,7 @@ export async function checkAvailability(companyId: string, locationId: string, i
   if (dayIntervals.length && !dayIntervals.some(([from, to]) => startTime >= atTime(startTime, from) && endTime <= atTime(startTime, to))) throw new RestaurantAvailabilityError("L'orario selezionato è fuori apertura.");
   const activeStatuses = ["PENDING", "CONFIRMED", "SEATED"] as const;
   const reservations = await prisma.restaurantReservation.findMany({
-    where: { companyId, locationId, deletedAt: null, status: { in: [...activeStatuses] }, startTime: { lt: endTime }, endTime: { gt: startTime } },
+    where: { companyId, locationId, deletedAt: null, id: input.excludeReservationId ? { not: input.excludeReservationId } : undefined, status: { in: [...activeStatuses] }, startTime: { lt: endTime }, endTime: { gt: startTime } },
     include: { tables: { select: { tableId: true } } },
   });
   if (settings.maxCoversPerSlot > 0 && reservations.reduce((total, reservation) => total + reservation.partySize, 0) + input.partySize > settings.maxCoversPerSlot) throw new RestaurantAvailabilityError("Capienza massima della fascia raggiunta.");

@@ -1,17 +1,125 @@
 import "server-only";
 
 import { createHash, randomBytes } from "node:crypto";
-import type { RestaurantReservationSource, RestaurantReservationStatus } from "@/generated/prisma/client";
+import type { Prisma, RestaurantReservationSource, RestaurantReservationStatus } from "@/generated/prisma/client";
 import { executeIdempotent } from "@/lib/idempotency";
 import { prisma } from "@/lib/prisma";
 import { checkAvailability, RestaurantAvailabilityError } from "@/lib/restaurant-availability";
 
-export class RestaurantBookingError extends Error { constructor(message: string) { super(message); this.name = "RestaurantBookingError"; } }
+export class RestaurantBookingError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RestaurantBookingError";
+  }
+}
+
 const terminal = new Set<RestaurantReservationStatus>(["CANCELLED", "COMPLETED", "NO_SHOW"]);
-const hash = (token: string) => createHash("sha256").update(token).digest("hex");
+const transitions: Partial<Record<RestaurantReservationStatus, readonly RestaurantReservationStatus[]>> = {
+  PENDING: ["CONFIRMED", "CANCELLED"],
+  CONFIRMED: ["SEATED", "CANCELLED", "NO_SHOW"],
+  SEATED: ["COMPLETED"],
+};
+const eventNames: Partial<Record<RestaurantReservationStatus, string>> = {
+  CONFIRMED: "RestaurantReservationConfirmed",
+  CANCELLED: "RestaurantReservationCancelled",
+  SEATED: "RestaurantGuestSeated",
+  COMPLETED: "RestaurantReservationCompleted",
+  NO_SHOW: "RestaurantNoShowRecorded",
+};
+const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 const token = () => randomBytes(32).toString("base64url");
 
-export type ReservationInput = { locationId: string; guestName: string; phone?: string | null; email?: string | null; notes?: string | null; partySize: number; startTime: Date; durationMinutes?: number; tableId?: string | null; partnerId?: string | null; source?: RestaurantReservationSource };
+export type ReservationInput = {
+  locationId: string;
+  guestName: string;
+  phone?: string | null;
+  email?: string | null;
+  notes?: string | null;
+  partySize: number;
+  startTime: Date;
+  durationMinutes?: number;
+  tableId?: string | null;
+  partnerId?: string | null;
+  source?: RestaurantReservationSource;
+};
+
+export type StaffReservationFilters = {
+  date: Date;
+  query?: string;
+  status?: RestaurantReservationStatus;
+};
+
+export type StaffReservationUpdate = Pick<ReservationInput, "guestName" | "phone" | "email" | "notes" | "partySize" | "startTime" | "durationMinutes"> & {
+  internalNotes?: string | null;
+};
+
+function event(tx: Prisma.TransactionClient, companyId: string, reservationId: string, eventType: string, payload: Prisma.InputJsonValue) {
+  return tx.domainEvent.create({ data: { companyId, aggregateType: "RestaurantReservation", aggregateId: reservationId, eventType, payload, occurredAt: new Date() } });
+}
+
+async function byId(companyId: string, locationId: string, id: string) {
+  const reservation = await prisma.restaurantReservation.findFirst({
+    where: { id, companyId, locationId, deletedAt: null },
+    include: { tables: true },
+  });
+  if (!reservation) throw new RestaurantBookingError("Prenotazione non trovata nella sede corrente.");
+  return reservation;
+}
+
+export async function getStaffReservations(companyId: string, locationId: string, filters: StaffReservationFilters) {
+  const start = new Date(filters.date);
+  if (Number.isNaN(start.getTime())) throw new RestaurantBookingError("Data non valida.");
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  const query = filters.query?.trim();
+  return prisma.restaurantReservation.findMany({
+    where: {
+      companyId,
+      locationId,
+      deletedAt: null,
+      startTime: { gte: start, lt: end },
+      status: filters.status,
+      ...(query
+        ? {
+            OR: [
+              { guestName: { contains: query, mode: "insensitive" as const } },
+              { phone: { contains: query, mode: "insensitive" as const } },
+              { email: { contains: query, mode: "insensitive" as const } },
+              { code: { contains: query, mode: "insensitive" as const } },
+            ],
+          }
+        : {}),
+    },
+    include: { tables: { include: { table: { select: { id: true, code: true, name: true } } } } },
+    orderBy: [{ startTime: "asc" }, { code: "asc" }],
+  });
+}
+
+export async function getStaffReservation(companyId: string, locationId: string, id: string) {
+  return prisma.restaurantReservation.findFirst({
+    where: { id, companyId, locationId, deletedAt: null },
+    include: {
+      tables: { include: { table: { select: { id: true, code: true, name: true, seats: true, maxSeats: true } } } },
+    },
+  });
+}
+
+export async function getReservationHistory(companyId: string, reservationId: string) {
+  return prisma.domainEvent.findMany({
+    where: { companyId, aggregateType: "RestaurantReservation", aggregateId: reservationId },
+    select: { id: true, eventType: true, occurredAt: true, payload: true },
+    orderBy: { occurredAt: "desc" },
+  });
+}
+
+export async function getAssignableTables(companyId: string, locationId: string) {
+  return prisma.restaurantTable.findMany({
+    where: { companyId, locationId, active: true, deletedAt: null, status: { not: "OUT_OF_SERVICE" } },
+    select: { id: true, code: true, name: true, seats: true, maxSeats: true, status: true },
+    orderBy: [{ code: "asc" }],
+  });
+}
 
 export async function createReservation(companyId: string, userId: string | null, idempotencyKey: string, input: ReservationInput) {
   if (!input.guestName.trim()) throw new RestaurantBookingError("Il nome del cliente è obbligatorio.");
@@ -23,14 +131,84 @@ export async function createReservation(companyId: string, userId: string | null
     if (input.partnerId && !(await tx.partner.findFirst({ where: { id: input.partnerId, companyId, active: true, deletedAt: null }, select: { id: true } }))) throw new RestaurantBookingError("Cliente non valido.");
     const confirmationToken = token(); const cancellationToken = token();
     const reservation = await tx.restaurantReservation.create({ data: { companyId, locationId: input.locationId, code: `RES-${randomBytes(6).toString("hex").toUpperCase()}`, partnerId: input.partnerId ?? null, guestName: input.guestName.trim(), phone: input.phone?.trim() || null, email: input.email?.trim().toLowerCase() || null, reservationDate: availability.startTime, startTime: availability.startTime, endTime: availability.endTime, durationMinutes: availability.durationMinutes, partySize: input.partySize, source: input.source ?? "WEBSITE", status: "PENDING", notes: input.notes?.trim() || null, confirmationTokenHash: hash(confirmationToken), cancellationTokenHash: hash(cancellationToken), createdById: userId, updatedById: userId, tables: { create: { tableId: availability.tableId! } } }, select: { id: true, code: true } });
-    await tx.domainEvent.create({ data: { companyId, eventType: "RestaurantReservationCreated", aggregateType: "RestaurantReservation", aggregateId: reservation.id, payload: { source: input.source ?? "WEBSITE" }, occurredAt: new Date() } });
+    await event(tx, companyId, reservation.id, "RestaurantReservationCreated", { source: input.source ?? "WEBSITE" });
     return { aggregateId: reservation.id, reservationId: reservation.id, code: reservation.code, confirmationToken, cancellationToken };
   }, { aggregateType: "RestaurantReservation" });
 }
 
-async function byId(companyId: string, locationId: string, id: string) { const reservation = await prisma.restaurantReservation.findFirst({ where: { id, companyId, locationId, deletedAt: null }, include: { tables: true } }); if (!reservation) throw new RestaurantBookingError("Prenotazione non trovata."); return reservation; }
-export async function confirmReservation(companyId: string, locationId: string, id: string) { const reservation = await byId(companyId, locationId, id); if (terminal.has(reservation.status)) throw new RestaurantBookingError("Prenotazione non modificabile."); await prisma.restaurantReservation.update({ where: { id }, data: { status: "CONFIRMED" } }); return { id }; }
-export async function cancelReservation(companyId: string, locationId: string, id: string) { const reservation = await byId(companyId, locationId, id); if (terminal.has(reservation.status)) throw new RestaurantBookingError("Prenotazione non modificabile."); await prisma.restaurantReservation.update({ where: { id }, data: { status: "CANCELLED", cancelledAt: new Date() } }); return { id }; }
-export async function updateReservation(companyId: string, locationId: string, id: string, input: Pick<ReservationInput, "guestName" | "phone" | "email" | "notes" | "partySize" | "startTime" | "durationMinutes">) { const current = await byId(companyId, locationId, id); if (terminal.has(current.status)) throw new RestaurantBookingError("Prenotazione non modificabile."); const tableId = current.tables[0]?.tableId; const availability = await checkAvailability(companyId, locationId, { ...input, tableId }); if (!availability.available) throw new RestaurantBookingError("Tavolo non disponibile."); await prisma.restaurantReservation.update({ where: { id }, data: { guestName: input.guestName.trim(), phone: input.phone?.trim() || null, email: input.email?.trim().toLowerCase() || null, notes: input.notes?.trim() || null, partySize: input.partySize, reservationDate: availability.startTime, startTime: availability.startTime, endTime: availability.endTime, durationMinutes: availability.durationMinutes } }); return { id }; }
-export async function assignTable(companyId: string, locationId: string, id: string, tableId: string) { const reservation = await byId(companyId, locationId, id); if (terminal.has(reservation.status)) throw new RestaurantBookingError("Prenotazione non modificabile."); const availability = await checkAvailability(companyId, locationId, { startTime: reservation.startTime, partySize: reservation.partySize, durationMinutes: reservation.durationMinutes, tableId }); if (!availability.available) throw new RestaurantBookingError("Tavolo non disponibile."); await prisma.$transaction(async (tx) => { await tx.restaurantReservationTable.deleteMany({ where: { companyId, reservationId: id } }); await tx.restaurantReservationTable.create({ data: { companyId, reservationId: id, tableId } }); }); return { id, tableId }; }
+export async function transitionReservation(companyId: string, locationId: string, id: string, nextStatus: RestaurantReservationStatus, userId?: string | null) {
+  const current = await byId(companyId, locationId, id);
+  if (!transitions[current.status]?.includes(nextStatus)) throw new RestaurantBookingError(`Transizione ${current.status} → ${nextStatus} non consentita.`);
+  await prisma.$transaction(async (tx) => {
+    const updated = await tx.restaurantReservation.updateMany({
+      where: { id, companyId, locationId, status: current.status, deletedAt: null },
+      data: { status: nextStatus, updatedById: userId, cancelledAt: nextStatus === "CANCELLED" ? new Date() : undefined },
+    });
+    if (!updated.count) throw new RestaurantBookingError("La prenotazione è stata modificata da un altro operatore.");
+    if (nextStatus === "SEATED" && current.tables.length) {
+      await tx.restaurantTable.updateMany({ where: { companyId, locationId, id: { in: current.tables.map((table) => table.tableId) } }, data: { status: "OCCUPIED" } });
+    }
+    if (["COMPLETED", "CANCELLED", "NO_SHOW"].includes(nextStatus) && current.tables.length) {
+      await tx.restaurantTable.updateMany({ where: { companyId, locationId, id: { in: current.tables.map((table) => table.tableId) }, status: "OCCUPIED" }, data: { status: "AVAILABLE" } });
+    }
+    await event(tx, companyId, id, eventNames[nextStatus] ?? "RestaurantReservationStatusChanged", { from: current.status, to: nextStatus, userId: userId ?? null });
+  });
+  return { id, status: nextStatus };
+}
+
+export async function confirmReservation(companyId: string, locationId: string, id: string) {
+  return transitionReservation(companyId, locationId, id, "CONFIRMED");
+}
+
+export async function cancelReservation(companyId: string, locationId: string, id: string) {
+  return transitionReservation(companyId, locationId, id, "CANCELLED");
+}
+
+export async function updateReservation(companyId: string, locationId: string, id: string, input: StaffReservationUpdate, userId?: string | null) {
+  const current = await byId(companyId, locationId, id);
+  if (terminal.has(current.status)) throw new RestaurantBookingError("Prenotazione non modificabile.");
+  if (!input.guestName.trim()) throw new RestaurantBookingError("Il nome del cliente è obbligatorio.");
+  const tableId = current.tables[0]?.tableId;
+  const availability = await checkAvailability(companyId, locationId, { ...input, tableId, excludeReservationId: id });
+  if (!availability.available) throw new RestaurantBookingError("Tavolo non disponibile.");
+  await prisma.$transaction(async (tx) => {
+    const updated = await tx.restaurantReservation.updateMany({
+      where: { id, companyId, locationId, deletedAt: null, status: current.status },
+      data: { guestName: input.guestName.trim(), phone: input.phone?.trim() || null, email: input.email?.trim().toLowerCase() || null, notes: input.notes?.trim() || null, internalNotes: input.internalNotes?.trim() || null, partySize: input.partySize, reservationDate: availability.startTime, startTime: availability.startTime, endTime: availability.endTime, durationMinutes: availability.durationMinutes, updatedById: userId },
+    });
+    if (!updated.count) throw new RestaurantBookingError("La prenotazione è stata modificata da un altro operatore.");
+    await event(tx, companyId, id, "RestaurantReservationUpdated", { userId: userId ?? null });
+  });
+  return { id };
+}
+
+export async function assignTable(companyId: string, locationId: string, id: string, tableId: string, userId?: string | null) {
+  const reservation = await byId(companyId, locationId, id);
+  if (terminal.has(reservation.status)) throw new RestaurantBookingError("Prenotazione non modificabile.");
+  const availability = await checkAvailability(companyId, locationId, { startTime: reservation.startTime, partySize: reservation.partySize, durationMinutes: reservation.durationMinutes, tableId, excludeReservationId: id });
+  if (!availability.available || availability.tableId !== tableId) throw new RestaurantBookingError("Tavolo non disponibile o capienza insufficiente.");
+  await prisma.$transaction(async (tx) => {
+    const table = await tx.restaurantTable.findFirst({ where: { id: tableId, companyId, locationId, active: true, deletedAt: null, status: { notIn: ["OUT_OF_SERVICE", "OCCUPIED"] } }, select: { id: true } });
+    if (!table) throw new RestaurantBookingError("Tavolo non appartenente alla sede corrente.");
+    const conflict = await tx.restaurantReservationTable.findFirst({ where: { companyId, tableId, reservationId: { not: id }, reservation: { locationId, deletedAt: null, status: { in: ["PENDING", "CONFIRMED", "SEATED"] }, startTime: { lt: availability.endTime }, endTime: { gt: availability.startTime } } }, select: { tableId: true } });
+    if (conflict) throw new RestaurantBookingError("Sovrapposizione con una prenotazione esistente.");
+    await tx.restaurantReservationTable.deleteMany({ where: { companyId, reservationId: id } });
+    await tx.restaurantReservationTable.create({ data: { companyId, reservationId: id, tableId } });
+    await tx.restaurantReservation.update({ where: { id }, data: { updatedById: userId } });
+    await event(tx, companyId, id, "RestaurantReservationTableAssigned", { tableId, userId: userId ?? null });
+  });
+  return { id, tableId };
+}
+
+export async function unassignTable(companyId: string, locationId: string, id: string, userId?: string | null) {
+  const reservation = await byId(companyId, locationId, id);
+  if (terminal.has(reservation.status)) throw new RestaurantBookingError("Prenotazione non modificabile.");
+  await prisma.$transaction(async (tx) => {
+    await tx.restaurantReservationTable.deleteMany({ where: { companyId, reservationId: id, reservation: { locationId } } });
+    await tx.restaurantReservation.update({ where: { id }, data: { updatedById: userId } });
+    await event(tx, companyId, id, "RestaurantReservationTableRemoved", { userId: userId ?? null });
+  });
+  return { id };
+}
+
 export { RestaurantAvailabilityError };

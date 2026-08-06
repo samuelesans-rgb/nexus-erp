@@ -11,6 +11,7 @@ export class LocationDomainError extends Error {
 }
 
 export type LocationInput = {
+  slug?: string | null;
   code: string;
   name: string;
   description?: string | null;
@@ -27,6 +28,42 @@ export type LocationInput = {
 };
 
 const live = { active: true, deletedAt: null } as const;
+const slugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+function slugify(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 120)
+    .replace(/-+$/g, "");
+}
+
+function requestedSlug(value?: string | null) {
+  if (!value?.trim()) return undefined;
+  const slug = value.trim();
+  if (slug.length > 120 || !slugPattern.test(slug)) {
+    throw new LocationDomainError("Lo slug deve essere minuscolo e contenere solo lettere, numeri e trattini.");
+  }
+  return slug;
+}
+
+async function initialSlug(tx: Prisma.TransactionClient, name: string, requested?: string | null) {
+  const explicit = requestedSlug(requested);
+  if (explicit) {
+    if (await tx.location.findUnique({ where: { slug: explicit }, select: { id: true } })) throw new LocationDomainError("Lo slug pubblico è già utilizzato da un'altra sede.");
+    return explicit;
+  }
+  const base = slugify(name) || "location";
+  for (let suffix = 1; suffix <= 1000; suffix++) {
+    const tail = suffix === 1 ? "" : `-${suffix}`;
+    const candidate = `${base.slice(0, 120 - tail.length)}${tail}`;
+    if (!(await tx.location.findUnique({ where: { slug: candidate }, select: { id: true } }))) return candidate;
+  }
+  throw new LocationDomainError("Impossibile generare uno slug pubblico univoco per la sede.");
+}
 
 export async function getLocations(
   companyId: string,
@@ -81,27 +118,47 @@ function normalized(input: LocationInput) {
 
 export async function createLocation(companyId: string, userId: string, input: LocationInput) {
   const data = normalized(input);
-  return prisma.$transaction(async (tx) => {
-    const activeLocations = await tx.location.count({ where: { companyId, ...live } });
-    return tx.location.create({
-      data: {
-        companyId,
-        ...data,
-        isHeadquarters: activeLocations === 0,
-        createdById: userId,
-        updatedById: userId,
-      },
-    });
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const [activeLocations, slug] = await Promise.all([
+        tx.location.count({ where: { companyId, ...live } }),
+        initialSlug(tx, data.name, input.slug),
+      ]);
+      return tx.location.create({
+        data: {
+          companyId,
+          slug,
+          ...data,
+          isHeadquarters: activeLocations === 0,
+          createdById: userId,
+          updatedById: userId,
+        },
+      });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  } catch (error) {
+    if (error instanceof LocationDomainError) throw error;
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      throw new LocationDomainError("Codice o slug già utilizzato. Scegli un valore diverso.");
+    }
+    throw error;
+  }
 }
 
 export async function updateLocation(companyId: string, userId: string, id: string, input: LocationInput) {
   const data = normalized(input);
-  const updated = await prisma.location.updateMany({
-    where: { id, companyId },
-    data: { ...data, updatedById: userId },
-  });
-  if (!updated.count) throw new LocationDomainError("Sede non trovata nella Company corrente.");
+  const slug = requestedSlug(input.slug);
+  try {
+    await prisma.$transaction(async (tx) => {
+      const current = await tx.location.findFirst({ where: { id, companyId }, select: { slug: true } });
+      if (!current) throw new LocationDomainError("Sede non trovata nella Company corrente.");
+      if (slug && slug !== current.slug) throw new LocationDomainError("Lo slug pubblico non può essere modificato dopo la creazione.");
+      await tx.location.update({ where: { id }, data: { ...data, updatedById: userId } });
+    });
+  } catch (error) {
+    if (error instanceof LocationDomainError) throw error;
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") throw new LocationDomainError("Il codice sede è già utilizzato nella Company corrente.");
+    throw error;
+  }
 }
 
 export async function archiveLocation(companyId: string, userId: string, id: string) {

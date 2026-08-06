@@ -11,6 +11,7 @@ function value(formData: FormData, key: string) {
 
 function input(formData: FormData) {
   return {
+    slug: value(formData, "slug"),
     code: value(formData, "code") ?? "",
     name: value(formData, "name") ?? "",
     description: value(formData, "description"),
