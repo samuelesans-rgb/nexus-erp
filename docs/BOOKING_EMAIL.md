@@ -12,4 +12,6 @@ Variabili ambiente:
 - `BOOKING_NOTIFICATION_EMAIL`: destinatario interno di fallback quando la sede non configura `internalNotificationEmail`.
 - `AUTH_URL`: origine assoluta usata per costruire il link sicuro di cancellazione.
 
-Le credenziali devono essere configurate soltanto nell'ambiente di esecuzione e non devono essere versionate. Gli errori SMTP sono registrati senza destinatari, token o dati cliente e non annullano la prenotazione.
+In produzione `AUTH_URL` deve essere l'origine HTTPS canonica dell'ERP, senza slash finale. Il widget può usare un'origine pubblica distinta tramite `WIDGET_PUBLIC_ORIGIN`; questa variabile non modifica i link email.
+
+Le credenziali devono essere configurate soltanto nell'ambiente di esecuzione e non devono essere versionate. Gli errori SMTP sono registrati senza destinatari, token o dati cliente e non annullano la prenotazione. Se `SMTP_HOST` o `SMTP_FROM` non sono valorizzate, viene usato il provider `noop`: è un fallback sicuro, ma in produzione deve generare un allarme operativo perché non consegna messaggi.

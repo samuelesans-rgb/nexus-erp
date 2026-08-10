@@ -11,7 +11,7 @@ export default async function RestaurantWidgetPage({ searchParams }: { searchPar
   const [context, location, query] = await Promise.all([requireRestaurant("manage"), requireCurrentLocation(), searchParams]);
   const stored = await getWidgetAdminConfig(context.companyId, location.id);
   const widget = { ...defaults, ...stored };
-  const origin = process.env.AUTH_URL ?? "http://localhost:3000";
+  const origin = process.env.WIDGET_PUBLIC_ORIGIN ?? process.env.AUTH_URL ?? "http://localhost:3000";
   const snippet = stored ? buildWidgetSnippet(origin, stored.publicKey, stored.mode) : "Salva la configurazione per generare lo snippet.";
   const example = stored ? `<!doctype html>\n<html lang="it">\n<head>\n  <meta charset="utf-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1">\n  <title>Prenotazioni</title>\n</head>\n<body>\n  ${snippet}\n</body>\n</html>` : snippet;
   const input = "rounded-lg border px-3 py-2";

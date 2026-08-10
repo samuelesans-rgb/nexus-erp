@@ -21,7 +21,7 @@ function refererOrigin(request: Request) {
 }
 
 function frameAncestors(domains: readonly string[]) {
-  return ["'self'", ...domains.flatMap((domain) => [`https://${domain}`, `https://*.${domain}`, `http://${domain}`, `http://*.${domain}`])].join(" ");
+  return ["'self'", ...domains.flatMap((domain) => [`https://${domain}`, `https://*.${domain}`])].join(" ");
 }
 
 function logoSource(logoUrl: string | null) {
