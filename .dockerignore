@@ -1,0 +1,10 @@
+node_modules
+.next
+.env*
+test-results
+playwright
+playwright-report
+blob-report
+.git
+.vscode
+*.pcap

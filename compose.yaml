@@ -1,0 +1,70 @@
+services:
+  nexus-postgres:
+    image: postgres:17-bookworm
+    container_name: nexus-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-nexus_erp}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - nexus-postgres-data:/var/lib/postgresql/data
+    networks:
+      - nexus-internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  nexus-erp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: nexus-erp:latest
+    container_name: nexus-erp
+    restart: unless-stopped
+    depends_on:
+      nexus-postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@nexus-postgres:5432/${POSTGRES_DB:-nexus_erp}?schema=public
+      AUTH_SECRET: ${AUTH_SECRET}
+      AUTH_URL: ${AUTH_URL}
+      AUTH_TRUST_HOST: ${AUTH_TRUST_HOST}
+      WIDGET_PUBLIC_ORIGIN: ${WIDGET_PUBLIC_ORIGIN}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      SMTP_FROM: ${SMTP_FROM}
+      BOOKING_NOTIFICATION_EMAIL: ${BOOKING_NOTIFICATION_EMAIL}
+    expose:
+      - "3000"
+    networks:
+      - nexus-internal
+      - proxy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+networks:
+  nexus-internal:
+    name: nexus-internal
+    internal: true
+  proxy:
+    external: true
+
+volumes:
+  nexus-postgres-data:
+    name: nexus-postgres-data
