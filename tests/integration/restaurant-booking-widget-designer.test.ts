@@ -3,8 +3,9 @@ import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 
 import { GET as renderEmbed } from "../../app/embed/booking/[publicKey]/route";
+import { GET as renderLoader } from "../../app/widget/v1/widget.js/route";
 import { prisma } from "../../lib/prisma";
-import { BookingWidgetError, buildWidgetSnippet, getWidgetAdminConfig, regenerateWidgetPublicKey, saveWidgetAdminConfig, WIDGET_MODES } from "../../lib/restaurant-booking-widget";
+import { buildWidgetSnippet, getWidgetAdminConfig, regenerateWidgetPublicKey, saveWidgetAdminConfig, WIDGET_MODES } from "../../lib/restaurant-booking-widget";
 
 if (!(process.env.DATABASE_URL ?? "").includes("_test")) throw new Error("I test Widget Designer richiedono DATABASE_URL _test.");
 
@@ -72,6 +73,17 @@ test("Widget Designer: rigenerazione chiave aggiorna lo snippet", async () => {
   assert.ok(stored); publicKey = stored.publicKey;
   const afterSnippet = buildWidgetSnippet("https://erp.example.test", publicKey, stored.mode);
   assert.notEqual(afterSnippet, before); assert.match(afterSnippet, /data-mode="FLOATING_BUTTON"/);
+});
+
+test("Widget Designer: loader v1 è framework-free, async-safe e cache controllata", async () => {
+  const response = renderLoader();
+  const source = await response.text();
+  assert.match(source, /document\.currentScript/);
+  assert.match(source, /script\[data-nexus-booking\]/);
+  assert.match(source, /AbortController/);
+  assert.match(source, /role","alert/);
+  assert.doesNotThrow(() => new Function(source));
+  assert.equal(response.headers.get("cache-control"), "public, max-age=300, stale-while-revalidate=3600");
 });
 
 test("Widget Designer: preview non crea prenotazioni", async () => {

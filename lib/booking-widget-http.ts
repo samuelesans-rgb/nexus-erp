@@ -28,13 +28,20 @@ export function widgetError(error: unknown, origin?: string | null) {
   return widgetJson({ error: message }, status, origin);
 }
 
-export function widgetOptions(request: Request) {
-  const origin = request.headers.get("origin");
-  return new Response(null, { status: 204, headers: {
-    "Access-Control-Allow-Origin": origin ?? "null",
+export async function widgetOptions(request: Request, publicKey: string) {
+  const origin = widgetRequestOrigin(request);
+  try {
+    const { getWidgetPublicConfig } = await import("@/lib/restaurant-booking-widget");
+    await getWidgetPublicConfig(publicKey, origin);
+  } catch (error) {
+    return widgetError(error, origin);
+  }
+  const headers = new Headers({
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Idempotency-Key",
     "Access-Control-Max-Age": "600",
     Vary: "Origin",
-  } });
+  });
+  if (origin) headers.set("Access-Control-Allow-Origin", origin);
+  return new Response(null, { status: 204, headers });
 }

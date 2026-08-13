@@ -7,4 +7,6 @@ export async function GET(request: Request, context: { params: Promise<{ publicK
   catch (error) { return widgetError(error, origin); }
 }
 
-export const OPTIONS = widgetOptions;
+export async function OPTIONS(request: Request, context: { params: Promise<{ publicKey: string }> }) {
+  return widgetOptions(request, (await context.params).publicKey);
+}

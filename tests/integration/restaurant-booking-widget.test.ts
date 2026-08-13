@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 
+import { OPTIONS as reservationOptions } from "../../app/api/widget/v1/[publicKey]/reservation/route";
 import { prisma } from "../../lib/prisma";
 import { BookingWidgetError, BookingWidgetRateLimiter, generateWidgetPublicKey, getWidgetAvailability, getWidgetPublicConfig, submitWidgetReservation } from "../../lib/restaurant-booking-widget";
 
@@ -63,6 +64,20 @@ test("Booking Widget: config pubblica non espone identificativi interni", async 
 test("Booking Widget: applica i domini consentiti", async () => {
   await getWidgetPublicConfig(publicKey, "https://example.test");
   await assert.rejects(getWidgetPublicConfig(publicKey, "https://example.invalid"), (error: unknown) => error instanceof BookingWidgetError && error.status === 403);
+});
+
+test("Booking Widget: preflight CORS autorizza solo domini consentiti", async () => {
+  const allowed = await reservationOptions(new Request(`http://localhost/api/widget/v1/${publicKey}/reservation`, { method: "OPTIONS", headers: { Origin: "https://shop.example.test" } }), { params: Promise.resolve({ publicKey }) });
+  assert.equal(allowed.status, 204);
+  assert.equal(allowed.headers.get("access-control-allow-origin"), "https://shop.example.test");
+  const denied = await reservationOptions(new Request(`http://localhost/api/widget/v1/${publicKey}/reservation`, { method: "OPTIONS", headers: { Origin: "https://example.invalid" } }), { params: Promise.resolve({ publicKey }) });
+  assert.equal(denied.status, 403);
+});
+
+test("Booking Widget: chiave pubblica usa entropia crittografica e formato v1 stabile", () => {
+  const keys = new Set(Array.from({ length: 50 }, generateWidgetPublicKey));
+  assert.equal(keys.size, 50);
+  for (const key of keys) assert.match(key, /^nw_[A-Za-z0-9_-]{43}$/);
 });
 
 test("Booking Widget: chiave disattivata viene rifiutata", async () => {

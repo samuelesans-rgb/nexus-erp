@@ -13,4 +13,6 @@ export async function POST(request: Request, context: { params: Promise<{ public
   } catch (error) { return widgetError(error, origin); }
 }
 
-export const OPTIONS = widgetOptions;
+export async function OPTIONS(request: Request, context: { params: Promise<{ publicKey: string }> }) {
+  return widgetOptions(request, (await context.params).publicKey);
+}
