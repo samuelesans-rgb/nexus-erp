@@ -28,6 +28,7 @@
 .env
 .env.*
 !.env.example
+restaurant-production.config.json
 
 # Vercel
 .vercel

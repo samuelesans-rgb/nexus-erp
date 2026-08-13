@@ -23,7 +23,9 @@
     "test:e2e:ui": "playwright test --ui",
     "bootstrap:production": "tsx scripts/bootstrap-production.ts",
     "test:integration:bootstrap": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/production-bootstrap.test.ts",
-    "test:integration:booking-settings": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/restaurant-booking-settings.test.ts"
+    "test:integration:booking-settings": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/restaurant-booking-settings.test.ts",
+    "setup:restaurant:production": "tsx scripts/setup-restaurant-production.ts",
+    "test:integration:restaurant-production-setup": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/restaurant-production-setup.test.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
