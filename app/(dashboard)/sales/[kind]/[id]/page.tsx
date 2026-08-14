@@ -7,7 +7,7 @@ import { salesOperationAction } from "../../actions";
 
 export default async function SalesDetailPage({ params, searchParams }: { params: Promise<{ kind: string; id: string }>; searchParams: Promise<{ error?: string; success?: string }> }) {
   const [{ kind, id }, query] = await Promise.all([params, searchParams]); const route = salesRoute(kind); if (!route) notFound();
-  const { companyId, roles } = await requireSalesContext(); const document = await getSalesDocument(companyId, id); if (!document || document.documentType !== route.type) notFound();
+  const { companyId, locationId, roles } = await requireSalesContext(); const document = await getSalesDocument(companyId, locationId, id); if (!document || document.documentType !== route.type) notFound();
   const canWrite = roles.some((role) => ["SUPER_ADMIN", "ADMIN", "MANAGER", "SALES"].includes(role));
   const links = [
     ...document.targetLinks.map((link) => ({ id: link.id, label: `Origine: ${link.sourceDocument.documentType} ${link.sourceDocument.documentNumber}`, href: `/sales/${kindForType(link.sourceDocument.documentType)}/${link.sourceDocument.id}` })),

@@ -1070,6 +1070,7 @@ model Location {
   deletedAt                 DateTime?
   company                   Company                    @relation(fields: [companyId], references: [id], onDelete: Cascade)
   warehouses                Warehouse[]
+  documentSeries            DocumentSeries[]
   businessDocuments         BusinessDocument[]
   restaurantAreas           RestaurantArea[]
   restaurantTables          RestaurantTable[]
@@ -1408,6 +1409,7 @@ model IdempotencyRecord {
 model DocumentSeries {
   id           String             @id @default(cuid())
   companyId    String
+  locationId   String?
   code         String
   name         String
   documentType DocumentType
@@ -1417,6 +1419,7 @@ model DocumentSeries {
   padding      Int                @default(6)
   active       Boolean            @default(true)
   company      Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location     Location?          @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
   documents    BusinessDocument[]
   createdAt    DateTime           @default(now())
   updatedAt    DateTime           @updatedAt
@@ -1424,6 +1427,7 @@ model DocumentSeries {
   @@unique([companyId, code])
   @@unique([companyId, id])
   @@index([companyId, documentType, active])
+  @@index([companyId, locationId, documentType, active])
 }
 
 model BusinessDocument {
@@ -1476,6 +1480,7 @@ model BusinessDocument {
   @@unique([companyId, seriesId, documentNumber])
   @@unique([companyId, id])
   @@index([companyId, status, documentDate])
+  @@index([companyId, locationId, status, documentDate])
   @@index([companyId, documentType, documentDate])
   @@index([companyId, partnerId, documentDate])
 }
