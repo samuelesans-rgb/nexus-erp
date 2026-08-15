@@ -32,8 +32,8 @@ before(async () => {
   const [sa, sb, legacy] = await Promise.all([
     prisma.documentSeries.create({ data: { companyId, locationId: a.id, code: `DA-${suffix}`, name: "Serie A", documentType: "QUOTE" } }),
     prisma.documentSeries.create({ data: { companyId, locationId: b.id, code: `DB-${suffix}`, name: "Serie B", documentType: "QUOTE" } }),
-    prisma.documentSeries.create({ data: { companyId, code: `DL-${suffix}`, name: "Serie legacy", documentType: "QUOTE" } }),
-  ]); seriesA = sa.id; seriesB = sb.id; legacySeries = legacy.id; seriesIds.push(sa.id, sb.id, legacy.id);
+    prisma.documentSeries.findFirst({ where: { companyId, locationId: null, documentType: "QUOTE", active: true }, select: { id: true } }),
+  ]); seriesA = sa.id; seriesB = sb.id; legacySeries = legacy?.id ?? ""; seriesIds.push(sa.id, sb.id);
   const other = await prisma.company.create({ data: { name: `Documents tenant ${randomUUID()}` } }); otherCompanyId = other.id;
 });
 
@@ -75,8 +75,13 @@ test("Documents: isolamento tenant", async () => {
   await assert.rejects(confirmDocument(otherCompanyId, userId, locationA, row.id), DocumentDomainError);
 });
 
-test("Documents: serie globale storica resta compatibile con chiamanti legacy", async () => {
+test("Documents: serie globale storica resta compatibile con chiamanti legacy", async (t) => {
+  if (!legacySeries) return t.skip("Nessuna serie globale storica presente nel fixture pre-migration.");
   const row = await createDraft(companyId, userId, draft(legacySeries, locationA)); documentIds.push(row.id);
   await confirmDocument(companyId, userId, locationA, row.id);
   assert.equal((await getDocument(companyId, locationA, row.id))?.status, "CONFIRMED");
+});
+
+test("Documents: nuove serie globali sono rifiutate", async () => {
+  await assert.rejects(prisma.documentSeries.create({ data: { companyId, code: `DG-${randomUUID().slice(0, 8)}`, name: "Serie globale non consentita", documentType: "QUOTE" } }));
 });

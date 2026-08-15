@@ -756,7 +756,7 @@ async function main() {
   ] as const;
   const documentSeries = new Map<string, { id: string; nextNumber: number }>();
   for (const [code, name, documentType, prefix] of seriesSeeds) {
-    const series = await prisma.documentSeries.upsert({ where: { companyId_code: { companyId: company.id, code } }, update: { name, documentType, prefix, active: true }, create: { companyId: company.id, code, name, documentType, prefix }, select: { id: true, nextNumber: true } });
+    const series = await prisma.documentSeries.upsert({ where: { companyId_code: { companyId: company.id, code } }, update: { locationId: location.id, name, documentType, prefix, active: true }, create: { companyId: company.id, locationId: location.id, code, name, documentType, prefix }, select: { id: true, nextNumber: true } });
     documentSeries.set(code, series);
   }
   const demoSeries = documentSeries.get("DEMO")!;

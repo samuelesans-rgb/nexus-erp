@@ -12,6 +12,7 @@
     "test:integration:documents": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/documents-location-scoping.test.ts",
     "test:integration:treasury": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/treasury-location-scoping.test.ts",
     "test:integration:locations": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test tests/integration/locations.test.ts",
+    "test:integration:inventory": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/inventory-location-scoping.test.ts",
     "test:integration:booking": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/restaurant-booking.test.ts tests/integration/restaurant-booking-dashboard.test.ts tests/integration/restaurant-booking-public.test.ts",
     "test:integration:booking-public": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test tests/integration/restaurant-booking-public.test.ts",
     "test:integration:booking-email": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test tests/integration/restaurant-booking-email.test.ts",
