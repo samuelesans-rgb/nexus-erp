@@ -1084,8 +1084,10 @@ model Location {
   restaurantReservations    RestaurantReservation[]
   restaurantMenus           RestaurantMenu[]
   restaurantOrders          RestaurantOrder[]
+  restaurantOrderLines      RestaurantOrderLine[]
   kitchenStations           KitchenStation[]
   kitchenTickets            KitchenTicket[]
+  kitchenTicketLines        KitchenTicketLine[]
   recipeConsumptions        RecipeConsumption[]
   inventoryLots             InventoryLot[]
   inventorySerials          InventorySerial[]
@@ -2048,6 +2050,7 @@ model RestaurantOrder {
 model RestaurantOrderLine {
   id           String                        @id @default(cuid())
   companyId    String
+  locationId   String
   orderId      String
   itemId       String
   quantity     Decimal                       @db.Decimal(15, 3)
@@ -2066,6 +2069,7 @@ model RestaurantOrderLine {
   createdAt    DateTime                      @default(now())
   updatedAt    DateTime                      @updatedAt
   company      Company                       @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  location     Location                      @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
   order        RestaurantOrder               @relation(fields: [companyId, orderId], references: [companyId, id], onDelete: Restrict)
   item         Item                          @relation(fields: [companyId, itemId], references: [companyId, id], onDelete: Restrict)
   vatRate      VatRate                       @relation(fields: [companyId, vatRateId], references: [companyId, id], onDelete: Restrict)
@@ -2151,12 +2155,14 @@ model KitchenTicket {
 model KitchenTicketLine {
   id          String              @id @default(cuid())
   companyId   String
+  locationId  String
   ticketId    String
   orderLineId String
   status      KitchenTicketStatus @default(NEW)
   createdAt   DateTime            @default(now())
   updatedAt   DateTime            @updatedAt
   company     Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  location    Location            @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
   ticket      KitchenTicket       @relation(fields: [companyId, ticketId], references: [companyId, id], onDelete: Cascade)
   orderLine   RestaurantOrderLine @relation(fields: [companyId, orderLineId], references: [companyId, id], onDelete: Restrict)
 

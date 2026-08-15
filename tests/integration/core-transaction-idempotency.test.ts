@@ -34,7 +34,7 @@ async function createServedOrder(itemId = fixture.product.id, quantity = 1) {
     data: { companyId: fixture.company.id, locationId: fixture.location.id, code, partnerId: fixture.partner.id, guestCount: 1, createdById: fixture.user.id, updatedById: fixture.user.id },
   });
   const line = await prisma.restaurantOrderLine.create({
-    data: { companyId: fixture.company.id, orderId: order.id, itemId, quantity, unitPrice: 10, vatRateId: fixture.vatRate.id, status: "SERVED", servedAt: new Date() },
+    data: { companyId: fixture.company.id, locationId: fixture.location.id, orderId: order.id, itemId, quantity, unitPrice: 10, vatRateId: fixture.vatRate.id, status: "SERVED", servedAt: new Date() },
   });
   createdOrderIds.push(order.id);
   return { ...order, lines: [line] };
@@ -80,30 +80,30 @@ test("Restaurant recipe: servizio concorrente idempotente e reversal completo", 
   const selections = Object.fromEntries(fixture.recipe.recipeComponents.filter((row) => row.componentItem.trackLots || row.componentItem.trackSerials).map((row) => [row.componentItemId, fixture.lot!.id]));
   const key = `${fixture.company.id}:${line.id}:serve`;
   const [first, second] = await Promise.all([
-    serveRestaurantOrderLine(fixture.company.id, fixture.user.id, line.id, key, selections),
-    serveRestaurantOrderLine(fixture.company.id, fixture.user.id, line.id, key, selections),
+    serveRestaurantOrderLine(fixture.company.id, fixture.location.id, fixture.user.id, line.id, key, selections),
+    serveRestaurantOrderLine(fixture.company.id, fixture.location.id, fixture.user.id, line.id, key, selections),
   ]);
   assert.deepEqual(second, first);
   assert.equal(await prisma.recipeConsumption.count({ where: { companyId: fixture.company.id, orderLineId: line.id } }), fixture.recipe.recipeComponents.length);
-  const reversed = await reverseRecipeConsumption(fixture.company.id, fixture.user.id, line.id, `${key}:reverse`);
+  const reversed = await reverseRecipeConsumption(fixture.company.id, fixture.location.id, fixture.user.id, line.id, `${key}:reverse`);
   assert.equal(reversed.count, fixture.recipe.recipeComponents.length);
 });
 
 test("Restaurant close: parziale, multiplo, replay e rollback Treasury", async () => {
   const order = await createServedOrder();
-  const partial = await closeRestaurantOrderAtomic(fixture.company.id, fixture.user.id, order.id, randomUUID(), { seriesId: fixture.series.id, invoice: false, payments: [{ financialAccountId: fixture.account.id, paymentMethod: "CASH", amount: 5 }] });
+  const partial = await closeRestaurantOrderAtomic(fixture.company.id, fixture.location.id, fixture.user.id, order.id, randomUUID(), { seriesId: fixture.series.id, invoice: false, payments: [{ financialAccountId: fixture.account.id, paymentMethod: "CASH", amount: 5 }] });
   assert.equal(partial.paymentStatus, "PARTIALLY_PAID");
   const document = await prisma.businessDocument.findUniqueOrThrow({ where: { id: partial.documentId } });
   const residual = Number(document.total) - 5;
   const key = randomUUID();
-  const closed = await closeRestaurantOrderAtomic(fixture.company.id, fixture.user.id, order.id, key, { seriesId: fixture.series.id, invoice: false, payments: [{ financialAccountId: fixture.account.id, paymentMethod: "CARD", amount: 3 }, { financialAccountId: fixture.account.id, paymentMethod: "CASH", amount: residual - 3 }] });
+  const closed = await closeRestaurantOrderAtomic(fixture.company.id, fixture.location.id, fixture.user.id, order.id, key, { seriesId: fixture.series.id, invoice: false, payments: [{ financialAccountId: fixture.account.id, paymentMethod: "CARD", amount: 3 }, { financialAccountId: fixture.account.id, paymentMethod: "CASH", amount: residual - 3 }] });
   assert.equal(closed.paymentStatus, "PAID");
-  assert.deepEqual(await closeRestaurantOrderAtomic(fixture.company.id, fixture.user.id, order.id, key, { seriesId: fixture.series.id, invoice: false, payments: [] }), closed);
+  assert.deepEqual(await closeRestaurantOrderAtomic(fixture.company.id, fixture.location.id, fixture.user.id, order.id, key, { seriesId: fixture.series.id, invoice: false, payments: [] }), closed);
   assert.equal(await prisma.businessDocument.count({ where: { id: closed.documentId } }), 1);
   assert.equal(await prisma.financialMovement.count({ where: { companyId: fixture.company.id, documentId: closed.documentId, movementType: "CUSTOMER_RECEIPT" } }), 3);
 
   const failed = await createServedOrder();
-  await assert.rejects(closeRestaurantOrderAtomic(fixture.company.id, fixture.user.id, failed.id, randomUUID(), { seriesId: fixture.series.id, invoice: false, payments: [{ financialAccountId: "tenant-invalid", paymentMethod: "CASH", amount: 1 }] }));
+  await assert.rejects(closeRestaurantOrderAtomic(fixture.company.id, fixture.location.id, fixture.user.id, failed.id, randomUUID(), { seriesId: fixture.series.id, invoice: false, payments: [{ financialAccountId: "tenant-invalid", paymentMethod: "CASH", amount: 1 }] }));
   const reloaded = await prisma.restaurantOrder.findUniqueOrThrow({ where: { id: failed.id } });
   assert.equal(reloaded.documentId, null);
   assert.equal(reloaded.status, "OPEN");
@@ -113,7 +113,7 @@ test("Tenant isolation: un'altra Company non può servire o chiudere l'ordine", 
   const other = await prisma.company.create({ data: { name: `Test tenant ${randomUUID()}` } });
   const order = await createServedOrder();
   try {
-    await assert.rejects(closeRestaurantOrderAtomic(other.id, fixture.user.id, order.id, randomUUID(), { seriesId: fixture.series.id, invoice: false, payments: [] }));
+    await assert.rejects(closeRestaurantOrderAtomic(other.id, fixture.location.id, fixture.user.id, order.id, randomUUID(), { seriesId: fixture.series.id, invoice: false, payments: [] }));
   } finally {
     await prisma.idempotencyRecord.deleteMany({ where: { companyId: other.id } });
     await prisma.company.delete({ where: { id: other.id } });
