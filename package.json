@@ -28,7 +28,8 @@
     "test:integration:booking-settings": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/restaurant-booking-settings.test.ts",
     "setup:restaurant:production": "tsx scripts/setup-restaurant-production.ts",
     "test:integration:restaurant-production-setup": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/restaurant-production-setup.test.ts",
-    "test:integration:restaurant": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/restaurant-location-scoping.test.ts"
+    "test:integration:restaurant": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/restaurant-location-scoping.test.ts",
+    "test:integration:sales-purchasing": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/sales-purchasing-location-scoping.test.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

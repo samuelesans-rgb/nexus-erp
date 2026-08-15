@@ -43,7 +43,7 @@ export async function convertDocument(companyId: string, userId: string, locatio
   const linkType = transitions[source.documentType]?.[targetType];
   if (!linkType) throw new SalesDomainError(`Conversione ${source.documentType} → ${targetType} non consentita.`);
   if (source.status !== "CONFIRMED" && !(source.documentType === "DELIVERY_NOTE" && source.status === "POSTED")) throw new SalesDomainError("Il documento sorgente deve essere confermato o, per il DDT, posted.");
-  const existing = await prisma.documentLink.findFirst({ where: { companyId, sourceDocumentId, linkType }, select: { targetDocumentId: true } });
+  const existing = await prisma.documentLink.findFirst({ where: { companyId, sourceDocumentId, linkType, targetDocument: { locationId } }, select: { targetDocumentId: true } });
   if (existing) return { id: existing.targetDocumentId };
   const target = await createDraft(companyId, userId, {
     seriesId: await seriesFor(companyId, locationId, targetType), partnerId: source.partnerId, documentDate: new Date(), currency: source.currency,
@@ -82,8 +82,8 @@ export async function postDelivery(companyId: string, userId: string, locationId
   const delivery = await prisma.businessDocument.findFirst({ where: { id, companyId, locationId, documentType: "DELIVERY_NOTE", status: "CONFIRMED", deletedAt: null }, include: { lines: { include: { item: { select: { stockManaged: true } } } } } });
   if (!delivery) throw new SalesDomainError("Solo un DDT confermato può essere posted.");
   for (const line of delivery.lines.filter((row) => row.item.stockManaged)) {
-    const alreadyPosted = await prisma.inventoryMovement.count({ where: { companyId, referenceType: "BusinessDocumentLine", referenceId: line.id, movementType: "ISSUE" } });
-    if (!alreadyPosted) await postInventoryMovement(companyId, userId, { warehouseId: line.warehouseId ?? delivery.warehouseId ?? "", itemId: line.itemId, movementType: "ISSUE", quantity: Number(line.quantity), unitOfMeasureId: line.unitOfMeasureId, lotId: line.lotId, serialId: line.serialId, referenceType: "BusinessDocumentLine", referenceId: line.id, reason: `DDT ${delivery.documentNumber}` });
+    const alreadyPosted = await prisma.inventoryMovement.count({ where: { companyId, locationId, referenceType: "BusinessDocumentLine", referenceId: line.id, movementType: "ISSUE" } });
+    if (!alreadyPosted) await postInventoryMovement(companyId, userId, { locationId, warehouseId: line.warehouseId ?? delivery.warehouseId ?? "", itemId: line.itemId, movementType: "ISSUE", quantity: Number(line.quantity), unitOfMeasureId: line.unitOfMeasureId, lotId: line.lotId, serialId: line.serialId, referenceType: "BusinessDocumentLine", referenceId: line.id, reason: `DDT ${delivery.documentNumber}` });
   }
   await postDocument(companyId, userId, locationId, id);
   await emit(companyId, "DeliveryPosted", id);
@@ -105,7 +105,7 @@ export async function getSalesDocuments(companyId: string, locationId: string, f
 }
 
 export async function getSalesDocument(companyId: string, locationId: string, id: string) {
-  return prisma.businessDocument.findFirst({ where: { id, companyId, locationId, documentType: { in: SALES_TYPES }, deletedAt: null }, include: { series: true, partner: { select: { name: true, displayName: true } }, lines: { include: { item: { select: { code: true, name: true } }, unitOfMeasure: { select: { symbol: true } } }, orderBy: { lineNumber: "asc" } }, sourceLinks: { include: { targetDocument: { select: { id: true, documentNumber: true, documentType: true } } } }, targetLinks: { include: { sourceDocument: { select: { id: true, documentNumber: true, documentType: true } } } } } });
+  return prisma.businessDocument.findFirst({ where: { id, companyId, locationId, documentType: { in: SALES_TYPES }, deletedAt: null }, include: { series: true, partner: { select: { name: true, displayName: true } }, lines: { include: { item: { select: { code: true, name: true } }, unitOfMeasure: { select: { symbol: true } } }, orderBy: { lineNumber: "asc" } }, sourceLinks: { where: { targetDocument: { locationId } }, include: { targetDocument: { select: { id: true, documentNumber: true, documentType: true } } } }, targetLinks: { where: { sourceDocument: { locationId } }, include: { sourceDocument: { select: { id: true, documentNumber: true, documentType: true } } } } } });
 }
 
 export async function getSalesDashboard(companyId: string, locationId: string) {
@@ -113,11 +113,11 @@ export async function getSalesDashboard(companyId: string, locationId: string) {
   const [quotesOpen, ordersOpen, deliveriesToInvoice, invoicesMonth, orderValue, quotes, converted] = await Promise.all([
     prisma.businessDocument.count({ where: { companyId, locationId, documentType: "QUOTE", status: { in: ["DRAFT", "CONFIRMED"] }, deletedAt: null } }),
     prisma.businessDocument.count({ where: { companyId, locationId, documentType: "SALES_ORDER", status: { in: ["DRAFT", "CONFIRMED"] }, deletedAt: null } }),
-    prisma.businessDocument.count({ where: { companyId, locationId, documentType: "DELIVERY_NOTE", status: "POSTED", sourceLinks: { none: { linkType: "DDT_TO_INVOICE" } }, deletedAt: null } }),
+    prisma.businessDocument.count({ where: { companyId, locationId, documentType: "DELIVERY_NOTE", status: "POSTED", sourceLinks: { none: { linkType: "DDT_TO_INVOICE", targetDocument: { locationId } } }, deletedAt: null } }),
     prisma.businessDocument.aggregate({ where: { companyId, locationId, documentType: "SALES_INVOICE", documentDate: { gte: start }, deletedAt: null }, _sum: { total: true }, _count: true }),
     prisma.businessDocument.aggregate({ where: { companyId, locationId, documentType: "SALES_ORDER", status: { in: ["DRAFT", "CONFIRMED"] }, deletedAt: null }, _sum: { total: true } }),
     prisma.businessDocument.count({ where: { companyId, locationId, documentType: "QUOTE", deletedAt: null } }),
-    prisma.documentLink.count({ where: { companyId, linkType: "QUOTE_TO_ORDER", sourceDocument: { locationId } } }),
+    prisma.documentLink.count({ where: { companyId, linkType: "QUOTE_TO_ORDER", sourceDocument: { locationId }, targetDocument: { locationId } } }),
   ]);
   return { quotesOpen, ordersOpen, deliveriesToInvoice, invoicesMonth: Number(invoicesMonth._sum.total ?? 0), invoiceCount: invoicesMonth._count, orderValue: Number(orderValue._sum.total ?? 0), conversionRate: quotes ? Math.round(converted / quotes * 100) : 0 };
 }
