@@ -11,6 +11,7 @@ export default async function AppSidebar() {
     modules.map(({ moduleDefinition }) => moduleDefinition.code)
   );
   const items = [{ label: "Dashboard", href: "/dashboard" }];
+  if (session?.user?.roles.some((role) => ["SUPER_ADMIN", "ADMIN", "MANAGER", "ACCOUNTANT"].includes(role))) items.push({ label: "Controlling", href: "/management/controlling" });
 
   if (activeCodes.has(MODULE_CODES.CORE_PARTNERS)) {
     items.push({ label: "Partner", href: "/partners" });
