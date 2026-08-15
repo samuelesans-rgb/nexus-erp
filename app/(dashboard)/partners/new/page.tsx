@@ -1,17 +1,12 @@
-import { auth } from "@/auth";
-import { MODULE_CODES } from "@/lib/module-catalog";
-import { requireModule } from "@/lib/modules";
+import { PARTNER_CAPABILITIES, requirePartnerContext } from "@/lib/partner-access";
 import { getCompanyAgents } from "@/lib/partners";
 import { getPartnerConfigurationOptions } from "@/lib/configurations";
-import { redirect } from "next/navigation";
 import { createPartner } from "../actions";
 import PartnerForm from "../partner-form";
 
 export default async function NewPartnerPage() {
-  const session = await auth();
-  if (!session?.user?.companyId) redirect("/login");
-  await requireModule(session.user.companyId, MODULE_CODES.CORE_PARTNERS);
-  const [agents, configurationOptions] = await Promise.all([getCompanyAgents(session.user.companyId), getPartnerConfigurationOptions(session.user.companyId)]);
+  const context = await requirePartnerContext(PARTNER_CAPABILITIES.WRITE);
+  const [agents, configurationOptions] = await Promise.all([getCompanyAgents(context.companyId), getPartnerConfigurationOptions(context.companyId)]);
 
   return (
     <div className="space-y-6">

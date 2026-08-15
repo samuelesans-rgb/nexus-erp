@@ -1,12 +1,9 @@
-import { auth } from "@/auth";
-import { MODULE_CODES } from "@/lib/module-catalog";
-import { ModuleNotEnabledError, requireModule } from "@/lib/modules";
+import { PARTNER_CAPABILITIES, requirePartnerContext } from "@/lib/partner-access";
 import {
   getPartnerList,
   type PartnerListParams,
 } from "@/lib/partners";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import PartnerSearchInput from "./search-input";
 
 function queryString(
@@ -25,27 +22,10 @@ export default async function PartnersPage({
 }: {
   searchParams: Promise<PartnerListParams>;
 }) {
-  const session = await auth();
-  if (!session?.user?.companyId) redirect("/login");
-
-  try {
-    await requireModule(session.user.companyId, MODULE_CODES.CORE_PARTNERS);
-  } catch (error) {
-    if (error instanceof ModuleNotEnabledError) {
-      return (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-6">
-          <h1 className="text-2xl font-bold">Modulo non disponibile</h1>
-          <p className="mt-2 text-amber-900">
-            Il modulo Partner non è attivo per questa azienda.
-          </p>
-        </div>
-      );
-    }
-    throw error;
-  }
+  const context = await requirePartnerContext(PARTNER_CAPABILITIES.READ);
 
   const rawParams = await searchParams;
-  const result = await getPartnerList(session.user.companyId, rawParams);
+  const result = await getPartnerList(context.companyId, rawParams);
   const currentParams = {
     ...rawParams,
     page: result.page,
@@ -59,15 +39,12 @@ export default async function PartnersPage({
         <div>
           <h1 className="text-3xl font-bold">Partner</h1>
           <p className="text-slate-500">
-            Anagrafica centrale di {session.user.companyName}.
+            Anagrafica centrale di {context.companyName}.
           </p>
         </div>
-        <Link
-          href="/partners/new"
-          className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
-        >
-          Nuovo Partner
-        </Link>
+        {context.roles.some((role) => ["SUPER_ADMIN", "ADMIN", "MANAGER", "SALES"].includes(role)) && (
+          <Link href="/partners/new" className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700">Nuovo Partner</Link>
+        )}
       </div>
 
       <div className="space-y-4 rounded-xl border bg-white p-4">

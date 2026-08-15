@@ -1,6 +1,7 @@
 import { auth } from "@/auth";
 import { MODULE_CODES } from "@/lib/module-catalog";
 import { getCompanyModules } from "@/lib/modules";
+import { hasPartnerCapability, PARTNER_CAPABILITIES } from "@/lib/partner-access";
 import SidebarNav from "./sidebar-nav";
 
 export default async function AppSidebar() {
@@ -13,7 +14,7 @@ export default async function AppSidebar() {
   const items = [{ label: "Dashboard", href: "/dashboard" }];
   if (session?.user?.roles.some((role) => ["SUPER_ADMIN", "ADMIN", "MANAGER", "ACCOUNTANT"].includes(role))) items.push({ label: "Controlling", href: "/management/controlling" });
 
-  if (activeCodes.has(MODULE_CODES.CORE_PARTNERS)) {
+  if (activeCodes.has(MODULE_CODES.CORE_PARTNERS) && session?.user?.roles && hasPartnerCapability(session.user.roles, PARTNER_CAPABILITIES.READ)) {
     items.push({ label: "Partner", href: "/partners" });
   }
   if (activeCodes.has(MODULE_CODES.CORE_PRODUCTS)) {

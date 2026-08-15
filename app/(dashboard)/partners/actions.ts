@@ -1,9 +1,11 @@
 "use server";
 
-import { auth } from "@/auth";
-import { MODULE_CODES } from "@/lib/module-catalog";
-import { ModuleNotEnabledError, requireModule } from "@/lib/modules";
+import {
+  PARTNER_CAPABILITIES,
+  requirePartnerContext,
+} from "@/lib/partner-access";
 import { prisma } from "@/lib/prisma";
+import { isValidPartnerAgent } from "@/lib/partners";
 import { validateConfigurationReferences } from "@/lib/configurations";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -27,27 +29,6 @@ function optionalDecimal(formData: FormData, field: string) {
   if (!value) return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? value : undefined;
-}
-
-async function requirePartnerSession() {
-  const session = await auth();
-
-  if (!session?.user?.companyId) {
-    return { error: "Sessione scaduta. Accedi nuovamente per continuare." } as const;
-  }
-
-  try {
-    await requireModule(session.user.companyId, MODULE_CODES.CORE_PARTNERS);
-  } catch (error) {
-    if (error instanceof ModuleNotEnabledError) {
-      return {
-        error: "Il modulo Partner non è attivo per questa azienda.",
-      } as const;
-    }
-    throw error;
-  }
-
-  return { session } as const;
 }
 
 function parsePartnerForm(formData: FormData) {
@@ -142,8 +123,7 @@ export async function createPartner(
   _previousState: PartnerFormState,
   formData: FormData
 ): Promise<PartnerFormState> {
-  const context = await requirePartnerSession();
-  if ("error" in context) return { status: "error", message: context.error };
+  const context = await requirePartnerContext(PARTNER_CAPABILITIES.WRITE);
 
   const parsed = parsePartnerForm(formData);
   if (Object.keys(parsed.errors).length > 0) {
@@ -153,21 +133,12 @@ export async function createPartner(
       errors: parsed.errors,
     };
   }
-  if (!(await validateConfigurationReferences(context.session.user.companyId, parsed.data))) {
+  if (!(await validateConfigurationReferences(context.companyId, parsed.data))) {
     return { status: "error", message: "Una configurazione commerciale selezionata non è valida." };
   }
 
   if (parsed.data.agentId) {
-    const validAgent = await prisma.partner.findFirst({
-      where: {
-        id: parsed.data.agentId,
-        companyId: context.session.user.companyId,
-        isAgent: true,
-        deletedAt: null,
-      },
-      select: { id: true },
-    });
-    if (!validAgent) {
+    if (!(await isValidPartnerAgent(context.companyId, parsed.data.agentId))) {
       return { status: "error", message: "L'agente selezionato non è valido." };
     }
   }
@@ -175,9 +146,9 @@ export async function createPartner(
   const partner = await prisma.partner.create({
     data: {
       ...parsed.data,
-      companyId: context.session.user.companyId,
-      createdById: context.session.user.id,
-      updatedById: context.session.user.id,
+      companyId: context.companyId,
+      createdById: context.userId,
+      updatedById: context.userId,
     },
     select: { id: true },
   });
@@ -191,8 +162,7 @@ export async function updatePartner(
   _previousState: PartnerFormState,
   formData: FormData
 ): Promise<PartnerFormState> {
-  const context = await requirePartnerSession();
-  if ("error" in context) return { status: "error", message: context.error };
+  const context = await requirePartnerContext(PARTNER_CAPABILITIES.WRITE);
 
   const parsed = parsePartnerForm(formData);
   if (Object.keys(parsed.errors).length > 0) {
@@ -202,23 +172,14 @@ export async function updatePartner(
       errors: parsed.errors,
     };
   }
-  if (!(await validateConfigurationReferences(context.session.user.companyId, parsed.data))) {
+  if (!(await validateConfigurationReferences(context.companyId, parsed.data))) {
     return { status: "error", message: "Una configurazione commerciale selezionata non è valida." };
   }
   if (parsed.data.agentId === partnerId) {
     return { status: "error", message: "Un Partner non può essere agente di sé stesso." };
   }
   if (parsed.data.agentId) {
-    const validAgent = await prisma.partner.findFirst({
-      where: {
-        id: parsed.data.agentId,
-        companyId: context.session.user.companyId,
-        isAgent: true,
-        deletedAt: null,
-      },
-      select: { id: true },
-    });
-    if (!validAgent) {
+    if (!(await isValidPartnerAgent(context.companyId, parsed.data.agentId))) {
       return { status: "error", message: "L'agente selezionato non è valido." };
     }
   }
@@ -226,11 +187,11 @@ export async function updatePartner(
   const result = await prisma.partner.updateMany({
     where: {
       id: partnerId,
-      companyId: context.session.user.companyId,
+      companyId: context.companyId,
     },
     data: {
       ...parsed.data,
-      updatedById: context.session.user.id,
+      updatedById: context.userId,
     },
   });
   if (result.count === 0) {
@@ -243,20 +204,19 @@ export async function updatePartner(
 }
 
 export async function archivePartner(formData: FormData) {
-  const context = await requirePartnerSession();
-  if ("error" in context) redirect("/partners");
+  const context = await requirePartnerContext(PARTNER_CAPABILITIES.ARCHIVE);
   const partnerId = String(formData.get("partnerId") ?? "");
 
   await prisma.partner.updateMany({
     where: {
       id: partnerId,
-      companyId: context.session.user.companyId,
+      companyId: context.companyId,
       deletedAt: null,
     },
     data: {
       active: false,
       deletedAt: new Date(),
-      updatedById: context.session.user.id,
+      updatedById: context.userId,
     },
   });
   revalidatePath("/partners");
@@ -264,20 +224,19 @@ export async function archivePartner(formData: FormData) {
 }
 
 export async function restorePartner(formData: FormData) {
-  const context = await requirePartnerSession();
-  if ("error" in context) redirect("/partners");
+  const context = await requirePartnerContext(PARTNER_CAPABILITIES.ARCHIVE);
   const partnerId = String(formData.get("partnerId") ?? "");
 
   await prisma.partner.updateMany({
     where: {
       id: partnerId,
-      companyId: context.session.user.companyId,
+      companyId: context.companyId,
       deletedAt: { not: null },
     },
     data: {
       active: true,
       deletedAt: null,
-      updatedById: context.session.user.id,
+      updatedById: context.userId,
     },
   });
   revalidatePath("/partners");

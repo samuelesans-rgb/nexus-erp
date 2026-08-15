@@ -237,3 +237,20 @@ export async function getCompanyAgents(companyId: string) {
     orderBy: { name: "asc" },
   });
 }
+
+export async function isValidPartnerAgent(
+  companyId: string,
+  agentId: string,
+) {
+  const agent = await prisma.partner.findFirst({
+    where: {
+      id: agentId,
+      companyId,
+      isAgent: true,
+      active: true,
+      deletedAt: null,
+    },
+    select: { id: true },
+  });
+  return agent !== null;
+}
