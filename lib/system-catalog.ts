@@ -27,7 +27,7 @@ const moduleMetadata: Record<ModuleCode, ModuleMetadata> = {
   CORE_INVENTORY: { name: "Magazzino" }, CORE_PAYMENTS: { name: "Pagamenti" }, CORE_TREASURY: { name: "Tesoreria" },
   CORE_ACCOUNTING: { name: "Contabilità V1", status: "PLANNED" }, CORE_REPORTING: { name: "Reporting avanzato", status: "PLANNED" },
   CORE_SEARCH: { name: "Ricerca globale", status: "FUTURE" }, CORE_IMPORT_EXPORT: { name: "Import/export", status: "FUTURE" },
-  CORE_FISCAL_ITALY: { name: "Fiscalità italiana", status: "PLANNED" }, CORE_INTEGRATIONS: { name: "API e integrazioni", status: "PLANNED" }, CORE_CRM: { name: "CRM", status: "FUTURE" },
+  CORE_FISCAL_ITALY: { name: "Fiscalità italiana", status: "PLANNED" }, CORE_INTEGRATIONS: { name: "API e integrazioni", status: "PLANNED" }, CORE_CRM: { name: "CRM", status: "AVAILABLE" },
   RESTAURANT_RESERVATIONS: { name: "Prenotazioni ristorante" }, RESTAURANT_MENU: { name: "Menu" }, RESTAURANT_RECIPES: { name: "Ricette e food cost" },
   RESTAURANT_FLOOR: { name: "Sala e comande" }, RESTAURANT_KITCHEN: { name: "Cucina" }, RESTAURANT_POS: { name: "Cassa e POS" },
   RESTAURANT_FOOD_INVENTORY: { name: "Magazzino alimentare" }, RESTAURANT_OMNICHANNEL: { name: "Takeaway e delivery", status: "FUTURE" },

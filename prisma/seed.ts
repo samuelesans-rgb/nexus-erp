@@ -60,7 +60,7 @@ const moduleDefinitions = [
     "PLANNED",
   ],
   [MODULE_CODES.CORE_INTEGRATIONS, "API e integrazioni", "SHARED", false, "PLANNED"],
-  [MODULE_CODES.CORE_CRM, "CRM", "SHARED", false, "FUTURE"],
+  [MODULE_CODES.CORE_CRM, "CRM", "SHARED", false, "AVAILABLE"],
   [
     MODULE_CODES.RESTAURANT_RESERVATIONS,
     "Prenotazioni ristorante",
