@@ -249,6 +249,33 @@ enum IdempotencyStatus {
   FAILED
 }
 
+enum CrmStageType {
+  OPEN
+  WON
+  LOST
+}
+
+enum CrmActivityType {
+  CALL
+  EMAIL
+  MEETING
+  FOLLOW_UP
+  TASK
+  NOTE
+}
+
+enum CrmActivityStatus {
+  OPEN
+  COMPLETED
+  CANCELLED
+}
+
+enum CrmActivityPriority {
+  LOW
+  NORMAL
+  HIGH
+}
+
 model Company {
   id        String  @id @default(cuid())
   name      String
@@ -320,6 +347,11 @@ model Company {
   kitchenTicketLines           KitchenTicketLine[]
   recipeConsumptions           RecipeConsumption[]
   idempotencyRecords           IdempotencyRecord[]
+  crmPipelines                 CrmPipeline[]
+  crmStages                    CrmStage[]
+  crmOpportunities             CrmOpportunity[]
+  crmActivities                CrmActivity[]
+  crmEvents                    CrmEvent[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -441,9 +473,14 @@ model Membership {
   company         Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
   defaultLocation Location? @relation("MembershipDefaultLocation", fields: [companyId, defaultLocationId], references: [companyId, id], onDelete: Restrict)
 
-  roles MembershipRole[]
+  roles                 MembershipRole[]
+  crmOwnedOpportunities CrmOpportunity[] @relation("CrmOpportunityOwner")
+  crmAssignedActivities CrmActivity[]    @relation("CrmActivityAssignee")
+  crmCreatedActivities  CrmActivity[]    @relation("CrmActivityCreator")
+  crmEvents             CrmEvent[]       @relation("CrmEventActor")
 
   @@unique([userId, companyId])
+  @@unique([companyId, id])
   @@index([companyId, defaultLocationId])
 }
 
@@ -573,6 +610,8 @@ model Partner {
   financialMovements     FinancialMovement[]
   restaurantReservations RestaurantReservation[]
   restaurantOrders       RestaurantOrder[]
+  crmOpportunities       CrmOpportunity[]
+  crmActivities          CrmActivity[]
   priceList              PriceList?              @relation(fields: [companyId, priceListId], references: [companyId, id], onDelete: Restrict)
   paymentMethod          PaymentMethod?          @relation(fields: [companyId, paymentMethodId], references: [companyId, id], onDelete: Restrict)
   paymentTerm            PaymentTerm?            @relation(fields: [companyId, paymentTermId], references: [companyId, id], onDelete: Restrict)
@@ -1105,6 +1144,8 @@ model Location {
   updatedAt                 DateTime                   @updatedAt
   restaurantBookingSettings RestaurantBookingSettings?
   restaurantBookingWidget   RestaurantBookingWidget?
+  crmOpportunities          CrmOpportunity[]
+  crmActivities             CrmActivity[]
 
   @@unique([companyId, code])
   @@unique([companyId, id])
@@ -2192,4 +2233,143 @@ model RecipeConsumption {
   @@unique([companyId, orderLineId, componentItemId])
   @@index([companyId, orderId])
   @@index([companyId, inventoryMovementId])
+}
+
+model CrmPipeline {
+  id        String  @id @default(cuid())
+  companyId String
+  code      String
+  name      String
+  active    Boolean @default(true)
+  isDefault Boolean @default(false)
+
+  company       Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  stages        CrmStage[]
+  opportunities CrmOpportunity[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, code])
+  @@unique([companyId, id])
+  @@index([companyId, active, isDefault])
+}
+
+model CrmStage {
+  id          String       @id @default(cuid())
+  companyId   String
+  pipelineId  String
+  code        String
+  name        String
+  sortOrder   Int          @default(0)
+  probability Int          @default(0)
+  color       String?
+  type        CrmStageType @default(OPEN)
+  active      Boolean      @default(true)
+
+  company       Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  pipeline      CrmPipeline      @relation(fields: [companyId, pipelineId], references: [companyId, id], onDelete: Cascade)
+  opportunities CrmOpportunity[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, pipelineId, code])
+  @@unique([companyId, pipelineId, id])
+  @@unique([companyId, id])
+  @@index([companyId, pipelineId, active, sortOrder])
+}
+
+model CrmOpportunity {
+  id                String    @id @default(cuid())
+  companyId         String
+  partnerId         String
+  pipelineId        String
+  stageId           String
+  ownerMembershipId String
+  locationId        String?
+  title             String
+  description       String?
+  source            String?
+  estimatedValue    Decimal   @default(0) @db.Decimal(15, 2)
+  currency          String    @default("EUR")
+  probability       Int
+  expectedCloseDate DateTime?
+  wonAt             DateTime?
+  lostAt            DateTime?
+  lostReason        String?
+  archivedAt        DateTime?
+
+  company    Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  partner    Partner       @relation(fields: [companyId, partnerId], references: [companyId, id], onDelete: Restrict)
+  pipeline   CrmPipeline   @relation(fields: [companyId, pipelineId], references: [companyId, id], onDelete: Restrict)
+  stage      CrmStage      @relation(fields: [companyId, pipelineId, stageId], references: [companyId, pipelineId, id], onDelete: Restrict)
+  owner      Membership    @relation("CrmOpportunityOwner", fields: [companyId, ownerMembershipId], references: [companyId, id], onDelete: Restrict)
+  location   Location?     @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+  activities CrmActivity[]
+  events     CrmEvent[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, id])
+  @@index([companyId, ownerMembershipId, archivedAt])
+  @@index([companyId, pipelineId, stageId, archivedAt])
+  @@index([companyId, partnerId, archivedAt])
+  @@index([companyId, locationId, archivedAt])
+  @@index([companyId, expectedCloseDate])
+}
+
+model CrmActivity {
+  id                    String              @id @default(cuid())
+  companyId             String
+  partnerId             String?
+  opportunityId         String?
+  assignedMembershipId  String
+  createdByMembershipId String
+  locationId            String?
+  type                  CrmActivityType
+  subject               String
+  description           String?
+  dueAt                 DateTime?
+  priority              CrmActivityPriority @default(NORMAL)
+  status                CrmActivityStatus   @default(OPEN)
+  completedAt           DateTime?
+
+  company             Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  partner             Partner?        @relation(fields: [companyId, partnerId], references: [companyId, id], onDelete: Restrict)
+  opportunity         CrmOpportunity? @relation(fields: [companyId, opportunityId], references: [companyId, id], onDelete: Cascade)
+  assignedMembership  Membership      @relation("CrmActivityAssignee", fields: [companyId, assignedMembershipId], references: [companyId, id], onDelete: Restrict)
+  createdByMembership Membership      @relation("CrmActivityCreator", fields: [companyId, createdByMembershipId], references: [companyId, id], onDelete: Restrict)
+  location            Location?       @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+  events              CrmEvent[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, id])
+  @@index([companyId, assignedMembershipId, status, dueAt])
+  @@index([companyId, opportunityId, createdAt])
+  @@index([companyId, partnerId, createdAt])
+  @@index([companyId, locationId, status, dueAt])
+}
+
+model CrmEvent {
+  id                String   @id @default(cuid())
+  companyId         String
+  opportunityId     String?
+  activityId        String?
+  actorMembershipId String
+  eventType         String
+  payload           Json?
+  occurredAt        DateTime @default(now())
+
+  company         Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  opportunity     CrmOpportunity? @relation(fields: [companyId, opportunityId], references: [companyId, id], onDelete: Cascade)
+  activity        CrmActivity?    @relation(fields: [companyId, activityId], references: [companyId, id], onDelete: Cascade)
+  actorMembership Membership      @relation("CrmEventActor", fields: [companyId, actorMembershipId], references: [companyId, id], onDelete: Restrict)
+
+  @@unique([companyId, id])
+  @@index([companyId, opportunityId, occurredAt])
+  @@index([companyId, activityId, occurredAt])
 }

@@ -10,6 +10,7 @@
     "lint": "eslint",
     "test:integration:core": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test tests/integration/core-transaction-idempotency.test.ts",
     "test:integration:partner-crm": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/partner-crm.test.ts",
+    "test:integration:crm-phase2": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/crm-phase2.test.ts",
     "test:integration:documents": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/documents-location-scoping.test.ts",
     "test:integration:treasury": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/treasury-location-scoping.test.ts",
     "test:integration:locations": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test tests/integration/locations.test.ts",

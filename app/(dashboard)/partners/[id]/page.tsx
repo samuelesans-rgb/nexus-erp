@@ -11,6 +11,8 @@ import { getLocations } from "@/lib/locations";
 import { getCompanyModules } from "@/lib/modules";
 import { MODULE_CODES } from "@/lib/module-catalog";
 import { getPartnerDetail } from "@/lib/partners";
+import { CRM_CAPABILITIES, hasCrmCapability } from "@/lib/crm-access";
+import { crmNewOpportunityHref, crmOpportunityHref, getPartnerCrmSummary } from "@/lib/crm";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { archivePartner, restorePartner } from "../actions";
@@ -46,6 +48,9 @@ export default async function PartnerDetailPage({
   const canWrite = hasPartnerCapability(context.roles, PARTNER_CAPABILITIES.WRITE);
   const canArchive = hasPartnerCapability(context.roles, PARTNER_CAPABILITIES.ARCHIVE);
   const moduleCodes = new Set(modules.map((row) => row.moduleDefinition.code));
+  const crmSummary = moduleCodes.has(MODULE_CODES.CORE_CRM) && hasCrmCapability(context.roles, CRM_CAPABILITIES.READ)
+    ? await getPartnerCrmSummary({ companyId: context.companyId, membershipId: context.membershipId, userId: context.userId, roles: context.roles }, partner.id)
+    : null;
 
   return (
     <div className="space-y-6">
@@ -84,6 +89,8 @@ export default async function PartnerDetailPage({
       </section>
 
       <QuickActions partner={partner} moduleCodes={moduleCodes} roles={context.roles} />
+
+      {crmSummary && <section className="rounded-xl border bg-white p-5"><div className="flex items-center justify-between"><h2 className="text-lg font-semibold">CRM</h2><Link href={crmNewOpportunityHref(partner.id)} className="text-sm underline">Nuova opportunità</Link></div><div className="mt-4 grid gap-4 sm:grid-cols-2"><Detail label="Opportunità aperte" value={String(crmSummary.openCount)} /><Detail label="Valore aperto" value={money(Number(crmSummary.openValue))} /></div><div className="mt-4 space-y-2">{crmSummary.opportunities.slice(0, 5).map((row) => <Link key={row.id} href={crmOpportunityHref(row.id)} className="block border-t pt-2 text-sm">{row.title} · {row.stageName} · {money(Number(row.estimatedValue), row.currency)}</Link>)}</div><div className="mt-4 space-y-2">{crmSummary.activities.filter((row) => row.status === "OPEN").slice(0, 5).map((row) => <p key={row.id} className="border-t pt-2 text-sm">{row.type} · {row.subject} · {row.dueAt ? dateTime(row.dueAt) : "Senza scadenza"}</p>)}</div></section>}
 
       {overview.customer && <KpiSection title="Customer KPI" rows={[
         ["Fatturato", money(overview.customer.revenue)],
