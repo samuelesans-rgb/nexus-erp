@@ -176,6 +176,27 @@ enum ReconciliationStatus {
   MATCHED
 }
 
+enum OpenBankingConnectionStatus {
+  CONNECTED
+  REAUTH_REQUIRED
+  EXPIRED
+  REVOKED
+  ERROR
+}
+
+enum OpenBankingSyncStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum OpenBankingTransactionStatus {
+  PENDING
+  BOOKED
+  REVERSED
+  DELETED
+}
+
 enum RestaurantTableStatus {
   AVAILABLE
   RESERVED
@@ -329,6 +350,8 @@ model Company {
   financialTransfers           FinancialTransfer[]
   bankStatements               BankStatement[]
   bankStatementLines           BankStatementLine[]
+  openBankingConnections       OpenBankingConnection[]
+  openBankingAccounts          OpenBankingAccount[]
   restaurantAreas              RestaurantArea[]
   restaurantTables             RestaurantTable[]
   restaurantReservations       RestaurantReservation[]
@@ -1118,6 +1141,8 @@ model Location {
   financialTransfers        FinancialTransfer[]
   bankStatements            BankStatement[]
   bankStatementLines        BankStatementLine[]
+  openBankingConnections    OpenBankingConnection[]
+  openBankingAccounts       OpenBankingAccount[]
   restaurantAreas           RestaurantArea[]
   restaurantTables          RestaurantTable[]
   restaurantReservations    RestaurantReservation[]
@@ -1620,32 +1645,33 @@ model DocumentEvent {
 }
 
 model FinancialAccount {
-  id                String               @id @default(cuid())
-  companyId         String
-  locationId        String?
-  code              String
-  name              String
-  type              FinancialAccountType
-  currency          String               @default("EUR")
-  iban              String?
-  bic               String?
-  bankName          String?
-  openingBalance    Decimal              @default(0) @db.Decimal(15, 2)
-  allowOverdraft    Boolean              @default(false)
-  active            Boolean              @default(true)
-  deletedAt         DateTime?
-  createdById       String
-  updatedById       String
-  company           Company              @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  location          Location?            @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
-  createdBy         User                 @relation("FinancialAccountCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
-  updatedBy         User                 @relation("FinancialAccountUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
-  movements         FinancialMovement[]
-  outgoingTransfers FinancialTransfer[]  @relation("FinancialTransferSource")
-  incomingTransfers FinancialTransfer[]  @relation("FinancialTransferDestination")
-  bankStatements    BankStatement[]
-  createdAt         DateTime             @default(now())
-  updatedAt         DateTime             @updatedAt
+  id                  String               @id @default(cuid())
+  companyId           String
+  locationId          String?
+  code                String
+  name                String
+  type                FinancialAccountType
+  currency            String               @default("EUR")
+  iban                String?
+  bic                 String?
+  bankName            String?
+  openingBalance      Decimal              @default(0) @db.Decimal(15, 2)
+  allowOverdraft      Boolean              @default(false)
+  active              Boolean              @default(true)
+  deletedAt           DateTime?
+  createdById         String
+  updatedById         String
+  company             Company              @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  location            Location?            @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+  createdBy           User                 @relation("FinancialAccountCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy           User                 @relation("FinancialAccountUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
+  movements           FinancialMovement[]
+  outgoingTransfers   FinancialTransfer[]  @relation("FinancialTransferSource")
+  incomingTransfers   FinancialTransfer[]  @relation("FinancialTransferDestination")
+  bankStatements      BankStatement[]
+  openBankingAccounts OpenBankingAccount[]
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
 
   @@unique([companyId, code])
   @@unique([companyId, id])
@@ -1803,27 +1829,111 @@ model BankStatement {
 }
 
 model BankStatementLine {
-  id                   String               @id @default(cuid())
-  companyId            String
-  locationId           String?
-  bankStatementId      String
-  transactionDate      DateTime
-  valueDate            DateTime?
-  amount               Decimal              @db.Decimal(15, 2)
-  description          String
-  reference            String?
-  matchedMovementId    String?
-  reconciliationStatus ReconciliationStatus @default(UNMATCHED)
-  company              Company              @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  location             Location?            @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
-  bankStatement        BankStatement        @relation(fields: [companyId, bankStatementId], references: [companyId, id], onDelete: Cascade)
-  matchedMovement      FinancialMovement?   @relation(fields: [companyId, matchedMovementId], references: [companyId, id], onDelete: Restrict)
-  createdAt            DateTime             @default(now())
+  id                    String                        @id @default(cuid())
+  companyId             String
+  locationId            String?
+  bankStatementId       String
+  transactionDate       DateTime
+  valueDate             DateTime?
+  amount                Decimal                       @db.Decimal(15, 2)
+  description           String
+  reference             String?
+  openBankingProvider   String?
+  providerAccountId     String?
+  providerTransactionId String?
+  providerFingerprint   String?
+  openBankingStatus     OpenBankingTransactionStatus?
+  debtorCreditorName    String?
+  remittanceInformation String?
+  providerUpdatedAt     DateTime?
+  matchedMovementId     String?
+  reconciliationStatus  ReconciliationStatus          @default(UNMATCHED)
+  company               Company                       @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  location              Location?                     @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+  bankStatement         BankStatement                 @relation(fields: [companyId, bankStatementId], references: [companyId, id], onDelete: Cascade)
+  matchedMovement       FinancialMovement?            @relation(fields: [companyId, matchedMovementId], references: [companyId, id], onDelete: Restrict)
+  createdAt             DateTime                      @default(now())
 
   @@unique([companyId, id])
   @@unique([companyId, matchedMovementId])
+  @@unique([companyId, openBankingProvider, providerAccountId, providerTransactionId], map: "BankStmtLine_provider_tx_key")
+  @@unique([companyId, openBankingProvider, providerAccountId, providerFingerprint], map: "BankStmtLine_provider_fp_key")
   @@index([companyId, bankStatementId, reconciliationStatus])
   @@index([companyId, locationId, bankStatementId, reconciliationStatus])
+}
+
+model OpenBankingConnection {
+  id                    String                      @id @default(cuid())
+  companyId             String
+  locationId            String?
+  provider              String
+  institutionId         String
+  institutionName       String
+  status                OpenBankingConnectionStatus @default(CONNECTED)
+  providerConnectionId  String
+  encryptedAccessToken  String?
+  encryptedRefreshToken String?
+  consentExpiresAt      DateTime?
+  lastSyncAt            DateTime?
+  lastSuccessfulSyncAt  DateTime?
+  safeError             String?
+  revokedAt             DateTime?
+  company               Company                     @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  location              Location?                   @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+  accounts              OpenBankingAccount[]
+  syncs                 OpenBankingSync[]
+  createdAt             DateTime                    @default(now())
+  updatedAt             DateTime                    @updatedAt
+
+  @@unique([provider, providerConnectionId])
+  @@unique([companyId, id])
+  @@index([companyId, locationId, status])
+}
+
+model OpenBankingAccount {
+  id                 String                @id @default(cuid())
+  companyId          String
+  connectionId       String
+  locationId         String?
+  financialAccountId String?
+  providerAccountId  String
+  iban               String?
+  accountName        String
+  currency           String
+  accountType        String?
+  enabled            Boolean               @default(true)
+  currentBalance     Decimal?              @db.Decimal(15, 2)
+  availableBalance   Decimal?              @db.Decimal(15, 2)
+  balanceUpdatedAt   DateTime?
+  company            Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  connection         OpenBankingConnection @relation(fields: [companyId, connectionId], references: [companyId, id], onDelete: Cascade)
+  location           Location?             @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+  financialAccount   FinancialAccount?     @relation(fields: [companyId, financialAccountId], references: [companyId, id], onDelete: Restrict)
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+
+  @@unique([companyId, id])
+  @@unique([companyId, connectionId, providerAccountId])
+  @@index([companyId, locationId, enabled])
+  @@index([companyId, financialAccountId])
+}
+
+model OpenBankingSync {
+  id             String                @id @default(cuid())
+  companyId      String
+  connectionId   String
+  status         OpenBankingSyncStatus @default(RUNNING)
+  startedAt      DateTime              @default(now())
+  completedAt    DateTime?
+  fetchedCount   Int                   @default(0)
+  createdCount   Int                   @default(0)
+  duplicateCount Int                   @default(0)
+  updatedCount   Int                   @default(0)
+  safeError      String?
+  connection     OpenBankingConnection @relation(fields: [companyId, connectionId], references: [companyId, id], onDelete: Cascade)
+  createdAt      DateTime              @default(now())
+
+  @@index([companyId, connectionId, startedAt])
 }
 
 model RestaurantArea {
