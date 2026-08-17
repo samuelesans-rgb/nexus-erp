@@ -5,9 +5,12 @@ export class MockOpenBankingProvider implements OpenBankingProvider {
   mode: "normal" | "booked" | "expired" | "error" = "normal";
   private revoked = new Set<string>();
   async listInstitutions(query = ""): Promise<Institution[]> {
-    const row = { id: "mock-bnl-it", name: "BNL BNP Paribas", country: "IT", aliases: ["BNL", "Banca Nazionale del Lavoro", "BNP Paribas Italy"] };
-    const haystack = [row.name, ...row.aliases].join(" ").toLowerCase();
-    return !query || haystack.includes(query.toLowerCase()) ? [row] : [];
+    const rows = [
+      { id: "mock-bnl-it", name: "BNL BNP Paribas", country: "IT", aliases: ["BNL", "Banca Nazionale del Lavoro", "BNP Paribas Italy"] },
+      { id: "mock-intesa-it", name: "Intesa Sanpaolo", country: "IT", aliases: ["Intesa Sanpaolo", "Intesa", "ISP"] },
+    ];
+    const term = query.toLowerCase();
+    return rows.filter((row) => !term || [row.name, ...row.aliases].join(" ").toLowerCase().includes(term));
   }
   async createConnection(institutionId: string): Promise<ProviderConnection> {
     if (this.mode === "error") throw new Error("provider secret diagnostic");

@@ -2,17 +2,14 @@ import "server-only";
 import { createHash, randomBytes } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { decryptSecret, encryptSecret, stateDigest } from "./crypto";
-import { MockOpenBankingProvider } from "./providers/mock";
+import { getOpenBankingProvider, getOpenBankingProviderByName } from "./registry";
 import type { NormalizedTransaction, OpenBankingProvider, ProviderSession } from "./provider";
 
 export class OpenBankingError extends Error {}
 const SAFE_PROVIDER_ERROR = "Il provider bancario non è temporaneamente disponibile. Riprova più tardi.";
-const configuredProvider = () => {
-  if (process.env.OPEN_BANKING_PROVIDER === "mock" || process.env.NODE_ENV === "test") return new MockOpenBankingProvider();
-  throw new OpenBankingError("Nessun provider Open Banking configurato.");
-};
+const configuredProvider = () => { try { return getOpenBankingProvider(); } catch { throw new OpenBankingError("Provider Open Banking non configurato o incompleto."); } };
 const providerFor = (name: string, provider?: OpenBankingProvider) => {
-  const selected = provider ?? configuredProvider();
+  const selected = provider ?? (() => { try { return getOpenBankingProviderByName(name); } catch { throw new OpenBankingError("Provider Open Banking non configurato o incompleto."); } })();
   if (selected.id !== name) throw new OpenBankingError("Provider Open Banking non configurato.");
   return selected;
 };

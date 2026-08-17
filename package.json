@@ -35,7 +35,8 @@
     "test:integration:restaurant": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/restaurant-location-scoping.test.ts",
     "test:integration:management": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/management-dashboard.test.ts",
     "test:integration:sales-purchasing": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/sales-purchasing-location-scoping.test.ts",
-    "test:integration:open-banking": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/open-banking.test.ts"
+    "test:integration:open-banking": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/open-banking.test.ts",
+    "test:integration:open-banking-provider": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/open-banking-provider-config.test.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

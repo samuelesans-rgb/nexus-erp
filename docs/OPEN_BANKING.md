@@ -49,3 +49,43 @@ Never commit these secrets. Key rotation requires a controlled token re-encrypti
 ## What Nexus does not store
 
 Nexus stores no bank username, password, PIN, OTP or payment authorization secret. V1 stores encrypted provider tokens, consent metadata, masked-display account metadata, read-only balances and normalized statement transactions needed by Treasury reconciliation. It does not initiate payments and does not bypass the Treasury ledger.
+
+## Provider-ready adapter layer (V1.1)
+
+The central registry reads `OPEN_BANKING_PROVIDER` and supports `mock`, `enable-banking`, `yapily`, and `tink`. There is no implicit mock fallback: mock is accepted in tests, or in development only when `OPEN_BANKING_ALLOW_MOCK=true`; it is always rejected in production. Existing connections retain their persisted provider and are resolved with that adapter rather than being silently switched when the selected provider changes.
+
+`checkProviderConfiguration()` performs local validation only. It returns provider, `MOCK` / `CONFIG_REQUIRED` / `READY` / `ERROR`, missing variable names, callback validity, sandbox/live mode, credential presence, and BNL/Intesa mapping presence. It never returns client secret values and never contacts a provider.
+
+The Enable Banking, Yapily, and Tink adapters implement the complete Nexus provider interface as non-networking skeletons. Complete local configuration produces `READY`; remote operations still fail closed with a safe adapter-not-enabled error until an official client implementation has been reviewed and explicitly enabled. No endpoint, BNL ID, or Intesa ID is hardcoded.
+
+### Callback URL
+
+Set `OPEN_BANKING_CALLBACK_URL` to the exact URL registered with the provider, normally `https://erp.frisabistro.com/api/open-banking/callback`. If omitted, Nexus derives it from `AUTH_URL`. Production requires HTTPS, rejects localhost and embedded credentials, and requires the callback hostname to match `AUTH_URL` when both are set.
+
+### Enable Banking
+
+Configure `ENABLE_BANKING_CLIENT_ID`, `ENABLE_BANKING_CLIENT_SECRET`, optional `ENABLE_BANKING_BASE_URL`, `ENABLE_BANKING_SANDBOX`, `ENABLE_BANKING_BNL_INSTITUTION_ID`, and `ENABLE_BANKING_INTESA_INSTITUTION_ID`.
+
+### Yapily
+
+Configure `YAPILY_APPLICATION_KEY`, `YAPILY_APPLICATION_SECRET`, `YAPILY_SANDBOX`, `YAPILY_BNL_INSTITUTION_ID`, and `YAPILY_INTESA_INSTITUTION_ID`.
+
+### Tink
+
+Configure `TINK_CLIENT_ID`, `TINK_CLIENT_SECRET`, `TINK_SANDBOX`, `TINK_BNL_INSTITUTION_ID`, and `TINK_INTESA_INSTITUTION_ID`.
+
+Institution aliases are normalized for BNL (`BNL`, `Banca Nazionale del Lavoro`, `BNP Paribas Italy`) and Intesa (`Intesa Sanpaolo`, `Intesa`, `ISP`), while every provider-specific institution ID remains external configuration.
+
+### Go-live checklist
+
+1. Register the regulated provider account.
+2. Obtain the provider client ID/key and secret.
+3. Register the exact HTTPS callback URL.
+4. Discover and configure the provider-specific BNL institution ID.
+5. Discover and configure the provider-specific Intesa institution ID.
+6. Store environment values in the deployment secret manager.
+7. Confirm `checkProviderConfiguration()` reports `READY`.
+8. Implement/enable the reviewed official API client and run sandbox tests.
+9. Complete a controlled real read-only connection.
+
+Sandbox and live credentials must remain separate. `READY` means local configuration is structurally complete; it does not claim that provider connectivity or credentials have been verified.
