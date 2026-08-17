@@ -7,6 +7,11 @@ import { getCurrentLocation as getMembershipCurrentLocation, requireCurrentLocat
 import { redirect } from "next/navigation";
 
 const administrators = new Set(["SUPER_ADMIN", "ADMIN"]);
+const readers = new Set(["SUPER_ADMIN", "ADMIN", "MANAGER"]);
+
+export function canReadLocations(roles: readonly string[]) {
+  return roles.some((role) => readers.has(role));
+}
 
 export function canManageLocations(roles: readonly string[]) {
   return roles.some((role) => administrators.has(role));
@@ -32,5 +37,11 @@ export async function requireCurrentLocation() {
 export async function requireLocationAdmin() {
   const context = await requireLocationContext();
   if (!canManageLocations(context.roles)) redirect("/dashboard");
+  return context;
+}
+
+export async function requireLocationReader() {
+  const context = await requireLocationContext();
+  if (!canReadLocations(context.roles)) redirect("/dashboard");
   return context;
 }

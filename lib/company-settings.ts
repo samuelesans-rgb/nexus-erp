@@ -24,9 +24,13 @@ export async function updateCompanySettings(companyId: string, input: CompanySet
   if (!/^[A-Z]{3}$/.test(currency)) throw new CompanySettingsError("La valuta deve essere un codice ISO di 3 lettere.");
   if (country && !/^[A-Z]{2}$/.test(country)) throw new CompanySettingsError("Il paese deve essere un codice ISO di 2 lettere.");
   if (!input.timezone.trim() || !input.locale.trim()) throw new CompanySettingsError("Timezone e locale sono obbligatori.");
+  const email = clean(input.email);
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new CompanySettingsError("L’indirizzo email non è valido.");
+  const logo = clean(input.logo);
+  if (logo) { try { const url = new URL(logo); if (!["http:", "https:"].includes(url.protocol)) throw new Error(); } catch { throw new CompanySettingsError("Il logo deve essere un URL HTTP o HTTPS valido."); } }
   const result = await prisma.company.updateMany({
     where: { id: companyId },
-    data: { name, legalName: clean(input.legalName), vatNumber: clean(input.vatNumber), taxCode: clean(input.taxCode), country, address: clean(input.address), city: clean(input.city), email: clean(input.email), phone: clean(input.phone), currency, timezone: input.timezone.trim(), locale: input.locale.trim(), logo: clean(input.logo) },
+    data: { name, legalName: clean(input.legalName), vatNumber: clean(input.vatNumber), taxCode: clean(input.taxCode), country, address: clean(input.address), city: clean(input.city), email, phone: clean(input.phone), currency, timezone: input.timezone.trim(), locale: input.locale.trim(), logo },
   });
   if (result.count !== 1) throw new CompanySettingsError("Azienda non trovata.");
   return prisma.company.findUniqueOrThrow({ where: { id: companyId } });

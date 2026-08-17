@@ -99,19 +99,25 @@ function normalized(input: LocationInput) {
     throw new LocationDomainError("Il codice sede non è valido.");
   }
   if (!name) throw new LocationDomainError("Il nome della sede è obbligatorio.");
+  const country = (input.country?.trim() || "IT").toUpperCase();
+  const currency = (input.currency?.trim() || "EUR").toUpperCase();
+  if (!/^[A-Z]{2}$/.test(country)) throw new LocationDomainError("Il paese deve essere un codice ISO di 2 lettere.");
+  if (!/^[A-Z]{3}$/.test(currency)) throw new LocationDomainError("La valuta deve essere un codice ISO di 3 lettere.");
+  const email = input.email?.trim() || null;
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new LocationDomainError("L’indirizzo email non è valido.");
   return {
     code,
     name,
     description: input.description?.trim() || null,
-    email: input.email?.trim() || null,
+    email,
     phone: input.phone?.trim() || null,
     address: input.address?.trim() || null,
     city: input.city?.trim() || null,
     province: input.province?.trim() || null,
     postalCode: input.postalCode?.trim() || null,
-    country: (input.country?.trim() || "IT").toUpperCase(),
+    country,
     timezone: input.timezone?.trim() || "Europe/Rome",
-    currency: (input.currency?.trim() || "EUR").toUpperCase(),
+    currency,
     active: input.active ?? true,
   };
 }
@@ -149,9 +155,15 @@ export async function updateLocation(companyId: string, userId: string, id: stri
   const slug = requestedSlug(input.slug);
   try {
     await prisma.$transaction(async (tx) => {
-      const current = await tx.location.findFirst({ where: { id, companyId }, select: { slug: true } });
+      const current = await tx.location.findFirst({ where: { id, companyId }, select: { slug: true, active: true, isHeadquarters: true, deletedAt: true } });
       if (!current) throw new LocationDomainError("Sede non trovata nella Company corrente.");
+      if (current.deletedAt) throw new LocationDomainError("Ripristina la sede prima di modificarla.");
       if (slug && slug !== current.slug) throw new LocationDomainError("Lo slug pubblico non può essere modificato dopo la creazione.");
+      if (current.active && !data.active) {
+        const activeCount = await tx.location.count({ where: { companyId, ...live } });
+        if (activeCount <= 1) throw new LocationDomainError("Non è possibile disattivare l'unica sede attiva.");
+        if (current.isHeadquarters) throw new LocationDomainError("Promuovi prima un'altra sede a headquarters.");
+      }
       await tx.location.update({ where: { id }, data: { ...data, updatedById: userId } });
     });
   } catch (error) {

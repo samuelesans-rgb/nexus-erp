@@ -3,6 +3,7 @@
 import { auth } from "@/auth";
 import { Prisma } from "@/generated/prisma/client";
 import { getConfigurationDefinition } from "@/lib/configuration-catalog";
+import { createUnit, createVatRate, MasterDataError, updateUnit, updateVatRate } from "@/lib/master-data";
 import { requireModule } from "@/lib/modules";
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
@@ -97,14 +98,29 @@ export async function saveConfiguration(key: string, id: string | null, _state: 
   const parsed = parse(formData, context.definition.kind);
   if (Object.keys(parsed.errors).length) return { status: "error", message: "Controlla i campi evidenziati.", errors: parsed.errors };
   if (context.definition.kind === "category" && !(await validateParent(context.companyId, id, parsed.data.parentId))) return { status: "error", message: "La categoria padre non è valida o creerebbe un ciclo." };
+  if (key === "units-of-measure" || key === "vat-rates") {
+    const common = { code: String(parsed.data.code), name: String(parsed.data.name), description: parsed.data.description ? String(parsed.data.description) : null, active: Boolean(parsed.data.active) };
+    try {
+      if (key === "units-of-measure") {
+        const input = { ...common, symbol: String(parsed.data.symbol), precision: Number(parsed.data.precision) };
+        if (id) await updateUnit(context.companyId, context.userId, id, input); else await createUnit(context.companyId, context.userId, input);
+      } else {
+        const input = { ...common, percentage: Number(parsed.data.percentage), natureCode: parsed.data.natureCode ? String(parsed.data.natureCode) : null };
+        if (id) await updateVatRate(context.companyId, context.userId, id, input); else await createVatRate(context.companyId, context.userId, input);
+      }
+    } catch (error) {
+      return { status: "error", message: error instanceof MasterDataError ? error.message : "Salvataggio non riuscito." };
+    }
+    revalidatePath("/settings/configurations/" + key);
+    redirect("/settings/configurations/" + key + "?success=Configurazione salvata");
+  }
   const audit = { updatedById: context.userId };
   try {
     await prisma.$transaction(async (tx) => {
       let recordId = id;
       const where = id ? { id, companyId: context.companyId } : null;
       if (key === "item-categories") recordId = id ? (await tx.itemCategory.updateMany({ where: where!, data: { ...parsed.data, ...audit } }), id) : (await tx.itemCategory.create({ data: { ...parsed.data as Prisma.ItemCategoryUncheckedCreateInput, companyId: context.companyId, createdById: context.userId, ...audit }, select: { id: true } })).id;
-      else if (key === "units-of-measure") recordId = id ? (await tx.unitOfMeasure.updateMany({ where: where!, data: { ...parsed.data, ...audit } }), id) : (await tx.unitOfMeasure.create({ data: { ...parsed.data as Prisma.UnitOfMeasureUncheckedCreateInput, companyId: context.companyId, createdById: context.userId, ...audit }, select: { id: true } })).id;
-      else if (key === "vat-rates") recordId = id ? (await tx.vatRate.updateMany({ where: where!, data: { ...parsed.data, ...audit } }), id) : (await tx.vatRate.create({ data: { ...parsed.data as Prisma.VatRateUncheckedCreateInput, companyId: context.companyId, createdById: context.userId, ...audit }, select: { id: true } })).id;
+      else if (key === "units-of-measure" || key === "vat-rates") throw new Error("Flusso master data non instradato.");
       else if (key === "price-lists") recordId = id ? (await tx.priceList.updateMany({ where: where!, data: { ...parsed.data, ...audit } }), id) : (await tx.priceList.create({ data: { ...parsed.data as Prisma.PriceListUncheckedCreateInput, companyId: context.companyId, createdById: context.userId, ...audit }, select: { id: true } })).id;
       else if (key === "payment-methods") recordId = id ? (await tx.paymentMethod.updateMany({ where: where!, data: { ...parsed.data, ...audit } }), id) : (await tx.paymentMethod.create({ data: { ...parsed.data as Prisma.PaymentMethodUncheckedCreateInput, companyId: context.companyId, createdById: context.userId, ...audit }, select: { id: true } })).id;
       else recordId = id ? (await tx.paymentTerm.updateMany({ where: where!, data: { ...parsed.data, ...audit } }), id) : (await tx.paymentTerm.create({ data: { ...parsed.data as Prisma.PaymentTermUncheckedCreateInput, companyId: context.companyId, createdById: context.userId, ...audit }, select: { id: true } })).id;
@@ -123,9 +139,9 @@ export async function setConfigurationLifecycle(formData: FormData) {
   const context = await requireConfigurationContext(key); if (!context || !id) redirect("/settings/configurations");
   const data = { active: restore, deletedAt: restore ? null : new Date(), updatedById: context.userId };
   const where = { id, companyId: context.companyId };
-  if (key === "item-categories") await prisma.itemCategory.updateMany({ where, data });
-  else if (key === "units-of-measure") await prisma.unitOfMeasure.updateMany({ where, data });
-  else if (key === "vat-rates") await prisma.vatRate.updateMany({ where, data });
+  if (key === "item-categories") await prisma.itemCategory.updateMany({ where, data: { active: restore, updatedById: context.userId } });
+  else if (key === "units-of-measure") await prisma.unitOfMeasure.updateMany({ where, data: { active: restore, updatedById: context.userId } });
+  else if (key === "vat-rates") await prisma.vatRate.updateMany({ where, data: { active: restore, updatedById: context.userId } });
   else if (key === "price-lists") await prisma.priceList.updateMany({ where, data });
   else if (key === "payment-methods") await prisma.paymentMethod.updateMany({ where, data });
   else await prisma.paymentTerm.updateMany({ where, data });

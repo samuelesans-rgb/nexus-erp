@@ -14,12 +14,16 @@ export function hasMasterDataCapability(roles: readonly string[], capability: Ma
   return roles.some((role) => allowed.has(role));
 }
 
-export async function requireCompanyAdmin() {
+export async function requireCompanyContext(capability: MasterDataCapability = "read") {
   const session = await auth();
   if (!session?.user?.companyId) redirect("/login");
-  if (!writers.has(session.user.roles.find((role) => writers.has(role)) ?? "")) redirect("/dashboard");
+  if (!hasMasterDataCapability(session.user.roles, capability)) redirect("/dashboard");
   await requireModule(session.user.companyId, MODULE_CODES.CORE_COMPANIES);
   return { companyId: session.user.companyId, userId: session.user.id, roles: session.user.roles };
+}
+
+export async function requireCompanyAdmin() {
+  return requireCompanyContext("write");
 }
 
 export async function requireMasterDataContext(capability: MasterDataCapability = "read") {
