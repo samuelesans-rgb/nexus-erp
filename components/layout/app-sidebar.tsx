@@ -24,6 +24,12 @@ export default async function AppSidebar() {
   if (activeCodes.has(MODULE_CODES.CORE_PRODUCTS)) {
     items.push({ label: "Catalogo", href: "/items" });
   }
+  if (activeCodes.has(MODULE_CODES.CORE_COMPANIES) && session?.user?.roles.some((role) => ["SUPER_ADMIN", "ADMIN"].includes(role))) {
+    items.push({ label: "Azienda", href: "/settings/company" });
+  }
+  if (activeCodes.has(MODULE_CODES.CORE_PRODUCTS) && session?.user?.roles.some((role) => ["SUPER_ADMIN", "ADMIN", "MANAGER"].includes(role))) {
+    items.push({ label: "Dati base", href: "/settings/master-data" });
+  }
   if (activeCodes.has(MODULE_CODES.CORE_LOCATIONS) && session?.user?.roles.some((role) => ["SUPER_ADMIN", "ADMIN"].includes(role))) {
     items.push({ label: "Sedi", href: "/settings/locations" });
   }

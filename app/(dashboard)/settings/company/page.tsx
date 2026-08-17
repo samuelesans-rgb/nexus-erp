@@ -1,0 +1,10 @@
+import { getCompanySettings } from "@/lib/company-settings";
+import { requireCompanyAdmin } from "@/lib/master-data-access";
+import { notFound } from "next/navigation";
+import { saveCompany } from "./actions";
+const field = "mt-1 w-full rounded-lg border px-3 py-2";
+export default async function CompanyPage({ searchParams }: { searchParams: Promise<{success?:string;error?:string}> }) {
+  const { companyId } = await requireCompanyAdmin(); const company = await getCompanySettings(companyId); if (!company) notFound(); const query = await searchParams;
+  const fields: Array<[string,string,string|null, string?]> = [["name","Nome",company.name],["legalName","Ragione sociale",company.legalName],["vatNumber","Partita IVA",company.vatNumber],["taxCode","Codice fiscale",company.taxCode],["country","Paese (ISO)",company.country],["address","Indirizzo",company.address],["city","Città",company.city],["email","Email",company.email,"email"],["phone","Telefono",company.phone],["currency","Valuta",company.currency],["timezone","Timezone",company.timezone],["locale","Locale",company.locale],["logo","Logo URL",company.logo,"url"]];
+  return <div className="space-y-6"><div><h1 className="text-3xl font-bold">Azienda</h1><p className="text-slate-500">Dati anagrafici e preferenze della società corrente.</p></div>{query.success&&<p className="rounded bg-emerald-50 p-3 text-emerald-800">{query.success}</p>}{query.error&&<p className="rounded bg-red-50 p-3 text-red-800">{query.error}</p>}<form action={saveCompany} className="grid gap-4 rounded-xl border bg-white p-6 md:grid-cols-2">{fields.map(([name,label,current,type])=><label key={name} className="text-sm">{label}<input className={field} name={name} type={type??"text"} defaultValue={current??""} required={["name","currency","timezone","locale"].includes(name)}/></label>)}<div className="md:col-span-2"><button className="rounded-lg bg-slate-900 px-5 py-2 text-white">Salva azienda</button></div></form><p className="text-xs text-slate-500">Provincia e CAP non sono presenti nel modello Company corrente; restano disponibili nell’anagrafica Location.</p></div>;
+}
