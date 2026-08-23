@@ -45,8 +45,9 @@ async function createServedOrder(itemId = fixture.product.id, quantity = 1) {
   const order = await prisma.restaurantOrder.create({
     data: { companyId: fixture.company.id, locationId: fixture.location.id, code, partnerId: fixture.partner.id, guestCount: 1, createdById: fixture.user.id, updatedById: fixture.user.id },
   });
+  const item = await prisma.item.findUniqueOrThrow({ where: { id: itemId }, select: { name: true } });
   const line = await prisma.restaurantOrderLine.create({
-    data: { companyId: fixture.company.id, locationId: fixture.location.id, orderId: order.id, itemId, quantity, unitPrice: 10, vatRateId: fixture.vatRate.id, status: "SERVED", servedAt: new Date() },
+    data: { companyId: fixture.company.id, locationId: fixture.location.id, orderId: order.id, itemId, productName: item.name, baseUnitPrice: 10, quantity, unitPrice: 10, vatRateId: fixture.vatRate.id, vatName: fixture.vatRate.name, vatPercentage: fixture.vatRate.percentage, lineTotal: quantity * 10, status: "SERVED", servedAt: new Date() },
   });
   createdOrderIds.push(order.id);
   return { ...order, lines: [line] };

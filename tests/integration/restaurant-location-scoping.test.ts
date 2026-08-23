@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 
 import { prisma } from "../../lib/prisma";
+import { postInventoryMovementsBatch } from "../../lib/inventory";
 import { getRestaurantDashboard, getRestaurantOptions, saveArea, saveTable } from "../../lib/restaurant";
 import { advanceKitchenLine, getKitchen, sendOrderToKitchen, serveRestaurantOrderLine } from "../../lib/restaurant-kitchen";
 import { addOrderLine, closeRestaurantOrderAtomic, getOrder, getOrders, openOrder } from "../../lib/restaurant-orders";
@@ -12,6 +13,7 @@ if (!(process.env.DATABASE_URL ?? "").includes("_test")) throw new Error("I test
 let companyId="",otherCompanyId="",userId="",locationA="",locationB="",partnerId="",itemId="",recipeId="",seriesId="",accountId="",areaA="",areaB="",tableA="",tableB="",orderId="",lineId="";
 const orderIds:string[]=[],documentIds:string[]=[],movementIds:string[]=[],locationIds:string[]=[];
 const lotSelections:Record<string,string>={};
+const balanceSnapshots:Array<{id:string;quantity:number;averageCost:number;stockValue:number}>=[];
 
 before(async()=>{
   const company=await prisma.company.findUniqueOrThrow({where:{vatNumber:"IT00000000000"}}); companyId=company.id;
@@ -21,6 +23,9 @@ before(async()=>{
   const recipe=await prisma.item.findFirstOrThrow({where:{companyId,type:"RECIPE",sellable:true,vatRateId:{not:null}},include:{recipeComponents:{include:{componentItem:true}}}}); recipeId=recipe.id;
   const suffix=randomUUID().slice(0,8);
   locationA=(await prisma.location.findFirstOrThrow({where:{companyId,active:true,deletedAt:null,warehouses:{some:{active:true,deletedAt:null}},kitchenStations:{some:{active:true}}},select:{id:true}})).id;
+  const testWarehouse=await prisma.warehouse.findFirstOrThrow({where:{companyId,locationId:locationA,active:true,deletedAt:null},include:{bins:{where:{active:true,deletedAt:null},take:1}}});
+  const topUps=[];for(const component of recipe.recipeComponents){let lotId:string|undefined,serialId:string|undefined;if(component.componentItem.trackLots){lotId=(await prisma.inventoryLot.findFirstOrThrow({where:{companyId,locationId:locationA,itemId:component.componentItemId,active:true}})).id;lotSelections[component.componentItemId]=lotId;}else if(component.componentItem.trackSerials){serialId=(await prisma.inventorySerial.findFirstOrThrow({where:{companyId,locationId:locationA,itemId:component.componentItemId,status:"AVAILABLE"}})).id;lotSelections[component.componentItemId]=serialId;}const balance=await prisma.stockBalance.findUnique({where:{companyId_warehouseId_itemId:{companyId,warehouseId:testWarehouse.id,itemId:component.componentItemId}}});if(balance){balanceSnapshots.push({id:balance.id,quantity:Number(balance.quantity),averageCost:Number(balance.averageCost),stockValue:Number(balance.stockValue)});const missing=Math.max(0,(component.componentItem.trackSerials?1:100)-Number(balance.quantity));if(missing)topUps.push({warehouseId:testWarehouse.id,binId:testWarehouse.bins[0]?.id,itemId:component.componentItemId,movementType:"ADJUSTMENT_IN" as const,quantity:missing,unitOfMeasureId:component.unitOfMeasureId,lotId,serialId,referenceType:"RestaurantLocationFixture",referenceId:suffix});}}
+  if(topUps.length){const topUp=await postInventoryMovementsBatch(companyId,userId,"restaurant-location-topup-"+suffix,topUps);movementIds.push(...topUp.movementIds);}
   for(const component of recipe.recipeComponents){if(component.componentItem.trackLots){const lot=await prisma.inventoryLot.findFirst({where:{companyId,locationId:locationA,itemId:component.componentItemId,active:true}});if(lot)lotSelections[component.componentItemId]=lot.id;}else if(component.componentItem.trackSerials){const serial=await prisma.inventorySerial.findFirst({where:{companyId,locationId:locationA,itemId:component.componentItemId,status:"AVAILABLE"}});if(serial)lotSelections[component.componentItemId]=serial.id;}}
   const b=await prisma.location.create({data:{companyId,code:`RB-`,name:"Restaurant B"}}); locationB=b.id; locationIds.push(b.id);
   seriesId=(await prisma.documentSeries.create({data:{companyId,locationId:locationA,code:`RS-${suffix}`,name:"Restaurant receipt",documentType:"SALES_RECEIPT"}})).id;
@@ -36,6 +41,7 @@ after(async()=>{
   if(documentIds.length){const schedules=await prisma.paymentSchedule.findMany({where:{documentId:{in:documentIds}},select:{id:true}});const scheduleIds=schedules.map(x=>x.id);const financial=await prisma.financialMovement.findMany({where:{documentId:{in:documentIds}},select:{id:true}});const financialIds=financial.map(x=>x.id);if(financialIds.length)await prisma.financialAllocation.deleteMany({where:{movementId:{in:financialIds}}});if(financialIds.length)await prisma.financialMovement.deleteMany({where:{id:{in:financialIds}}});if(scheduleIds.length)await prisma.paymentSchedule.deleteMany({where:{id:{in:scheduleIds}}});}
   if(orderIds.length){await prisma.idempotencyRecord.deleteMany({where:{aggregateId:{in:orderIds}}});const tickets=await prisma.kitchenTicket.findMany({where:{orderId:{in:orderIds}},select:{id:true}});if(tickets.length)await prisma.kitchenTicketLine.deleteMany({where:{ticketId:{in:tickets.map(x=>x.id)}}});if(tickets.length)await prisma.kitchenTicket.deleteMany({where:{id:{in:tickets.map(x=>x.id)}}});await prisma.recipeConsumption.deleteMany({where:{orderId:{in:orderIds}}});await prisma.restaurantOrderLine.deleteMany({where:{orderId:{in:orderIds}}});await prisma.restaurantOrder.updateMany({where:{id:{in:orderIds}},data:{documentId:null}});await prisma.restaurantOrder.deleteMany({where:{id:{in:orderIds}}});}
   if(movementIds.length)await prisma.inventoryMovement.deleteMany({where:{id:{in:movementIds}}});
+  for(const balance of balanceSnapshots)await prisma.stockBalance.update({where:{id:balance.id},data:{quantity:balance.quantity,averageCost:balance.averageCost,stockValue:balance.stockValue}});
   if(documentIds.length)await prisma.businessDocument.deleteMany({where:{id:{in:documentIds}}});
   await prisma.restaurantTable.deleteMany({where:{id:{in:[tableA,tableB]}}});await prisma.restaurantArea.deleteMany({where:{id:{in:[areaA,areaB]}}});
   await prisma.financialAccount.deleteMany({where:{id:accountId}});await prisma.documentSeries.deleteMany({where:{id:seriesId}});await prisma.warehouseBin.deleteMany({where:{warehouse:{locationId:{in:locationIds}}}});await prisma.warehouse.deleteMany({where:{locationId:{in:locationIds}}});await prisma.location.deleteMany({where:{id:{in:locationIds}}});if(otherCompanyId)await prisma.company.delete({where:{id:otherCompanyId}});await prisma.$disconnect();

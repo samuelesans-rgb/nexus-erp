@@ -50,7 +50,7 @@ export async function convertDocument(companyId: string, userId: string, locatio
     exchangeRate: Number(source.exchangeRate), warehouseId: source.warehouseId, locationId,
     paymentMethodId: source.paymentMethodId, paymentTermId: source.paymentTermId, priceListId: source.priceListId,
     notes: source.notes, internalNotes: source.internalNotes,
-    lines: source.lines.map((line) => ({ itemId: line.itemId, description: line.description, quantity: Number(line.quantity), unitOfMeasureId: line.unitOfMeasureId, unitPrice: Number(line.unitPrice), discount: Number(line.discount), vatRateId: line.vatRateId, warehouseId: line.warehouseId, lotId: line.lotId, serialId: line.serialId, notes: line.notes })),
+    lines: source.lines.map((line) => ({ itemId: line.itemId, description: line.description, quantity: Number(line.quantity), unitOfMeasureId: line.unitOfMeasureId, unitPrice: Number(line.unitPrice), discount: Number(line.discount), vatRateId: line.vatRateId, vatNameSnapshot: line.vatName, vatPercentageSnapshot: Number(line.vatPercentage), warehouseId: line.warehouseId, lotId: line.lotId, serialId: line.serialId, notes: line.notes })),
   });
   await prisma.$transaction([
     prisma.documentLink.create({ data: { companyId, sourceDocumentId, targetDocumentId: target.id, linkType, createdById: userId } }),

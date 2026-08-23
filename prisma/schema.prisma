@@ -33,6 +33,12 @@ enum ItemStatus {
   SUSPENDED
 }
 
+enum ItemCategoryPurpose {
+  SELLABLE
+  INVENTORY
+  BOTH
+}
+
 enum ModuleCategory {
   CORE
   SHARED
@@ -319,6 +325,12 @@ model Company {
   modules                      CompanyModule[]
   items                        Item[]
   itemCategories               ItemCategory[]
+  allergens                    Allergen[]
+  itemAllergens                ItemAllergen[]
+  restaurantProductVariants    RestaurantProductVariant[]
+  restaurantModifierGroups     RestaurantModifierGroup[]
+  restaurantModifiers          RestaurantModifier[]
+  restaurantRecipeImpacts      RestaurantRecipeImpact[]
   unitsOfMeasure               UnitOfMeasure[]
   vatRates                     VatRate[]
   priceLists                   PriceList[]
@@ -709,8 +721,9 @@ model ItemCategory {
   code        String
   name        String
   description String?
+  purpose     ItemCategoryPurpose @default(BOTH)
   parentId    String?
-  active      Boolean   @default(true)
+  active      Boolean             @default(true)
   deletedAt   DateTime?
 
   company               Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -733,6 +746,37 @@ model ItemCategory {
   @@index([companyId, parentId])
 }
 
+model Allergen {
+  id          String         @id @default(cuid())
+  companyId   String
+  code        String
+  name        String
+  description String?
+  active      Boolean        @default(true)
+  deletedAt   DateTime?
+  company     Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  items       ItemAllergen[]
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@unique([companyId, code])
+  @@unique([companyId, id])
+  @@index([companyId, active, deletedAt])
+}
+
+model ItemAllergen {
+  companyId  String
+  itemId     String
+  allergenId String
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  item       Item     @relation(fields: [companyId, itemId], references: [companyId, id], onDelete: Cascade)
+  allergen   Allergen @relation(fields: [companyId, allergenId], references: [companyId, id], onDelete: Restrict)
+  createdAt  DateTime @default(now())
+
+  @@id([companyId, itemId, allergenId])
+  @@index([companyId, allergenId])
+}
+
 model UnitOfMeasure {
   id String @id @default(cuid())
 
@@ -745,17 +789,18 @@ model UnitOfMeasure {
   active      Boolean   @default(true)
   deletedAt   DateTime?
 
-  company                Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  items                  Item[]
-  recipeComponents       RecipeComponent[]
-  packageComponents      PackageComponent[]
-  inventoryMovements     InventoryMovement[]
-  inventoryTransferLines InventoryTransferLine[]
-  inventoryCountLines    InventoryCountLine[]
-  createdById            String?
-  createdBy              User?                   @relation("UnitOfMeasureCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  updatedById            String?
-  updatedBy              User?                   @relation("UnitOfMeasureUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  company                 Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  items                   Item[]
+  recipeComponents        RecipeComponent[]
+  restaurantRecipeImpacts RestaurantRecipeImpact[]
+  packageComponents       PackageComponent[]
+  inventoryMovements      InventoryMovement[]
+  inventoryTransferLines  InventoryTransferLine[]
+  inventoryCountLines     InventoryCountLine[]
+  createdById             String?
+  createdBy               User?                    @relation("UnitOfMeasureCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedById             String?
+  updatedBy               User?                    @relation("UnitOfMeasureUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
 
   createdAt             DateTime               @default(now())
   updatedAt             DateTime               @updatedAt
@@ -963,6 +1008,11 @@ model Item {
   restaurantMenuItems          RestaurantMenuItem[]
   restaurantOrderLines         RestaurantOrderLine[]
   restaurantOrderLineModifiers RestaurantOrderLineModifier[]
+  allergens                    ItemAllergen[]
+  restaurantVariants           RestaurantProductVariant[]    @relation("RestaurantVariantProduct")
+  restaurantModifierGroups     RestaurantModifierGroup[]
+  restaurantModifierItems      RestaurantModifier[]          @relation("RestaurantModifierItem")
+  restaurantRecipeImpacts      RestaurantRecipeImpact[]      @relation("RestaurantImpactComponent")
   kitchenAssignments           KitchenStationAssignment[]
   recipeConsumptionRecipes     RecipeConsumption[]           @relation("RecipeConsumptionRecipe")
   recipeConsumptionComponents  RecipeConsumption[]           @relation("RecipeConsumptionComponent")
@@ -1633,6 +1683,8 @@ model BusinessDocumentLine {
   unitPrice       Decimal          @db.Decimal(15, 4)
   discount        Decimal          @default(0) @db.Decimal(5, 2)
   vatRateId       String
+  vatName         String
+  vatPercentage   Decimal          @db.Decimal(5, 2)
   lineTotal       Decimal          @db.Decimal(15, 2)
   warehouseId     String?
   lotId           String?
@@ -2205,6 +2257,97 @@ model RestaurantMenuItem {
   @@index([companyId, itemId])
 }
 
+model RestaurantProductVariant {
+  id            String                   @id @default(cuid())
+  companyId     String
+  itemId        String
+  name          String
+  sku           String?
+  priceOverride Decimal?                 @db.Decimal(15, 2)
+  priceDelta    Decimal                  @default(0) @db.Decimal(15, 2)
+  available     Boolean                  @default(true)
+  active        Boolean                  @default(true)
+  sortOrder     Int                      @default(0)
+  deletedAt     DateTime?
+  company       Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  item          Item                     @relation("RestaurantVariantProduct", fields: [companyId, itemId], references: [companyId, id], onDelete: Cascade)
+  recipeImpacts RestaurantRecipeImpact[]
+  orderLines    RestaurantOrderLine[]
+  createdAt     DateTime                 @default(now())
+  updatedAt     DateTime                 @updatedAt
+
+  @@unique([companyId, id])
+  @@unique([companyId, itemId, id])
+  @@unique([companyId, itemId, name])
+  @@index([companyId, itemId, active, available, deletedAt])
+}
+
+model RestaurantModifierGroup {
+  id            String               @id @default(cuid())
+  companyId     String
+  itemId        String
+  name          String
+  required      Boolean              @default(false)
+  minSelections Int                  @default(0)
+  maxSelections Int                  @default(1)
+  sortOrder     Int                  @default(0)
+  active        Boolean              @default(true)
+  deletedAt     DateTime?
+  company       Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  item          Item                 @relation(fields: [companyId, itemId], references: [companyId, id], onDelete: Cascade)
+  modifiers     RestaurantModifier[]
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  @@unique([companyId, id])
+  @@unique([companyId, itemId, name])
+  @@index([companyId, itemId, active, deletedAt])
+}
+
+model RestaurantModifier {
+  id                  String                        @id @default(cuid())
+  companyId           String
+  groupId             String
+  name                String
+  priceDelta          Decimal                       @default(0) @db.Decimal(15, 2)
+  itemId              String?
+  active              Boolean                       @default(true)
+  sortOrder           Int                           @default(0)
+  deletedAt           DateTime?
+  company             Company                       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  group               RestaurantModifierGroup       @relation(fields: [companyId, groupId], references: [companyId, id], onDelete: Cascade)
+  item                Item?                         @relation("RestaurantModifierItem", fields: [companyId, itemId], references: [companyId, id], onDelete: Restrict)
+  recipeImpacts       RestaurantRecipeImpact[]
+  orderLineSelections RestaurantOrderLineModifier[]
+  createdAt           DateTime                      @default(now())
+  updatedAt           DateTime                      @updatedAt
+
+  @@unique([companyId, id])
+  @@unique([companyId, groupId, name])
+  @@index([companyId, groupId, active, deletedAt])
+}
+
+model RestaurantRecipeImpact {
+  id              String                    @id @default(cuid())
+  companyId       String
+  variantId       String?
+  modifierId      String?
+  componentItemId String
+  unitOfMeasureId String
+  quantityDelta   Decimal                   @db.Decimal(15, 3)
+  company         Company                   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  variant         RestaurantProductVariant? @relation(fields: [companyId, variantId], references: [companyId, id], onDelete: Cascade)
+  modifier        RestaurantModifier?       @relation(fields: [companyId, modifierId], references: [companyId, id], onDelete: Cascade)
+  componentItem   Item                      @relation("RestaurantImpactComponent", fields: [companyId, componentItemId], references: [companyId, id], onDelete: Restrict)
+  unitOfMeasure   UnitOfMeasure             @relation(fields: [companyId, unitOfMeasureId], references: [companyId, id], onDelete: Restrict)
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @updatedAt
+
+  @@unique([companyId, variantId, componentItemId])
+  @@unique([companyId, modifierId, componentItemId])
+  @@index([companyId, componentItemId])
+}
+
 model RestaurantOrder {
   id            String                  @id @default(cuid())
   companyId     String
@@ -2242,34 +2385,43 @@ model RestaurantOrder {
 }
 
 model RestaurantOrderLine {
-  id           String                        @id @default(cuid())
-  companyId    String
-  locationId   String
-  orderId      String
-  itemId       String
-  quantity     Decimal                       @db.Decimal(15, 3)
-  unitPrice    Decimal                       @db.Decimal(15, 4)
-  vatRateId    String
-  status       RestaurantOrderLineStatus     @default(NEW)
-  courseNumber Int?
-  seatNumber   Int?
-  notes        String?
-  kitchenNotes String?
-  sentAt       DateTime?
-  startedAt    DateTime?
-  readyAt      DateTime?
-  servedAt     DateTime?
-  cancelledAt  DateTime?
-  createdAt    DateTime                      @default(now())
-  updatedAt    DateTime                      @updatedAt
-  company      Company                       @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  location     Location                      @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
-  order        RestaurantOrder               @relation(fields: [companyId, orderId], references: [companyId, id], onDelete: Restrict)
-  item         Item                          @relation(fields: [companyId, itemId], references: [companyId, id], onDelete: Restrict)
-  vatRate      VatRate                       @relation(fields: [companyId, vatRateId], references: [companyId, id], onDelete: Restrict)
-  modifiers    RestaurantOrderLineModifier[]
-  ticketLines  KitchenTicketLine[]
-  consumptions RecipeConsumption[]
+  id            String                        @id @default(cuid())
+  companyId     String
+  locationId    String
+  orderId       String
+  itemId        String
+  variantId     String?
+  productName   String
+  variantName   String?
+  baseUnitPrice Decimal                       @db.Decimal(15, 4)
+  modifierTotal Decimal                       @default(0) @db.Decimal(15, 4)
+  quantity      Decimal                       @db.Decimal(15, 3)
+  unitPrice     Decimal                       @db.Decimal(15, 4)
+  vatRateId     String
+  vatName       String
+  vatPercentage Decimal                       @db.Decimal(5, 2)
+  lineTotal     Decimal                       @db.Decimal(15, 2)
+  status        RestaurantOrderLineStatus     @default(NEW)
+  courseNumber  Int?
+  seatNumber    Int?
+  notes         String?
+  kitchenNotes  String?
+  sentAt        DateTime?
+  startedAt     DateTime?
+  readyAt       DateTime?
+  servedAt      DateTime?
+  cancelledAt   DateTime?
+  createdAt     DateTime                      @default(now())
+  updatedAt     DateTime                      @updatedAt
+  company       Company                       @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  location      Location                      @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+  order         RestaurantOrder               @relation(fields: [companyId, orderId], references: [companyId, id], onDelete: Restrict)
+  item          Item                          @relation(fields: [companyId, itemId], references: [companyId, id], onDelete: Restrict)
+  variant       RestaurantProductVariant?     @relation(fields: [companyId, itemId, variantId], references: [companyId, itemId, id], onDelete: Restrict)
+  vatRate       VatRate                       @relation(fields: [companyId, vatRateId], references: [companyId, id], onDelete: Restrict)
+  modifiers     RestaurantOrderLineModifier[]
+  ticketLines   KitchenTicketLine[]
+  consumptions  RecipeConsumption[]
 
   @@unique([companyId, id])
   @@index([companyId, orderId, status])
@@ -2279,14 +2431,18 @@ model RestaurantOrderLineModifier {
   id          String              @id @default(cuid())
   companyId   String
   orderLineId String
+  modifierId  String?
   itemId      String?
+  groupName   String?
   name        String
   priceDelta  Decimal             @default(0) @db.Decimal(15, 2)
   notes       String?
   company     Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
   orderLine   RestaurantOrderLine @relation(fields: [companyId, orderLineId], references: [companyId, id], onDelete: Cascade)
+  modifier    RestaurantModifier? @relation(fields: [companyId, modifierId], references: [companyId, id], onDelete: Restrict)
   item        Item?               @relation(fields: [companyId, itemId], references: [companyId, id], onDelete: Restrict)
 
+  @@unique([companyId, orderLineId, modifierId])
   @@index([companyId, orderLineId])
 }
 

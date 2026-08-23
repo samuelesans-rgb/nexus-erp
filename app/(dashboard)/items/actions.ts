@@ -317,6 +317,16 @@ async function validateRelations(
     ({ unitOfMeasureId }) => unitOfMeasureId
   );
 
+  const needsSellableCategory = parsed.data.sellable;
+  const needsInventoryCategory = parsed.data.stockManaged || parsed.data.type === "INGREDIENT";
+  const allowedCategoryPurposes = needsSellableCategory && needsInventoryCategory
+    ? ["BOTH" as const]
+    : needsInventoryCategory
+      ? ["INVENTORY" as const, "BOTH" as const]
+      : needsSellableCategory
+        ? ["SELLABLE" as const, "BOTH" as const]
+        : ["SELLABLE" as const, "INVENTORY" as const, "BOTH" as const];
+
   const [categoryCount, unitCount, vatCount, componentItemCount, componentUnitCount] =
     await Promise.all([
       parsed.data.categoryId
@@ -326,6 +336,7 @@ async function validateRelations(
               companyId,
               active: true,
               deletedAt: null,
+              purpose: { in: allowedCategoryPurposes },
             },
           })
         : 0,
