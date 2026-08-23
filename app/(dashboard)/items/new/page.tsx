@@ -1,4 +1,4 @@
-import { auth } from "@/auth";
+import { getAuthorizationSessionUser } from "@/lib/authorization";
 import { getItemFormOptions } from "@/lib/items";
 import { MODULE_CODES } from "@/lib/module-catalog";
 import { ModuleNotEnabledError, requireModule } from "@/lib/modules";
@@ -8,7 +8,7 @@ import { createItem } from "../actions";
 import ItemForm from "../item-form";
 
 export default async function NewItemPage() {
-  const session = await auth();
+  const session = { user: await getAuthorizationSessionUser() };
   if (!session?.user?.companyId) redirect("/login");
   try {
     await requireModule(session.user.companyId, MODULE_CODES.CORE_PRODUCTS);

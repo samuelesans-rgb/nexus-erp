@@ -1,11 +1,11 @@
-import { auth } from "@/auth";
+import { getAuthorizationSessionUser } from "@/lib/authorization";
 import { CONFIGURATION_CATALOG } from "@/lib/configuration-catalog";
 import { getCompanyModules } from "@/lib/modules";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
 export default async function ConfigurationsPage() {
-  const session = await auth();
+  const session = { user: await getAuthorizationSessionUser() };
   if (!session?.user?.companyId) redirect("/login");
   if (!session.user.roles.some((role) => role === "ADMIN" || role === "SUPER_ADMIN")) redirect("/dashboard");
   const modules = await getCompanyModules(session.user.companyId);

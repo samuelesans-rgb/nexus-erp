@@ -77,6 +77,7 @@ test("dashboard e tenant isolation non espongono aggregate di altre sedi",async(
   assert.equal((await getRestaurantDashboard(companyId,locationB)).openOrders,0);assert.equal(await getOrder(otherCompanyId,locationA,orderId),null);await assert.rejects(addOrderLine(otherCompanyId,locationA,orderId,{itemId,quantity:1}));
 });
 
-test("serie Documents globale legacy resta compatibile",async t=>{
-  const legacy=await prisma.documentSeries.findFirst({where:{companyId,locationId:null,documentType:"SALES_RECEIPT",active:true},select:{id:true}});if(!legacy)t.skip("Nessuna serie Restaurant globale legacy nel fixture.");else assert.ok((await getRestaurantOptions(companyId,locationA)).series.some(x=>x.id===legacy.id));
+test("Restaurant non espone serie Documents globali",async()=>{
+  const rows=await prisma.$queryRaw<Array<{count:bigint}>>`SELECT count(*)::bigint AS count FROM "DocumentSeries" WHERE "companyId"=${companyId} AND "locationId" IS NULL`;
+  assert.equal(Number(rows[0].count),0);
 });

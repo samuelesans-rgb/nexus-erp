@@ -1,6 +1,6 @@
 import "server-only";
 
-import { auth } from "@/auth";
+import { requireAuthorizationContext } from "@/lib/authorization";
 import { MODULE_CODES } from "@/lib/module-catalog";
 import { requireModule } from "@/lib/modules";
 import { redirect } from "next/navigation";
@@ -77,18 +77,17 @@ export function resolveCrmOwner(
 export async function requireCrmContext(
   capability: CrmCapability = CRM_CAPABILITIES.READ,
 ) {
-  const session = await auth();
-  if (!session?.user?.companyId) redirect("/login");
-  if (!hasCrmCapability(session.user.roles, capability)) redirect("/dashboard");
+  const context = await requireAuthorizationContext();
+  if (!hasCrmCapability(context.roles, capability)) redirect("/dashboard");
   try {
-    await requireModule(session.user.companyId, MODULE_CODES.CORE_CRM);
+    await requireModule(context.companyId, MODULE_CODES.CORE_CRM);
   } catch {
     redirect("/dashboard");
   }
   return {
-    companyId: session.user.companyId,
-    membershipId: session.user.membershipId,
-    userId: session.user.id,
-    roles: session.user.roles,
+    companyId: context.companyId,
+    membershipId: context.membershipId,
+    userId: context.userId,
+    roles: context.roles,
   } satisfies CrmActor;
 }

@@ -1,5 +1,5 @@
 import "server-only";
-import { auth } from "@/auth";
+import { requireAuthorizationContext } from "@/lib/authorization";
 import { MODULE_CODES, type ModuleCode } from "@/lib/module-catalog";
 import { requireModule } from "@/lib/modules";
 import { requireCurrentLocation } from "@/lib/locations";
@@ -16,12 +16,11 @@ const allowed: Record<RestaurantCapability, Set<string>> = {
 };
 
 export async function requireRestaurantContext(moduleCode: ModuleCode, capability: RestaurantCapability = "read") {
-  const session = await auth();
-  if (!session?.user?.companyId) redirect("/login");
-  if (!session.user.roles.some((role) => allowed[capability].has(role))) redirect("/dashboard");
-  try { await requireModule(session.user.companyId, moduleCode); } catch { redirect("/dashboard"); }
-  const location = await requireCurrentLocation(session.user.companyId, session.user.membershipId);
-  return { companyId: session.user.companyId, locationId: location.id, userId: session.user.id, roles: session.user.roles };
+  const context = await requireAuthorizationContext();
+  if (!context.roles.some((role) => allowed[capability].has(role))) redirect("/dashboard");
+  try { await requireModule(context.companyId, moduleCode); } catch { redirect("/dashboard"); }
+  const location = await requireCurrentLocation(context.companyId, context.membershipId);
+  return { companyId: context.companyId, locationId: location.id, userId: context.userId, roles: context.roles };
 }
 
 export const requireRestaurant = (capability: RestaurantCapability = "read") => requireRestaurantContext(MODULE_CODES.RESTAURANT_FLOOR, capability);

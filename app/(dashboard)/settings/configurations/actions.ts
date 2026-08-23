@@ -1,6 +1,7 @@
 "use server";
 
-import { auth } from "@/auth";
+import { getAuthorizationContext } from "@/lib/authorization";
+import { writeAuditLog } from "@/lib/audit";
 import { Prisma } from "@/generated/prisma/client";
 import { getConfigurationDefinition } from "@/lib/configuration-catalog";
 import { createUnit, createVatRate, MasterDataError, updateUnit, updateVatRate } from "@/lib/master-data";
@@ -14,10 +15,12 @@ const administrators = new Set(["SUPER_ADMIN", "ADMIN"]);
 
 async function requireConfigurationContext(key: string) {
   const definition = getConfigurationDefinition(key);
-  const session = await auth();
-  if (!definition || !session?.user?.companyId || !administrators.has(session.user.roles.find((role) => administrators.has(role)) ?? "")) return null;
-  await requireModule(session.user.companyId, definition.requiredModule);
-  return { definition, companyId: session.user.companyId, userId: session.user.id };
+  if (!definition) return null;
+  let context;
+  try { context = await getAuthorizationContext(); } catch { return null; }
+  if (!context.roles.some((role) => administrators.has(role))) return null;
+  await requireModule(context.companyId, definition.requiredModule);
+  return { definition, companyId: context.companyId, membershipId: context.membershipId, userId: context.userId };
 }
 
 function text(formData: FormData, name: string, max = 255) {
@@ -111,6 +114,7 @@ export async function saveConfiguration(key: string, id: string | null, _state: 
     } catch (error) {
       return { status: "error", message: error instanceof MasterDataError ? error.message : "Salvataggio non riuscito." };
     }
+    await writeAuditLog({ companyId: context.companyId, membershipId: context.membershipId, userId: context.userId, action: id ? "CONFIGURATION_UPDATED" : "CONFIGURATION_CREATED", entityType: context.definition.kind, entityId: id });
     revalidatePath("/settings/configurations/" + key);
     redirect("/settings/configurations/" + key + "?success=Configurazione salvata");
   }
@@ -130,6 +134,7 @@ export async function saveConfiguration(key: string, id: string | null, _state: 
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return { status: "error", message: "Il codice è già utilizzato in questa Company." };
     return { status: "error", message: error instanceof Error ? error.message : "Salvataggio non riuscito." };
   }
+  await writeAuditLog({ companyId: context.companyId, membershipId: context.membershipId, userId: context.userId, action: id ? "CONFIGURATION_UPDATED" : "CONFIGURATION_CREATED", entityType: context.definition.kind, entityId: id });
   revalidatePath(`/settings/configurations/${key}`);
   redirect(`/settings/configurations/${key}?success=Configurazione salvata`);
 }
@@ -145,6 +150,7 @@ export async function setConfigurationLifecycle(formData: FormData) {
   else if (key === "price-lists") await prisma.priceList.updateMany({ where, data });
   else if (key === "payment-methods") await prisma.paymentMethod.updateMany({ where, data });
   else await prisma.paymentTerm.updateMany({ where, data });
+  await writeAuditLog({ companyId: context.companyId, membershipId: context.membershipId, userId: context.userId, action: restore ? "CONFIGURATION_RESTORED" : "CONFIGURATION_ARCHIVED", entityType: context.definition.kind, entityId: id });
   revalidatePath(`/settings/configurations/${key}`);
   redirect(`/settings/configurations/${key}`);
 }

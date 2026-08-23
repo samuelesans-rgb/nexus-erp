@@ -2,6 +2,7 @@ import "server-only";
 
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
+import { writeAuditLogTx } from "@/lib/audit";
 
 export class LocationDomainError extends Error {
   constructor(message: string) {
@@ -88,6 +89,13 @@ export async function getLocations(
   });
 }
 
+export async function getAuthorizedLocations(companyId: string, membershipId: string) {
+  return prisma.location.findMany({
+    where: { companyId, active: true, deletedAt: null, authorizedMemberships: { some: { companyId, membershipId } } },
+    orderBy: [{ isHeadquarters: "desc" }, { code: "asc" }],
+  });
+}
+
 export async function getLocation(companyId: string, id: string) {
   return prisma.location.findFirst({ where: { id, companyId } });
 }
@@ -130,7 +138,9 @@ export async function createLocation(companyId: string, userId: string, input: L
         tx.location.count({ where: { companyId, ...live } }),
         initialSlug(tx, data.name, input.slug),
       ]);
-      return tx.location.create({
+      const actor = await tx.membership.findFirst({ where: { companyId, userId, active: true, user: { active: true }, company: { active: true } }, select: { id: true } });
+      if (!actor) throw new LocationDomainError("Utente non appartenente alla Company corrente.");
+      const location = await tx.location.create({
         data: {
           companyId,
           slug,
@@ -140,6 +150,10 @@ export async function createLocation(companyId: string, userId: string, input: L
           updatedById: userId,
         },
       });
+      const superAdmins = await tx.membership.findMany({ where: { companyId, active: true, roles: { some: { role: { code: "SUPER_ADMIN" } } } }, select: { id: true } });
+      await tx.membershipLocation.createMany({ data: [...new Set([actor.id, ...superAdmins.map(({ id }) => id)])].map((membershipId) => ({ companyId, membershipId, locationId: location.id })), skipDuplicates: true });
+      await writeAuditLogTx(tx, { companyId, membershipId: actor.id, userId, locationId: location.id, action: "LOCATION_CREATED", entityType: "Location", entityId: location.id });
+      return location;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   } catch (error) {
     if (error instanceof LocationDomainError) throw error;
@@ -208,20 +222,29 @@ export async function setHeadquarters(companyId: string, userId: string, id: str
 
 export async function getCurrentLocation(companyId: string, membershipId: string) {
   const membership = await prisma.membership.findFirst({
-    where: { id: membershipId, companyId, active: true },
-    select: { defaultLocation: true },
+    where: { id: membershipId, companyId, active: true, user: { active: true }, company: { active: true } },
+    select: {
+      defaultLocation: true,
+      authorizedLocations: { where: { location: { active: true, deletedAt: null } }, include: { location: true } },
+    },
   });
   if (!membership) throw new LocationDomainError("Membership non attiva nella Company corrente.");
-  if (membership.defaultLocation && membership.defaultLocation.active && !membership.defaultLocation.deletedAt) return membership.defaultLocation;
-  return prisma.location.findFirst({ where: { companyId, ...live, isHeadquarters: true } });
+  const allowed = membership.authorizedLocations.map(({ location }) => location);
+  if (membership.defaultLocation && allowed.some(({ id }) => id === membership.defaultLocation?.id)) return membership.defaultLocation;
+  return allowed.find(({ isHeadquarters }) => isHeadquarters) ?? allowed[0] ?? null;
 }
 
-export async function setCurrentLocation(companyId: string, membershipId: string, locationId: string) {
-  const location = await prisma.location.findFirst({ where: { id: locationId, companyId, ...live }, select: { id: true } });
-  if (!location) throw new LocationDomainError("La sede selezionata non è attiva nella Company corrente.");
-  const updated = await prisma.membership.updateMany({ where: { id: membershipId, companyId, active: true }, data: { defaultLocationId: location.id } });
-  if (!updated.count) throw new LocationDomainError("Membership non attiva nella Company corrente.");
-  return location;
+export async function setCurrentLocation(companyId: string, membershipId: string, locationId: string, userId?: string) {
+  return prisma.$transaction(async (tx) => {
+    const authorization = await tx.membershipLocation.findFirst({
+      where: { companyId, membershipId, locationId, membership: { active: true, user: { active: true }, company: { active: true } }, location: { active: true, deletedAt: null } },
+      select: { location: { select: { id: true } }, membership: { select: { userId: true } } },
+    });
+    if (!authorization) throw new LocationDomainError("La sede selezionata non è autorizzata per questa Membership.");
+    await tx.membership.update({ where: { id: membershipId }, data: { defaultLocationId: locationId } });
+    await writeAuditLogTx(tx, { companyId, membershipId, userId: userId ?? authorization.membership.userId, locationId, action: "LOCATION_SWITCHED", entityType: "Location", entityId: locationId });
+    return authorization.location;
+  });
 }
 
 export async function requireCurrentLocation(companyId: string, membershipId: string) {

@@ -63,7 +63,7 @@ test("Treasury: schedule/document cross-location e isolamento tenant sono rifiut
   assert.deepEqual(await getOpenReceivables(otherCompanyId,locationA),[]); assert.equal(await getFinancialMovement(otherCompanyId,locationA,documentScheduleId),null);
 });
 
-test("Treasury: account legacy globale resta un adapter temporaneo",async t=>{
-  const legacy=await prisma.financialAccount.findFirst({where:{companyId,locationId:null,active:true,deletedAt:null},select:{id:true}}); if(!legacy)return t.skip("Nessun account storico globale nel fixture pre-migration.");
-  const movement=await registerCustomerReceipt(companyId,userId,{locationId:locationA,financialAccountId:legacy.id,partnerId,amount:1}); movementIds.push(movement.id); assert.equal((await getFinancialMovement(companyId,locationA,movement.id))?.locationId,locationA);
+test("Treasury: account globali legacy assenti",async()=>{
+  const rows=await prisma.$queryRaw<Array<{count:bigint}>>`SELECT count(*)::bigint AS count FROM "FinancialAccount" WHERE "companyId"=${companyId} AND "locationId" IS NULL`;
+  assert.equal(Number(rows[0].count),0);
 });

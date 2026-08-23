@@ -1,4 +1,4 @@
-import { auth } from "@/auth";
+import { getAuthorizationSessionUser } from "@/lib/authorization";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -18,7 +18,7 @@ export default async function CompanyModulesPage({
 }: {
   searchParams: Promise<{ error?: string; success?: string }>;
 }) {
-  const session = await auth();
+  const session = { user: await getAuthorizationSessionUser() };
 
   if (!session?.user?.companyId) {
     redirect("/login");

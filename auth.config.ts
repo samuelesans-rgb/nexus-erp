@@ -3,6 +3,7 @@ import Credentials from "next-auth/providers/credentials";
 import bcrypt from "bcrypt";
 
 import { prisma } from "./lib/prisma";
+import { safeWriteAuditLog } from "./lib/audit";
 
 export default {
   pages: {
@@ -41,6 +42,7 @@ export default {
               memberships: {
                 where: {
                   active: true,
+                  company: { active: true },
                 },
                 include: {
                   company: true,
@@ -57,20 +59,22 @@ export default {
             },
           });
 
-        if (!user) return null;
+        if (!user) { await safeWriteAuditLog({ action: "LOGIN_FAILURE", entityType: "Authentication", metadata: { reason: "UNKNOWN_USER" } }); return null; }
 
-        if (!user.active) return null;
+        if (!user.active) { await safeWriteAuditLog({ userId: user.id, action: "LOGIN_FAILURE", entityType: "Authentication", entityId: user.id, metadata: { reason: "USER_DISABLED" } }); return null; }
 
         const validPassword = await bcrypt.compare(
           String(credentials.password),
           user.password
         );
 
-          if (!validPassword) return null;
+          if (!validPassword) { await safeWriteAuditLog({ userId: user.id, action: "LOGIN_FAILURE", entityType: "Authentication", entityId: user.id, metadata: { reason: "INVALID_CREDENTIALS" } }); return null; }
 
           const membership = user.memberships[0];
 
-          if (!membership) return null;
+          if (!membership) { await safeWriteAuditLog({ userId: user.id, action: "LOGIN_FAILURE", entityType: "Authentication", entityId: user.id, metadata: { reason: "NO_ACTIVE_MEMBERSHIP" } }); return null; }
+
+          await safeWriteAuditLog({ companyId: membership.companyId, membershipId: membership.id, userId: user.id, locationId: membership.defaultLocationId, action: "LOGIN_SUCCESS", entityType: "Authentication", entityId: user.id });
 
           return {
             id: user.id,

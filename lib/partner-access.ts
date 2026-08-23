@@ -1,6 +1,6 @@
 import "server-only";
 
-import { auth } from "@/auth";
+import { requireAuthorizationContext } from "@/lib/authorization";
 import { MODULE_CODES } from "@/lib/module-catalog";
 import { requireModule } from "@/lib/modules";
 import { requireCurrentLocation } from "@/lib/locations";
@@ -66,29 +66,28 @@ export function assertPartnerCapability(
 export async function requirePartnerContext(
   capability: PartnerCapability = PARTNER_CAPABILITIES.READ,
 ) {
-  const session = await auth();
-  if (!session?.user?.companyId) redirect("/login");
-  if (!hasPartnerCapability(session.user.roles, capability)) redirect("/dashboard");
+  const context = await requireAuthorizationContext();
+  if (!hasPartnerCapability(context.roles, capability)) redirect("/dashboard");
 
   try {
-    await requireModule(session.user.companyId, MODULE_CODES.CORE_PARTNERS);
+    await requireModule(context.companyId, MODULE_CODES.CORE_PARTNERS);
   } catch {
     redirect("/dashboard");
   }
 
   const location = await requireCurrentLocation(
-    session.user.companyId,
-    session.user.membershipId,
+    context.companyId,
+    context.membershipId,
   );
 
   return {
-    companyId: session.user.companyId,
-    companyName: session.user.companyName,
-    membershipId: session.user.membershipId,
-    userId: session.user.id,
-    roles: session.user.roles,
+    companyId: context.companyId,
+    companyName: context.companyName,
+    membershipId: context.membershipId,
+    userId: context.userId,
+    roles: context.roles,
     location,
-    financialScope: getPartnerFinancialScope(session.user.roles),
-    canReadCompanyWide: canReadPartnersCompanyWide(session.user.roles),
+    financialScope: getPartnerFinancialScope(context.roles),
+    canReadCompanyWide: canReadPartnersCompanyWide(context.roles),
   };
 }

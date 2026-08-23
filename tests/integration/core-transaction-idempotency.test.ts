@@ -14,18 +14,30 @@ let fixture: Awaited<ReturnType<typeof loadFixture>>;
 const createdOrderIds: string[] = [];
 
 async function loadFixture() {
-  const company = await prisma.company.findUniqueOrThrow({ where: { vatNumber: "IT00000000000" } });
-  const user = await prisma.user.findFirstOrThrow({ where: { memberships: { some: { companyId: company.id } } } });
-  const location = await prisma.location.findFirstOrThrow({ where: { companyId: company.id, active: true } });
-  const partner = await prisma.partner.findFirstOrThrow({ where: { companyId: company.id, isCustomer: true, active: true } });
-  const recipe = await prisma.item.findFirstOrThrow({ where: { companyId: company.id, type: "RECIPE" }, include: { recipeComponents: { include: { componentItem: true } } } });
-  const product = await prisma.item.findFirstOrThrow({ where: { companyId: company.id, type: "PRODUCT", stockManaged: true } });
-  const warehouse = await prisma.warehouse.findFirstOrThrow({ where: { companyId: company.id, locationId: location.id, active: true }, include: { bins: { where: { active: true }, take: 1 } } });
-  const lot = await prisma.inventoryLot.findFirst({ where: { companyId: company.id, itemId: recipe.recipeComponents[0]?.componentItemId, active: true } });
-  const series = await prisma.documentSeries.findFirstOrThrow({ where: { companyId: company.id, code: "RIST-CONTO" } });
-  const account = await prisma.financialAccount.findFirstOrThrow({ where: { companyId: company.id, code: "CASSA" } });
-  const vatRate = await prisma.vatRate.findFirstOrThrow({ where: { companyId: company.id, active: true } });
-  return { company, user, location, partner, recipe, product, warehouse, lot, series, account, vatRate };
+  const suffix = randomUUID().replaceAll("-", "").slice(0, 12).toUpperCase();
+  const result = await prisma.$transaction(async (tx) => {
+    const company = await tx.company.create({ data: { name: `Core Fixture ${suffix}`, vatNumber: `ITCORE${suffix}` } });
+    const user = await tx.user.create({ data: { email: `core-${suffix.toLowerCase()}@test.invalid`, firstName: "Core", lastName: "Fixture", password: "test-only" } });
+    const location = await tx.location.create({ data: { companyId: company.id, slug: `core-${suffix.toLowerCase()}`, code: `CORE-${suffix}`, name: "Core Location", isHeadquarters: true } });
+    const role = await tx.role.create({ data: { code: `CORE_TEST_${suffix}`, name: "Core test role", system: false } });
+    const membership = await tx.membership.create({ data: { companyId: company.id, userId: user.id, active: true, isDefault: true, defaultLocationId: location.id } });
+    await tx.membershipLocation.create({ data: { companyId: company.id, membershipId: membership.id, locationId: location.id } });
+    await tx.membershipRole.create({ data: { membershipId: membership.id, roleId: role.id } });
+    await tx.location.update({ where: { id: location.id }, data: { createdById: user.id, updatedById: user.id } });
+    const unit = await tx.unitOfMeasure.create({ data: { companyId: company.id, code: `U-${suffix}`, name: "Unit", symbol: "pz", precision: 3, createdById: user.id, updatedById: user.id } });
+    const vatRate = await tx.vatRate.create({ data: { companyId: company.id, code: `V-${suffix}`, name: "IVA", percentage: 22, createdById: user.id, updatedById: user.id } });
+    const partner = await tx.partner.create({ data: { companyId: company.id, code: `P-${suffix}`, name: "Core Customer", isCustomer: true, createdById: user.id, updatedById: user.id } });
+    const product = await tx.item.create({ data: { companyId: company.id, code: `PROD-${suffix}`, name: "Core Product", type: "PRODUCT", unitOfMeasureId: unit.id, vatRateId: vatRate.id, salePrice: 10, stockManaged: true, createdById: user.id, updatedById: user.id } });
+    const ingredient = await tx.item.create({ data: { companyId: company.id, code: `ING-${suffix}`, name: "Core Ingredient", type: "INGREDIENT", unitOfMeasureId: unit.id, vatRateId: vatRate.id, stockManaged: true, createdById: user.id, updatedById: user.id } });
+    const recipe = await tx.item.create({ data: { companyId: company.id, code: `REC-${suffix}`, name: "Core Recipe", type: "RECIPE", unitOfMeasureId: unit.id, vatRateId: vatRate.id, salePrice: 10, sellable: true, stockManaged: false, createdById: user.id, updatedById: user.id } });
+    await tx.recipeComponent.create({ data: { companyId: company.id, recipeItemId: recipe.id, componentItemId: ingredient.id, unitOfMeasureId: unit.id, quantity: 1 } });
+    const warehouse = await tx.warehouse.create({ data: { companyId: company.id, locationId: location.id, code: `WH-${suffix}`, name: "Core Warehouse", allowNegativeStock: false, createdById: user.id, updatedById: user.id, bins: { create: { code: `BIN-${suffix}`, name: "Core Bin" } } }, include: { bins: true } });
+    const series = await tx.documentSeries.create({ data: { companyId: company.id, locationId: location.id, code: `SER-${suffix}`, name: "Core receipts", documentType: "SALES_RECEIPT" } });
+    const account = await tx.financialAccount.create({ data: { companyId: company.id, locationId: location.id, code: `ACC-${suffix}`, name: "Core Cash", type: "CASH", allowOverdraft: true, createdById: user.id, updatedById: user.id } });
+    return { company, user, location, membership, role, unit, vatRate, partner, product, ingredient, recipe, warehouse, series, account };
+  });
+  await postInventoryMovementsBatch(result.company.id, result.user.id, `core-opening-${suffix}`, [{ warehouseId: result.warehouse.id, binId: result.warehouse.bins[0].id, itemId: result.ingredient.id, movementType: "OPENING", quantity: 100, unitOfMeasureId: result.unit.id, referenceType: "CoreFixture", referenceId: suffix }]);
+  return { ...result, recipe: await prisma.item.findUniqueOrThrow({ where: { id: result.recipe.id }, include: { recipeComponents: { include: { componentItem: true } } } }), lot: null };
 }
 
 async function createServedOrder(itemId = fixture.product.id, quantity = 1) {
@@ -43,12 +55,43 @@ async function createServedOrder(itemId = fixture.product.id, quantity = 1) {
 before(async () => { fixture = await loadFixture(); });
 
 after(async () => {
-  if (createdOrderIds.length) {
-    await prisma.idempotencyRecord.deleteMany({ where: { companyId: fixture.company.id, aggregateId: { in: createdOrderIds } } });
-    await prisma.recipeConsumption.deleteMany({ where: { companyId: fixture.company.id, orderId: { in: createdOrderIds } } });
-    await prisma.restaurantOrderLine.deleteMany({ where: { companyId: fixture.company.id, orderId: { in: createdOrderIds } } });
-    await prisma.restaurantOrder.deleteMany({ where: { id: { in: createdOrderIds }, documentId: null } });
-  }
+  const companyId = fixture.company.id;
+  await prisma.financialAllocation.deleteMany({ where: { companyId } });
+  await prisma.financialMovement.deleteMany({ where: { companyId } });
+  await prisma.paymentSchedule.deleteMany({ where: { companyId } });
+  await prisma.restaurantOrder.updateMany({ where: { companyId }, data: { documentId: null } });
+  await prisma.documentEvent.deleteMany({ where: { companyId } });
+  await prisma.documentLink.deleteMany({ where: { companyId } });
+  await prisma.businessDocument.deleteMany({ where: { companyId } });
+  await prisma.recipeConsumption.deleteMany({ where: { companyId } });
+  await prisma.kitchenTicketLine.deleteMany({ where: { companyId } });
+  await prisma.kitchenTicket.deleteMany({ where: { companyId } });
+  await prisma.restaurantOrderLine.deleteMany({ where: { companyId } });
+  await prisma.restaurantOrder.deleteMany({ where: { companyId } });
+  await prisma.idempotencyRecord.deleteMany({ where: { companyId } });
+  await prisma.domainEvent.deleteMany({ where: { companyId } });
+  await prisma.inventoryMovement.deleteMany({ where: { companyId } });
+  await prisma.stockBalance.deleteMany({ where: { companyId } });
+  await prisma.inventoryLot.deleteMany({ where: { companyId } });
+  await prisma.financialAccount.deleteMany({ where: { companyId } });
+  await prisma.documentSeries.deleteMany({ where: { companyId } });
+  await prisma.warehouseBin.deleteMany({ where: { companyId } });
+  await prisma.warehouse.deleteMany({ where: { companyId } });
+  await prisma.recipeComponent.deleteMany({ where: { companyId } });
+  await prisma.item.deleteMany({ where: { companyId } });
+  await prisma.partner.deleteMany({ where: { companyId } });
+  await prisma.vatRate.deleteMany({ where: { companyId } });
+  await prisma.unitOfMeasure.deleteMany({ where: { companyId } });
+  await prisma.auditLog.deleteMany({ where: { companyId } });
+  await prisma.location.updateMany({ where: { companyId }, data: { createdById: null, updatedById: null } });
+  await prisma.membership.update({ where: { id: fixture.membership.id }, data: { defaultLocationId: null } });
+  await prisma.membershipLocation.deleteMany({ where: { companyId } });
+  await prisma.membershipRole.deleteMany({ where: { membershipId: fixture.membership.id } });
+  await prisma.membership.delete({ where: { id: fixture.membership.id } });
+  await prisma.location.deleteMany({ where: { companyId } });
+  await prisma.company.delete({ where: { id: companyId } });
+  await prisma.role.delete({ where: { id: fixture.role.id } });
+  await prisma.user.delete({ where: { id: fixture.user.id } });
   await prisma.$disconnect();
 });
 
@@ -77,7 +120,7 @@ test("Restaurant recipe: servizio concorrente idempotente e reversal completo", 
   const order = await createServedOrder(fixture.recipe.id);
   const line = order.lines[0];
   await prisma.restaurantOrderLine.update({ where: { id: line.id }, data: { status: "READY", servedAt: null } });
-  const selections = Object.fromEntries(fixture.recipe.recipeComponents.filter((row) => row.componentItem.trackLots || row.componentItem.trackSerials).map((row) => [row.componentItemId, fixture.lot!.id]));
+  const selections: Record<string, string> = {};
   const key = `${fixture.company.id}:${line.id}:serve`;
   const [first, second] = await Promise.all([
     serveRestaurantOrderLine(fixture.company.id, fixture.location.id, fixture.user.id, line.id, key, selections),

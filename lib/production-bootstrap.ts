@@ -68,8 +68,11 @@ export async function bootstrapProduction(prisma: PrismaClient, environment: Nod
     const company = await tx.company.create({ data: { name: input.BOOTSTRAP_COMPANY_NAME, vatNumber: input.BOOTSTRAP_COMPANY_VAT_NUMBER } });
     if (options.failAfter === "company") throw new ProductionBootstrapError("Errore bootstrap simulato.");
     const user = await tx.user.create({ data: { firstName, lastName: lastNameParts.join(" "), email: input.BOOTSTRAP_ADMIN_EMAIL, password: passwordHash } });
-    const location = await tx.location.create({ data: { companyId: company.id, name: input.BOOTSTRAP_LOCATION_NAME, code: input.BOOTSTRAP_LOCATION_CODE, slug: input.BOOTSTRAP_LOCATION_SLUG, isHeadquarters: true, createdById: user.id, updatedById: user.id } });
-    const membership = await tx.membership.create({ data: { companyId: company.id, userId: user.id, active: true, isDefault: true, defaultLocationId: location.id } });
+    const location = await tx.location.create({ data: { companyId: company.id, name: input.BOOTSTRAP_LOCATION_NAME, code: input.BOOTSTRAP_LOCATION_CODE, slug: input.BOOTSTRAP_LOCATION_SLUG, isHeadquarters: true } });
+    const membership = await tx.membership.create({ data: { companyId: company.id, userId: user.id, active: true, isDefault: true } });
+    await tx.membershipLocation.create({ data: { companyId: company.id, membershipId: membership.id, locationId: location.id } });
+    await tx.membership.update({ where: { id: membership.id }, data: { defaultLocationId: location.id } });
+    await tx.location.update({ where: { id: location.id }, data: { createdById: user.id, updatedById: user.id } });
     const superAdmin = await tx.role.findUniqueOrThrow({ where: { code: "SUPER_ADMIN" } });
     await tx.membershipRole.create({ data: { membershipId: membership.id, roleId: superAdmin.id } });
     const definitions = await tx.moduleDefinition.findMany({ where: { code: { in: [...activeModuleCodes] } }, select: { id: true } });

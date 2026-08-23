@@ -19,7 +19,7 @@ export async function getRestaurantOptions(companyId: string, locationId: string
     prisma.kitchenStation.findMany({ where: { companyId, locationId, active: true }, orderBy: { sortOrder: "asc" } }),
     prisma.warehouse.findMany({ where: { companyId, locationId, active: true, deletedAt: null }, include: { bins: { where: { active: true, deletedAt: null }, take: 1 } } }),
     prisma.financialAccount.findMany({ where: { companyId, locationId, active: true, deletedAt: null }, select: { id: true, code: true, name: true } }),
-    prisma.documentSeries.findMany({ where: { companyId, OR: [{ locationId }, { locationId: null }], active: true, documentType: { in: ["SALES_INVOICE", "SALES_RECEIPT"] } }, select: { id: true, code: true, documentType: true } }),
+    prisma.documentSeries.findMany({ where: { companyId, locationId, active: true, documentType: { in: ["SALES_INVOICE", "SALES_RECEIPT"] } }, select: { id: true, code: true, documentType: true } }),
   ]);
   return { locations, partners, items, areas, tables, stations, warehouses, accounts, series };
 }

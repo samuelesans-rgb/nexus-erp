@@ -35,7 +35,11 @@ test("Widget Designer: configurazione, preview responsive e snippet", async ({ p
   const area = await prisma.restaurantArea.create({ data: { companyId: company.id, locationId: location.id, code: `WE-${suffix}`, name: "Sala E2E" } });
   const table = await prisma.restaurantTable.create({ data: { companyId: company.id, locationId: location.id, areaId: area.id, code: `WE-1-${suffix}`, name: "Tavolo E2E", seats: 4, minSeats: 1, maxSeats: 4 } });
   await prisma.restaurantBookingSettings.create({ data: { companyId: company.id, locationId: location.id, enabled: true, minAdvanceMinutes: 0, maxAdvanceDays: 365, openingHours: {}, confirmationMessage: "Prenotazione ricevuta." } });
-  const membership = await prisma.membership.create({ data: { companyId: company.id, userId: user.id, active: true, isDefault: true, defaultLocationId: location.id, roles: { create: { roleId: role.id } } } });
+  const membership = await prisma.$transaction(async (tx) => {
+    const row = await tx.membership.create({ data: { companyId: company.id, userId: user.id, active: true, isDefault: true, defaultLocationId: location.id, roles: { create: { roleId: role.id } } } });
+    await tx.membershipLocation.create({ data: { companyId: company.id, membershipId: row.id, locationId: location.id } });
+    return row;
+  });
   const locationId = location.id;
   const widget = await prisma.restaurantBookingWidget.create({ data: { companyId: company.id, locationId, enabled: true, publicKey: `nw_${randomUUID().replaceAll("-", "")}`, allowedDomains: [], mode: "INLINE" } });
   const reservationsBefore = await prisma.restaurantReservation.count({ where: { companyId: company.id, locationId } });

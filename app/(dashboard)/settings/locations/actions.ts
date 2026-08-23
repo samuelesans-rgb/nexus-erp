@@ -1,6 +1,7 @@
 "use server";
 
 import { LocationDomainError, archiveLocation, createLocation, restoreLocation, setCurrentLocation, setHeadquarters, updateLocation } from "@/lib/locations";
+import { writeAuditLog } from "@/lib/audit";
 import { requireLocationAdmin, requireLocationContext } from "@/lib/location-access";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -41,6 +42,7 @@ export async function saveLocation(formData: FormData) {
   } catch (error) {
     redirect(`/settings/locations${id ? `/${id}/edit` : "/new"}?error=${encodeURIComponent(message(error))}`);
   }
+  if (id) await writeAuditLog({ companyId: context.companyId, membershipId: context.membershipId, userId: context.userId, locationId: id, action: "LOCATION_UPDATED", entityType: "Location", entityId: id });
   revalidatePath("/settings/locations");
   redirect("/settings/locations?success=Sede salvata");
 }
@@ -56,6 +58,7 @@ export async function setLocationLifecycle(formData: FormData) {
   } catch (error) {
     redirect(`/settings/locations/${id}?error=${encodeURIComponent(message(error))}`);
   }
+  await writeAuditLog({ companyId: context.companyId, membershipId: context.membershipId, userId: context.userId, locationId: id, action: restore ? "LOCATION_RESTORED" : "LOCATION_ARCHIVED", entityType: "Location", entityId: id });
   revalidatePath("/settings/locations");
   redirect(`/settings/locations/${id}?success=${restore ? "Sede ripristinata" : "Sede archiviata"}`);
 }
@@ -66,6 +69,7 @@ export async function promoteHeadquarters(formData: FormData) {
   if (!id) redirect("/settings/locations");
   try { await setHeadquarters(context.companyId, context.userId, id); }
   catch (error) { redirect(`/settings/locations/${id}?error=${encodeURIComponent(message(error))}`); }
+  await writeAuditLog({ companyId: context.companyId, membershipId: context.membershipId, userId: context.userId, locationId: id, action: "LOCATION_HEADQUARTERS_CHANGED", entityType: "Location", entityId: id });
   revalidatePath("/settings/locations");
   redirect(`/settings/locations/${id}?success=Headquarters aggiornata`);
 }
@@ -74,7 +78,7 @@ export async function changeCurrentLocation(formData: FormData) {
   const context = await requireLocationContext();
   const locationId = value(formData, "locationId");
   if (!locationId) redirect("/dashboard");
-  try { await setCurrentLocation(context.companyId, context.membershipId, locationId); }
+  try { await setCurrentLocation(context.companyId, context.membershipId, locationId, context.userId); }
   catch { redirect("/dashboard"); }
   revalidatePath("/");
   redirect("/dashboard");

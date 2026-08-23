@@ -1,16 +1,15 @@
 import { auth, signOut } from "@/auth";
-import { getLocations, getCurrentLocation } from "@/lib/locations";
+import { getAuthorizedLocations, getCurrentLocation } from "@/lib/locations";
+import { getAuthorizationContext } from "@/lib/authorization";
 import { changeCurrentLocation } from "@/app/(dashboard)/settings/locations/actions";
 
 export default async function AppHeader() {
-  const session = await auth();
+  const [session, context] = await Promise.all([auth(), getAuthorizationContext()]);
   const userName = session?.user?.name ?? session?.user?.email ?? "Utente";
-  const [currentLocation, locations] = session?.user?.companyId
-    ? await Promise.all([
-        getCurrentLocation(session.user.companyId, session.user.membershipId),
-        getLocations(session.user.companyId),
-      ])
-    : [null, []];
+  const [currentLocation, locations] = await Promise.all([
+    getCurrentLocation(context.companyId, context.membershipId),
+    getAuthorizedLocations(context.companyId, context.membershipId),
+  ]);
 
   async function logout() {
     "use server";
@@ -37,7 +36,7 @@ export default async function AppHeader() {
           <div className="leading-tight">
             <p className="font-medium">{userName}</p>
             <p className="text-xs text-slate-500">
-              {session?.user?.companyName}
+              {context.companyName}
             </p>
           </div>
           <form action={logout}>

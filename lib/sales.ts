@@ -23,14 +23,14 @@ async function emit(companyId: string, eventType: string, documentId: string, pa
 }
 
 async function seriesFor(companyId: string, locationId: string, documentType: DocumentType) {
-  const series = await prisma.documentSeries.findFirst({ where: { companyId, documentType, active: true, OR: [{ locationId }, { locationId: null }] }, select: { id: true }, orderBy: { code: "asc" } });
+  const series = await prisma.documentSeries.findFirst({ where: { companyId, documentType, active: true, locationId }, select: { id: true }, orderBy: { code: "asc" } });
   if (!series) throw new SalesDomainError(`Nessuna serie attiva configurata per ${documentType}.`);
   return series.id;
 }
 
 export async function createQuote(companyId: string, userId: string, input: Omit<DraftInput, "seriesId"> & { seriesId?: string }) {
   const seriesId = input.seriesId ?? await seriesFor(companyId, input.locationId, "QUOTE");
-  const validSeries = await prisma.documentSeries.count({ where: { id: seriesId, companyId, documentType: "QUOTE", active: true, OR: [{ locationId: input.locationId }, { locationId: null }] } });
+  const validSeries = await prisma.documentSeries.count({ where: { id: seriesId, companyId, documentType: "QUOTE", active: true, locationId: input.locationId } });
   if (!validSeries) throw new SalesDomainError("Serie Preventivi non valida per la Company.");
   const quote = await createDraft(companyId, userId, { ...input, seriesId });
   await emit(companyId, "QuoteCreated", quote.id);

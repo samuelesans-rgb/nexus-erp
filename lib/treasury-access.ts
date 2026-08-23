@@ -1,5 +1,5 @@
 import "server-only";
-import { auth } from "@/auth";
+import { requireAuthorizationContext } from "@/lib/authorization";
 import { MODULE_CODES } from "@/lib/module-catalog";
 import { requireModule } from "@/lib/modules";
 import { requireCurrentLocation } from "@/lib/locations";
@@ -15,4 +15,4 @@ const roles: Record<TreasuryCapability, Set<string>> = {
   reconcile: new Set(["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"]),
   manage: new Set(["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"]),
 };
-export async function requireTreasuryContext(capability: TreasuryCapability = "read") { const session = await auth(); if (!session?.user?.companyId) redirect("/login"); if (!session.user.roles.some((role) => roles[capability].has(role))) redirect("/dashboard"); try { await requireModule(session.user.companyId, MODULE_CODES.CORE_TREASURY); } catch { redirect("/dashboard"); } const location = await requireCurrentLocation(session.user.companyId, session.user.membershipId); return { companyId: session.user.companyId, locationId: location.id, userId: session.user.id, roles: session.user.roles }; }
+export async function requireTreasuryContext(capability: TreasuryCapability = "read") { const context = await requireAuthorizationContext(); if (!context.roles.some((role) => roles[capability].has(role))) redirect("/dashboard"); try { await requireModule(context.companyId, MODULE_CODES.CORE_TREASURY); } catch { redirect("/dashboard"); } const location = await requireCurrentLocation(context.companyId, context.membershipId); return { companyId: context.companyId, locationId: location.id, userId: context.userId, roles: context.roles }; }

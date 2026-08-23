@@ -51,8 +51,12 @@ test("Locations: CRUD amministrativo, switcher persistente e accesso negato", as
     const password = await bcrypt.hash("Locations123!", 10);
     const limitedUser = await prisma.user.create({ data: { firstName: "E2E", lastName: "Locations", email: limitedEmail, password } });
     limitedUserId = limitedUser.id;
-    const limitedMembership = await prisma.membership.create({ data: { userId: limitedUser.id, companyId: company.id, isDefault: true, defaultLocationId: originalLocationId } });
-    await prisma.membershipRole.create({ data: { membershipId: limitedMembership.id, roleId: salesRole.id } });
+    const limitedMembership = await prisma.$transaction(async (tx) => {
+      const row = await tx.membership.create({ data: { userId: limitedUser.id, companyId: company.id, isDefault: true, defaultLocationId: originalLocationId } });
+      if (originalLocationId) await tx.membershipLocation.create({ data: { companyId: company.id, membershipId: row.id, locationId: originalLocationId } });
+      await tx.membershipRole.create({ data: { membershipId: row.id, roleId: salesRole.id } });
+      return row;
+    });
 
     await page.context().clearCookies();
     await page.goto("/login");

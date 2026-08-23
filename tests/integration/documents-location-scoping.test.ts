@@ -9,7 +9,7 @@ const databaseUrl = process.env.DATABASE_URL ?? "";
 if (!databaseUrl.includes("_test")) throw new Error("I test Documents richiedono un DATABASE_URL dedicato contenente _test.");
 
 let companyId = ""; let otherCompanyId = ""; let userId = ""; let locationA = ""; let locationB = "";
-let partnerId = ""; let itemId = ""; let unitId = ""; let vatId = ""; let seriesA = ""; let seriesB = ""; let legacySeries = "";
+let partnerId = ""; let itemId = ""; let unitId = ""; let vatId = ""; let seriesA = ""; let seriesB = "";
 const documentIds: string[] = []; const seriesIds: string[] = []; const locationIds: string[] = [];
 
 function draft(seriesId: string, locationId: string) { return { seriesId, partnerId, documentDate: new Date(), currency: "EUR", locationId, lines: [{ itemId, quantity: 1, unitOfMeasureId: unitId, unitPrice: 10, vatRateId: vatId }] }; }
@@ -29,11 +29,10 @@ before(async () => {
     prisma.location.create({ data: { companyId, code: `DOC-A-${suffix}`, name: "Documents A" } }),
     prisma.location.create({ data: { companyId, code: `DOC-B-${suffix}`, name: "Documents B" } }),
   ]); locationA = a.id; locationB = b.id; locationIds.push(a.id, b.id);
-  const [sa, sb, legacy] = await Promise.all([
+  const [sa, sb] = await Promise.all([
     prisma.documentSeries.create({ data: { companyId, locationId: a.id, code: `DA-${suffix}`, name: "Serie A", documentType: "QUOTE" } }),
     prisma.documentSeries.create({ data: { companyId, locationId: b.id, code: `DB-${suffix}`, name: "Serie B", documentType: "QUOTE" } }),
-    prisma.documentSeries.findFirst({ where: { companyId, locationId: null, documentType: "QUOTE", active: true }, select: { id: true } }),
-  ]); seriesA = sa.id; seriesB = sb.id; legacySeries = legacy?.id ?? ""; seriesIds.push(sa.id, sb.id);
+  ]); seriesA = sa.id; seriesB = sb.id; seriesIds.push(sa.id, sb.id);
   const other = await prisma.company.create({ data: { name: `Documents tenant ${randomUUID()}` } }); otherCompanyId = other.id;
 });
 
@@ -75,13 +74,7 @@ test("Documents: isolamento tenant", async () => {
   await assert.rejects(confirmDocument(otherCompanyId, userId, locationA, row.id), DocumentDomainError);
 });
 
-test("Documents: serie globale storica resta compatibile con chiamanti legacy", async (t) => {
-  if (!legacySeries) return t.skip("Nessuna serie globale storica presente nel fixture pre-migration.");
-  const row = await createDraft(companyId, userId, draft(legacySeries, locationA)); documentIds.push(row.id);
-  await confirmDocument(companyId, userId, locationA, row.id);
-  assert.equal((await getDocument(companyId, locationA, row.id))?.status, "CONFIRMED");
-});
-
-test("Documents: nuove serie globali sono rifiutate", async () => {
-  await assert.rejects(prisma.documentSeries.create({ data: { companyId, code: `DG-${randomUUID().slice(0, 8)}`, name: "Serie globale non consentita", documentType: "QUOTE" } }));
+test("Documents: serie globali assenti", async () => {
+  const rows = await prisma.$queryRaw<Array<{ count: bigint }>>`SELECT count(*)::bigint AS count FROM "DocumentSeries" WHERE "companyId" = ${companyId} AND "locationId" IS NULL`;
+  assert.equal(Number(rows[0].count), 0);
 });

@@ -375,6 +375,8 @@ model Company {
   crmOpportunities             CrmOpportunity[]
   crmActivities                CrmActivity[]
   crmEvents                    CrmEvent[]
+  membershipLocations          MembershipLocation[]
+  auditLogs                    AuditLog[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -473,6 +475,7 @@ model User {
   financialMovementsPosted    FinancialMovement[] @relation("FinancialMovementPostedBy")
   financialTransfersCreated   FinancialTransfer[] @relation("FinancialTransferCreatedBy")
   financialTransfersCompleted FinancialTransfer[] @relation("FinancialTransferCompletedBy")
+  auditLogs                   AuditLog[]
 
   accounts Account[]
   sessions Session[]
@@ -497,14 +500,52 @@ model Membership {
   defaultLocation Location? @relation("MembershipDefaultLocation", fields: [companyId, defaultLocationId], references: [companyId, id], onDelete: Restrict)
 
   roles                 MembershipRole[]
-  crmOwnedOpportunities CrmOpportunity[] @relation("CrmOpportunityOwner")
-  crmAssignedActivities CrmActivity[]    @relation("CrmActivityAssignee")
-  crmCreatedActivities  CrmActivity[]    @relation("CrmActivityCreator")
-  crmEvents             CrmEvent[]       @relation("CrmEventActor")
+  crmOwnedOpportunities CrmOpportunity[]     @relation("CrmOpportunityOwner")
+  crmAssignedActivities CrmActivity[]        @relation("CrmActivityAssignee")
+  crmCreatedActivities  CrmActivity[]        @relation("CrmActivityCreator")
+  crmEvents             CrmEvent[]           @relation("CrmEventActor")
+  authorizedLocations   MembershipLocation[]
+  auditLogs             AuditLog[]
 
   @@unique([userId, companyId])
   @@unique([companyId, id])
   @@index([companyId, defaultLocationId])
+}
+
+model MembershipLocation {
+  companyId    String
+  membershipId String
+  locationId   String
+  createdAt    DateTime @default(now())
+
+  company    Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  membership Membership @relation(fields: [companyId, membershipId], references: [companyId, id], onDelete: Cascade)
+  location   Location   @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Cascade)
+
+  @@id([companyId, membershipId, locationId])
+  @@index([companyId, locationId])
+}
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  companyId    String?
+  membershipId String?
+  userId       String?
+  locationId   String?
+  action       String
+  entityType   String
+  entityId     String?
+  metadata     Json?
+  occurredAt   DateTime @default(now())
+
+  company    Company?    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  membership Membership? @relation(fields: [companyId, membershipId], references: [companyId, id], onDelete: Restrict)
+  user       User?       @relation(fields: [userId], references: [id], onDelete: Restrict)
+  location   Location?   @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+
+  @@index([companyId, occurredAt])
+  @@index([companyId, entityType, entityId, occurredAt])
+  @@index([userId, occurredAt])
 }
 
 model Role {
@@ -626,7 +667,7 @@ model Partner {
   company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   agentId                String?
-  agent                  Partner?                @relation("PartnerAgent", fields: [agentId], references: [id], onDelete: SetNull)
+  agent                  Partner?                @relation("PartnerAgent", fields: [companyId, agentId], references: [companyId, id], onDelete: Restrict)
   managedPartners        Partner[]               @relation("PartnerAgent")
   businessDocuments      BusinessDocument[]
   paymentSchedules       PaymentSchedule[]
@@ -655,7 +696,7 @@ model Partner {
   @@index([companyId, name])
   @@index([companyId, vatNumber])
   @@index([companyId, taxCode])
-  @@index([agentId])
+  @@index([companyId, agentId])
   @@index([companyId, priceListId])
   @@index([companyId, paymentMethodId])
   @@index([companyId, paymentTermId])
@@ -1161,6 +1202,8 @@ model Location {
   inventoryCounts           InventoryCount[]
   stockBalances             StockBalance[]
   defaultMemberships        Membership[]               @relation("MembershipDefaultLocation")
+  authorizedMemberships     MembershipLocation[]
+  auditLogs                 AuditLog[]
   createdById               String?
   createdBy                 User?                      @relation("LocationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   updatedById               String?
@@ -1484,7 +1527,7 @@ model IdempotencyRecord {
 model DocumentSeries {
   id           String             @id @default(cuid())
   companyId    String
-  locationId   String?
+  locationId   String
   code         String
   name         String
   documentType DocumentType
@@ -1494,7 +1537,7 @@ model DocumentSeries {
   padding      Int                @default(6)
   active       Boolean            @default(true)
   company      Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  location     Location?          @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+  location     Location           @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
   documents    BusinessDocument[]
   createdAt    DateTime           @default(now())
   updatedAt    DateTime           @updatedAt
@@ -1518,7 +1561,7 @@ model BusinessDocument {
   currency           String                 @default("EUR")
   exchangeRate       Decimal                @default(1) @db.Decimal(18, 6)
   warehouseId        String?
-  locationId         String?
+  locationId         String
   paymentMethodId    String?
   paymentTermId      String?
   priceListId        String?
@@ -1535,7 +1578,7 @@ model BusinessDocument {
   series             DocumentSeries         @relation(fields: [companyId, seriesId], references: [companyId, id], onDelete: Restrict)
   partner            Partner                @relation(fields: [companyId, partnerId], references: [companyId, id], onDelete: Restrict)
   warehouse          Warehouse?             @relation(fields: [companyId, warehouseId], references: [companyId, id], onDelete: Restrict)
-  location           Location?              @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+  location           Location               @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
   paymentMethod      PaymentMethod?         @relation(fields: [companyId, paymentMethodId], references: [companyId, id], onDelete: Restrict)
   paymentTerm        PaymentTerm?           @relation(fields: [companyId, paymentTermId], references: [companyId, id], onDelete: Restrict)
   priceList          PriceList?             @relation(fields: [companyId, priceListId], references: [companyId, id], onDelete: Restrict)
@@ -1605,7 +1648,7 @@ model BusinessDocumentLine {
   serial          InventorySerial? @relation(fields: [companyId, serialId], references: [companyId, id], onDelete: Restrict)
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
-  itemCategory    ItemCategory?    @relation(fields: [itemCategoryId], references: [id])
+  itemCategory    ItemCategory?    @relation(fields: [companyId, itemCategoryId], references: [companyId, id])
   itemCategoryId  String?
 
   @@unique([companyId, documentId, lineNumber])
@@ -1647,7 +1690,7 @@ model DocumentEvent {
 model FinancialAccount {
   id                  String               @id @default(cuid())
   companyId           String
-  locationId          String?
+  locationId          String
   code                String
   name                String
   type                FinancialAccountType
@@ -1662,7 +1705,7 @@ model FinancialAccount {
   createdById         String
   updatedById         String
   company             Company              @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  location            Location?            @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+  location            Location             @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
   createdBy           User                 @relation("FinancialAccountCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   updatedBy           User                 @relation("FinancialAccountUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
   movements           FinancialMovement[]
@@ -1682,7 +1725,7 @@ model FinancialAccount {
 model PaymentSchedule {
   id                           String                   @id @default(cuid())
   companyId                    String
-  locationId                   String?
+  locationId                   String
   partnerId                    String
   documentId                   String?
   installmentNumber            Int                      @default(1)
@@ -1700,7 +1743,7 @@ model PaymentSchedule {
   updatedById                  String
   deletedAt                    DateTime?
   company                      Company                  @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  location                     Location?                @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+  location                     Location                 @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
   partner                      Partner                  @relation(fields: [companyId, partnerId], references: [companyId, id], onDelete: Restrict)
   document                     BusinessDocument?        @relation(fields: [companyId, documentId], references: [companyId, id], onDelete: Restrict)
   paymentMethod                PaymentMethod?           @relation(fields: [companyId, paymentMethodId], references: [companyId, id], onDelete: Restrict)
@@ -1723,7 +1766,7 @@ model PaymentSchedule {
 model FinancialMovement {
   id                    String                     @id @default(cuid())
   companyId             String
-  locationId            String?
+  locationId            String
   financialAccountId    String
   partnerId             String?
   paymentScheduleId     String?
@@ -1741,7 +1784,7 @@ model FinancialMovement {
   postedById            String
   reversalOfId          String?
   company               Company                    @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  location              Location?                  @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+  location              Location                   @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
   financialAccount      FinancialAccount           @relation(fields: [companyId, financialAccountId], references: [companyId, id], onDelete: Restrict)
   partner               Partner?                   @relation(fields: [companyId, partnerId], references: [companyId, id], onDelete: Restrict)
   paymentSchedule       PaymentSchedule?           @relation(fields: [companyId, paymentScheduleId], references: [companyId, id], onDelete: Restrict)
@@ -1764,13 +1807,13 @@ model FinancialMovement {
 model FinancialAllocation {
   id         String            @id @default(cuid())
   companyId  String
-  locationId String?
+  locationId String
   movementId String
   scheduleId String
   amount     Decimal           @db.Decimal(15, 2)
   reversedAt DateTime?
   company    Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  location   Location?         @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+  location   Location          @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
   movement   FinancialMovement @relation(fields: [companyId, movementId], references: [companyId, id], onDelete: Restrict)
   schedule   PaymentSchedule   @relation(fields: [companyId, scheduleId], references: [companyId, id], onDelete: Restrict)
   createdAt  DateTime          @default(now())
@@ -1783,7 +1826,7 @@ model FinancialAllocation {
 model FinancialTransfer {
   id                   String                  @id @default(cuid())
   companyId            String
-  locationId           String?
+  locationId           String
   sourceAccountId      String
   destinationAccountId String
   amount               Decimal                 @db.Decimal(15, 2)
@@ -1793,7 +1836,7 @@ model FinancialTransfer {
   createdById          String
   completedById        String?
   company              Company                 @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  location             Location?               @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+  location             Location                @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
   sourceAccount        FinancialAccount        @relation("FinancialTransferSource", fields: [companyId, sourceAccountId], references: [companyId, id], onDelete: Restrict)
   destinationAccount   FinancialAccount        @relation("FinancialTransferDestination", fields: [companyId, destinationAccountId], references: [companyId, id], onDelete: Restrict)
   createdBy            User                    @relation("FinancialTransferCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
@@ -1809,14 +1852,14 @@ model FinancialTransfer {
 model BankStatement {
   id                 String              @id @default(cuid())
   companyId          String
-  locationId         String?
+  locationId         String
   financialAccountId String
   statementDate      DateTime
   openingBalance     Decimal             @db.Decimal(15, 2)
   closingBalance     Decimal             @db.Decimal(15, 2)
   status             BankStatementStatus @default(IMPORTED)
   company            Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  location           Location?           @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+  location           Location            @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
   financialAccount   FinancialAccount    @relation(fields: [companyId, financialAccountId], references: [companyId, id], onDelete: Restrict)
   lines              BankStatementLine[]
   createdAt          DateTime            @default(now())
@@ -1831,7 +1874,7 @@ model BankStatement {
 model BankStatementLine {
   id                    String                        @id @default(cuid())
   companyId             String
-  locationId            String?
+  locationId            String
   bankStatementId       String
   transactionDate       DateTime
   valueDate             DateTime?
@@ -1849,7 +1892,7 @@ model BankStatementLine {
   matchedMovementId     String?
   reconciliationStatus  ReconciliationStatus          @default(UNMATCHED)
   company               Company                       @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  location              Location?                     @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+  location              Location                      @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
   bankStatement         BankStatement                 @relation(fields: [companyId, bankStatementId], references: [companyId, id], onDelete: Cascade)
   matchedMovement       FinancialMovement?            @relation(fields: [companyId, matchedMovementId], references: [companyId, id], onDelete: Restrict)
   createdAt             DateTime                      @default(now())
@@ -2106,7 +2149,7 @@ model RestaurantReservationTable {
 model RestaurantMenu {
   id          String                  @id @default(cuid())
   companyId   String
-  locationId  String?
+  locationId  String
   code        String
   name        String
   description String?
@@ -2117,7 +2160,7 @@ model RestaurantMenu {
   createdAt   DateTime                @default(now())
   updatedAt   DateTime                @updatedAt
   company     Company                 @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  location    Location?               @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+  location    Location                @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
   sections    RestaurantMenuSection[]
 
   @@unique([companyId, code])

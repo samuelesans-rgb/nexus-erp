@@ -19,7 +19,11 @@ before(async () => {
   const company = await prisma.company.create({ data: { name: `Setup ${suffix}`, vatNumber: vat } }); const other = await prisma.company.create({ data: { name: `Other ${suffix}`, vatNumber: `ITOTHER${suffix.toUpperCase()}` } });
   const user = await prisma.user.create({ data: { email: `setup-${suffix}@example.test`, firstName: "Setup", lastName: "Test", password: "test-hash" } });
   const [location, foreign] = await Promise.all([prisma.location.create({ data: { companyId: company.id, slug, code: `S-${suffix}`, name: "Setup Location", isHeadquarters: true } }), prisma.location.create({ data: { companyId: other.id, slug: `foreign-${suffix}`, code: `F-${suffix}`, name: "Foreign" } })]);
-  const membership = await prisma.membership.create({ data: { companyId: company.id, userId: user.id, active: true, isDefault: true, defaultLocationId: location.id } });
+  const membership = await prisma.$transaction(async (tx) => {
+    const row = await tx.membership.create({ data: { companyId: company.id, userId: user.id, active: true, isDefault: true, defaultLocationId: location.id } });
+    await tx.membershipLocation.create({ data: { companyId: company.id, membershipId: row.id, locationId: location.id } });
+    return row;
+  });
   companyId = company.id; otherCompanyId = other.id; locationId = location.id; foreignLocationId = foreign.id; userId = user.id; membershipId = membership.id;
 });
 beforeEach(clearRestaurant);

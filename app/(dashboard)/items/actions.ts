@@ -1,6 +1,6 @@
 "use server";
 
-import { auth } from "@/auth";
+import { getAuthorizationContext } from "@/lib/authorization";
 import { Prisma } from "@/generated/prisma/client";
 import {
   isCatalogItemType,
@@ -95,12 +95,11 @@ function parseComponents(formData: FormData, includeWaste: boolean) {
 }
 
 async function requireItemSession() {
-  const session = await auth();
-  if (!session?.user?.companyId) {
-    return { error: "Sessione scaduta. Accedi nuovamente per continuare." } as const;
-  }
+  let context;
+  try { context = await getAuthorizationContext(); }
+  catch { return { error: "Sessione scaduta. Accedi nuovamente per continuare." } as const; }
   try {
-    await requireModule(session.user.companyId, MODULE_CODES.CORE_PRODUCTS);
+    await requireModule(context.companyId, MODULE_CODES.CORE_PRODUCTS);
   } catch (error) {
     if (error instanceof ModuleNotEnabledError) {
       return {
@@ -109,7 +108,7 @@ async function requireItemSession() {
     }
     throw error;
   }
-  return { session } as const;
+  return { session: { user: { id: context.userId, membershipId: context.membershipId, companyId: context.companyId, companyName: context.companyName, roles: context.roles } } } as const;
 }
 
 function parseItemForm(formData: FormData) {

@@ -1,4 +1,4 @@
-import { auth } from "@/auth";
+import { getAuthorizationSessionUser } from "@/lib/authorization";
 import { getConfigurationDefinition } from "@/lib/configuration-catalog";
 import { getConfigurationFormOptions, getConfigurationList, getConfigurationRecord, type ConfigurationListParams } from "@/lib/configurations";
 import { requireModule } from "@/lib/modules";
@@ -17,7 +17,7 @@ function pageHref(params: Pick<ConfigurationListParams, "q" | "active" | "lifecy
 }
 
 export default async function ConfigurationPage({ params, searchParams }: { params: Promise<{ key: string }>; searchParams: Promise<ConfigurationListParams & { edit?: string; success?: string }> }) {
-  const session = await auth(); if (!session?.user?.companyId) redirect("/login");
+  const session = { user: await getAuthorizationSessionUser() }; if (!session?.user?.companyId) redirect("/login");
   if (!session.user.roles.some((role) => role === "ADMIN" || role === "SUPER_ADMIN")) redirect("/dashboard");
   const { key } = await params; const definition = getConfigurationDefinition(key); if (!definition) notFound();
   await requireModule(session.user.companyId, definition.requiredModule);

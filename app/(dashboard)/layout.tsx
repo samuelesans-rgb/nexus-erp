@@ -1,17 +1,11 @@
 import AppShell from "@/components/layout/app-shell";
-import { auth } from "@/auth";
-import { redirect } from "next/navigation";
+import { requireAuthorizationContext } from "@/lib/authorization";
 
 export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const session = await auth();
-
-  if (!session?.user?.companyId) {
-    redirect("/login");
-  }
-
+  await requireAuthorizationContext();
   return <AppShell>{children}</AppShell>;
 }

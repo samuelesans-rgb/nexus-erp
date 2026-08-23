@@ -1,6 +1,6 @@
 import "server-only";
 
-import { auth } from "@/auth";
+import { requireAuthorizationContext } from "@/lib/authorization";
 import { MODULE_CODES } from "@/lib/module-catalog";
 import { requireModule } from "@/lib/modules";
 import { redirect } from "next/navigation";
@@ -15,11 +15,10 @@ export function hasMasterDataCapability(roles: readonly string[], capability: Ma
 }
 
 export async function requireCompanyContext(capability: MasterDataCapability = "read") {
-  const session = await auth();
-  if (!session?.user?.companyId) redirect("/login");
-  if (!hasMasterDataCapability(session.user.roles, capability)) redirect("/dashboard");
-  await requireModule(session.user.companyId, MODULE_CODES.CORE_COMPANIES);
-  return { companyId: session.user.companyId, userId: session.user.id, roles: session.user.roles };
+  const context = await requireAuthorizationContext();
+  if (!hasMasterDataCapability(context.roles, capability)) redirect("/dashboard");
+  await requireModule(context.companyId, MODULE_CODES.CORE_COMPANIES);
+  return { companyId: context.companyId, membershipId: context.membershipId, userId: context.userId, roles: context.roles };
 }
 
 export async function requireCompanyAdmin() {
@@ -27,9 +26,8 @@ export async function requireCompanyAdmin() {
 }
 
 export async function requireMasterDataContext(capability: MasterDataCapability = "read") {
-  const session = await auth();
-  if (!session?.user?.companyId) redirect("/login");
-  if (!hasMasterDataCapability(session.user.roles, capability)) redirect("/dashboard");
-  await requireModule(session.user.companyId, MODULE_CODES.CORE_PRODUCTS);
-  return { companyId: session.user.companyId, userId: session.user.id, roles: session.user.roles };
+  const context = await requireAuthorizationContext();
+  if (!hasMasterDataCapability(context.roles, capability)) redirect("/dashboard");
+  await requireModule(context.companyId, MODULE_CODES.CORE_PRODUCTS);
+  return { companyId: context.companyId, membershipId: context.membershipId, userId: context.userId, roles: context.roles };
 }

@@ -1,4 +1,4 @@
-import { auth } from "@/auth";
+import { getAuthorizationSessionUser } from "@/lib/authorization";
 import { ITEM_TYPE_LABELS } from "@/lib/item-types";
 import {
   getEnabledItemTypes,
@@ -27,7 +27,7 @@ export default async function ItemsPage({
 }: {
   searchParams: Promise<ItemListParams>;
 }) {
-  const session = await auth();
+  const session = { user: await getAuthorizationSessionUser() };
   if (!session?.user?.companyId) redirect("/login");
   try {
     await requireModule(session.user.companyId, MODULE_CODES.CORE_PRODUCTS);

@@ -18,7 +18,7 @@ const createdLocationIds: string[] = [];
 
 before(async () => {
   const company = await prisma.company.findUniqueOrThrow({ where: { vatNumber: "IT00000000000" } });
-  const membership = await prisma.membership.findFirstOrThrow({ where: { companyId: company.id, active: true }, select: { id: true, userId: true } });
+  const membership = await prisma.membership.findFirstOrThrow({ where: { companyId: company.id, active: true, user: { active: true }, company: { active: true } }, select: { id: true, userId: true } });
   const headquarters = await prisma.location.findFirstOrThrow({ where: { companyId: company.id, active: true, deletedAt: null, isHeadquarters: true } });
   const other = await prisma.company.create({ data: { name: `Location tenant ${randomUUID()}` } });
   companyId = company.id; otherCompanyId = other.id; userId = membership.userId; membershipId = membership.id; headquartersId = headquarters.id;
@@ -27,6 +27,7 @@ before(async () => {
 after(async () => {
   if (createdLocationIds.length) {
     await prisma.membership.updateMany({ where: { companyId, defaultLocationId: { in: createdLocationIds } }, data: { defaultLocationId: headquartersId } });
+    await prisma.auditLog.deleteMany({ where: { companyId, locationId: { in: createdLocationIds } } });
     await prisma.location.deleteMany({ where: { id: { in: createdLocationIds } } });
   }
   if (otherCompanyId) await prisma.company.delete({ where: { id: otherCompanyId } });
@@ -48,7 +49,7 @@ test("Locations: creazione, modifica e unicità codice per Company", async () =>
   await assert.rejects(updateLocation(companyId, userId, location.id, { slug: "slug-modificato", code: location.code, name: location.name }), LocationDomainError);
   await assert.rejects(createLocation(otherCompanyId, userId, { slug: location.slug, code: "SLUG-DUP", name: "Slug duplicato" }), LocationDomainError);
   await assert.rejects(createLocation(companyId, userId, { code: location.code, name: "Duplicata" }));
-  const other = await createLocation(otherCompanyId, userId, { code: location.code, name: "Stesso codice, altro tenant" });
+  const other = await prisma.location.create({ data: { companyId: otherCompanyId, code: location.code, name: "Stesso codice, altro tenant" } });
   assert.notEqual(other.slug, location.slug);
   await prisma.location.delete({ where: { id: other.id } });
 });
@@ -78,7 +79,7 @@ test("Locations: sede corrente tenant-safe e rifiuto sede inattiva o cross-tenan
   assert.equal((await getCurrentLocation(companyId, membershipId))?.id, location.id);
   await archiveLocation(companyId, userId, location.id);
   await assert.rejects(setCurrentLocation(companyId, membershipId, location.id), LocationDomainError);
-  const crossTenant = await createLocation(otherCompanyId, userId, { code: "CROSS", name: "Cross tenant" });
+  const crossTenant = await prisma.location.create({ data: { companyId: otherCompanyId, code: "CROSS", name: "Cross tenant" } });
   await assert.rejects(setCurrentLocation(companyId, membershipId, crossTenant.id), LocationDomainError);
   await prisma.location.delete({ where: { id: crossTenant.id } });
   await restoreLocation(companyId, userId, location.id);

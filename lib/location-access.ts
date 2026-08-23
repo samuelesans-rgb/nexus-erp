@@ -1,6 +1,6 @@
 import "server-only";
 
-import { auth } from "@/auth";
+import { requireAuthorizationContext } from "@/lib/authorization";
 import { MODULE_CODES } from "@/lib/module-catalog";
 import { requireModule } from "@/lib/modules";
 import { getCurrentLocation as getMembershipCurrentLocation, requireCurrentLocation as requireMembershipCurrentLocation } from "@/lib/locations";
@@ -18,10 +18,9 @@ export function canManageLocations(roles: readonly string[]) {
 }
 
 export async function requireLocationContext() {
-  const session = await auth();
-  if (!session?.user?.companyId) redirect("/login");
-  await requireModule(session.user.companyId, MODULE_CODES.CORE_LOCATIONS);
-  return { companyId: session.user.companyId, membershipId: session.user.membershipId, userId: session.user.id, roles: session.user.roles };
+  const context = await requireAuthorizationContext();
+  await requireModule(context.companyId, MODULE_CODES.CORE_LOCATIONS);
+  return { companyId: context.companyId, membershipId: context.membershipId, userId: context.userId, roles: context.roles };
 }
 
 export async function getCurrentLocation() {
