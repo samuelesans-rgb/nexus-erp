@@ -1,65 +1,16 @@
 import "server-only";
-
 import { z } from "zod";
-
 import { prisma } from "@/lib/prisma";
-
-export class RestaurantBookingSettingsError extends Error {
-  constructor(message: string) { super(message); this.name = "RestaurantBookingSettingsError"; }
-}
-
-const administrators = new Set(["SUPER_ADMIN", "ADMIN"]);
-export function canManageBookingSettings(roles: readonly string[]) { return roles.some((role) => administrators.has(role)); }
-
-const timeSchema = z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/, "Orario non valido: usa HH:mm.");
-const intervalSchema = z.tuple([timeSchema, timeSchema]);
-const daySchema = z.enum(["0", "1", "2", "3", "4", "5", "6"]);
-
-const settingsSchema = z.object({
-  enabled: z.boolean(),
-  openingHours: z.partialRecord(daySchema, z.array(intervalSchema)),
-  slotIntervalMinutes: z.number().int().min(5).max(240),
-  defaultDurationMinutes: z.number().int().min(15).max(1440),
-  minAdvanceMinutes: z.number().int().min(0).max(525600),
-  maxAdvanceDays: z.number().int().min(1).max(730),
-  maxCoversPerSlot: z.number().int().min(0).max(10000),
-  internalNotificationEmail: z.union([z.string().trim().email().max(254), z.literal(""), z.null()]).transform((value) => value || null),
-  confirmationMessage: z.union([z.string().trim().max(1000), z.null()]).transform((value) => value || null).refine((value) => !value || !/[<>]/.test(value), "Il messaggio di conferma non può contenere HTML."),
-});
-
-const minutes = (time: string) => Number(time.slice(0, 2)) * 60 + Number(time.slice(3));
-
-function normalizeOpeningHours(value: z.output<typeof settingsSchema>["openingHours"]) {
-  return Object.fromEntries(Object.entries(value).map(([day, intervals]) => {
-    const sorted = [...intervals].sort(([left], [right]) => left.localeCompare(right));
-    for (let index = 0; index < sorted.length; index += 1) {
-      const [start, end] = sorted[index];
-      if (minutes(start) >= minutes(end)) throw new RestaurantBookingSettingsError(`Il giorno ${day} contiene un intervallo con inizio non precedente alla fine.`);
-      if (index > 0 && minutes(sorted[index - 1][1]) > minutes(start)) throw new RestaurantBookingSettingsError(`Il giorno ${day} contiene intervalli sovrapposti.`);
-    }
-    return [day, sorted];
-  }));
-}
-
-export function parseRestaurantBookingSettings(input: unknown) {
-  const parsed = settingsSchema.safeParse(input);
-  if (!parsed.success) throw new RestaurantBookingSettingsError(parsed.error.issues[0]?.message ?? "Impostazioni prenotazioni non valide.");
-  return { ...parsed.data, openingHours: normalizeOpeningHours(parsed.data.openingHours) };
-}
-
-export async function getRestaurantBookingSettings(companyId: string, locationId: string) {
-  return prisma.restaurantBookingSettings.findFirst({ where: { companyId, locationId } });
-}
-
-export async function saveRestaurantBookingSettings(companyId: string, locationId: string, input: unknown) {
-  const data = parseRestaurantBookingSettings(input);
-  return prisma.$transaction(async (tx) => {
-    const location = await tx.location.findFirst({ where: { id: locationId, companyId, active: true, deletedAt: null }, select: { id: true } });
-    if (!location) throw new RestaurantBookingSettingsError("La sede corrente non è attiva o non appartiene alla Company.");
-    return tx.restaurantBookingSettings.upsert({
-      where: { companyId_locationId: { companyId, locationId } },
-      update: data,
-      create: { companyId, locationId, ...data },
-    });
-  });
-}
+export class RestaurantBookingSettingsError extends Error{constructor(message:string){super(message);this.name="RestaurantBookingSettingsError"}}
+const administrators=new Set(["SUPER_ADMIN","ADMIN"]);export function canManageBookingSettings(roles:readonly string[]){return roles.some(role=>administrators.has(role))}
+const time=z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/,"Orario non valido: usa HH:mm."),interval=z.tuple([time,time]),day=z.enum(["0","1","2","3","4","5","6"]),minutes=(v:string)=>Number(v.slice(0,2))*60+Number(v.slice(3));
+function normalize(rows:Array<[string,string]>,label:string){const sorted=[...rows].sort(([a],[b])=>a.localeCompare(b));for(let i=0;i<sorted.length;i++){if(minutes(sorted[i][0])>=minutes(sorted[i][1]))throw new RestaurantBookingSettingsError(label+" contiene un intervallo con inizio non precedente alla fine.");if(i&&minutes(sorted[i-1][1])>minutes(sorted[i][0]))throw new RestaurantBookingSettingsError(label+" contiene intervalli sovrapposti.");}return sorted}
+const settingsSchema=z.object({enabled:z.boolean(),openingHours:z.partialRecord(day,z.array(interval)),slotIntervalMinutes:z.number().int().min(5).max(240),defaultDurationMinutes:z.number().int().min(15).max(1440),minAdvanceMinutes:z.number().int().min(0).max(525600),maxAdvanceDays:z.number().int().min(1).max(730),maxCoversPerSlot:z.number().int().min(0).max(10000),bufferBeforeMinutes:z.number().int().min(0).max(1440).default(0),bufferAfterMinutes:z.number().int().min(0).max(1440).default(0),confirmationPolicy:z.enum(["MANUAL","AUTO_CONFIRM"]).default("MANUAL"),cancellationEnabled:z.boolean().default(true),cancellationDeadlineMinutes:z.number().int().min(0).max(525600).default(1440),customerCancellationMessage:z.string().trim().max(1000).nullable().default(null).transform(v=>v||null),noShowThresholdMinutes:z.number().int().min(0).max(1440).default(30),internalNotificationEmail:z.union([z.string().trim().email().max(254),z.literal(""),z.null()]).transform(v=>v||null),confirmationMessage:z.string().trim().max(1000).nullable().transform(v=>v||null).refine(v=>!v||!/[<>]/.test(v),"Il messaggio di conferma non può contenere HTML."),cancellationMessage:z.string().trim().max(1000).nullable().default(null).transform(v=>v||null)});
+export function parseRestaurantBookingSettings(input:unknown){const parsed=settingsSchema.safeParse(input);if(!parsed.success)throw new RestaurantBookingSettingsError(parsed.error.issues[0]?.message??"Impostazioni prenotazioni non valide.");return{...parsed.data,openingHours:Object.fromEntries(Object.entries(parsed.data.openingHours).map(([d,rows])=>[d,normalize(rows,"Il giorno "+d)]))}}
+export const getRestaurantBookingSettings=(companyId:string,locationId:string)=>prisma.restaurantBookingSettings.findFirst({where:{companyId,locationId},include:{location:{select:{timezone:true}},}});
+export async function saveRestaurantBookingSettings(companyId:string,locationId:string,input:unknown){const data=parseRestaurantBookingSettings(input);return prisma.$transaction(async tx=>{if(!await tx.location.findFirst({where:{id:locationId,companyId,active:true,deletedAt:null},select:{id:true}}))throw new RestaurantBookingSettingsError("La sede corrente non è attiva o non appartiene alla Company.");return tx.restaurantBookingSettings.upsert({where:{companyId_locationId:{companyId,locationId}},update:data,create:{companyId,locationId,...data}})})}
+const serviceSchema=z.object({id:z.string().optional(),name:z.string().trim().min(1).max(80),daysOfWeek:z.array(z.number().int().min(0).max(6)).min(1),startTime:time,endTime:time,slotIntervalMinutes:z.number().int().min(5).max(240),defaultDurationMinutes:z.number().int().min(15).max(1440),maxCovers:z.number().int().positive().nullable(),bufferBeforeMinutes:z.number().int().min(0).max(1440).nullable(),bufferAfterMinutes:z.number().int().min(0).max(1440).nullable(),active:z.boolean()});
+export async function saveServiceWindow(companyId:string,locationId:string,input:unknown){const p=serviceSchema.safeParse(input);if(!p.success)throw new RestaurantBookingSettingsError(p.error.issues[0]?.message??"Servizio non valido.");if(minutes(p.data.startTime)>=minutes(p.data.endTime))throw new RestaurantBookingSettingsError("L’inizio servizio deve precedere la fine.");const data={...p.data,id:undefined,daysOfWeek:[...new Set(p.data.daysOfWeek)].sort()};return prisma.$transaction(async tx=>{if(!await tx.location.findFirst({where:{id:locationId,companyId,active:true,deletedAt:null}}))throw new RestaurantBookingSettingsError("Sede non valida.");const overlaps=await tx.restaurantServiceWindow.findMany({where:{companyId,locationId,active:true,id:p.data.id?{not:p.data.id}:undefined,daysOfWeek:{hasSome:data.daysOfWeek}}});if(overlaps.some(row=>minutes(row.startTime)<minutes(data.endTime)&&minutes(row.endTime)>minutes(data.startTime)))throw new RestaurantBookingSettingsError("Il servizio si sovrappone a un altro servizio attivo.");return p.data.id?tx.restaurantServiceWindow.update({where:{companyId_id:{companyId,id:p.data.id}},data}):tx.restaurantServiceWindow.create({data:{companyId,locationId,...data}})})}
+const exceptionSchema=z.object({id:z.string().optional(),date:z.coerce.date(),type:z.enum(["CLOSED","SPECIAL_OPENING","OVERRIDE_HOURS","CAPACITY_OVERRIDE"]),intervals:z.array(interval).default([]),maxCovers:z.number().int().positive().nullable(),reason:z.string().trim().max(500).nullable(),active:z.boolean()});
+export async function saveCalendarException(companyId:string,locationId:string,input:unknown){const p=exceptionSchema.safeParse(input);if(!p.success)throw new RestaurantBookingSettingsError(p.error.issues[0]?.message??"Eccezione non valida.");const rows=normalize(p.data.intervals,"L’eccezione");if(["SPECIAL_OPENING","OVERRIDE_HOURS"].includes(p.data.type)&&!rows.length)throw new RestaurantBookingSettingsError("Inserire almeno un intervallo.");if(p.data.type==="CAPACITY_OVERRIDE"&&!p.data.maxCovers)throw new RestaurantBookingSettingsError("Inserire la capacità override.");const date=new Date(p.data.date);date.setHours(0,0,0,0);const data={date,type:p.data.type,intervals:rows,maxCovers:p.data.maxCovers,reason:p.data.reason||null,active:p.data.active};return prisma.$transaction(async tx=>{if(!await tx.location.findFirst({where:{id:locationId,companyId,active:true,deletedAt:null}}))throw new RestaurantBookingSettingsError("Sede non valida.");return p.data.id?tx.restaurantCalendarException.update({where:{companyId_id:{companyId,id:p.data.id}},data}):tx.restaurantCalendarException.create({data:{companyId,locationId,...data}})})}
+export async function getBookingConfiguration(companyId:string,locationId:string){const[settings,services,exceptions]=await Promise.all([getRestaurantBookingSettings(companyId,locationId),prisma.restaurantServiceWindow.findMany({where:{companyId,locationId},orderBy:[{active:"desc"},{startTime:"asc"}]}),prisma.restaurantCalendarException.findMany({where:{companyId,locationId},orderBy:{date:"asc"}})]);return{settings,services,exceptions}}

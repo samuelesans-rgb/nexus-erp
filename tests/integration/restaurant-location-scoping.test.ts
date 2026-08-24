@@ -76,7 +76,7 @@ test("chiusura crea Documents e Treasury nella stessa Location e il pagamento cr
   const billed=await closeRestaurantOrderAtomic(companyId,locationA,userId,orderId,randomUUID(),{seriesId,invoice:false,payments:[]});documentIds.push(billed.documentId);
   const total=Number((await prisma.businessDocument.findUniqueOrThrow({where:{id:billed.documentId}})).total);
   const closed=await closeRestaurantOrderAtomic(companyId,locationA,userId,orderId,randomUUID(),{seriesId,invoice:false,payments:[{financialAccountId:accountId,paymentMethod:"CASH",amount:total}]});movementIds.push(...closed.movementIds);
-  const [document,movement]=await Promise.all([prisma.businessDocument.findUniqueOrThrow({where:{id:closed.documentId}}),prisma.financialMovement.findFirstOrThrow({where:{id:{in:closed.movementIds}}})]);assert.equal(document.locationId,locationA);assert.equal(movement.locationId,locationA);
+  const [document,movement]=await Promise.all([prisma.businessDocument.findUniqueOrThrow({where:{id:closed.documentId}}),prisma.financialMovement.findFirstOrThrow({where:{id:{in:closed.movementIds}}})]);assert.equal(document.locationId,locationA);assert.equal(movement.locationId,locationA);assert.equal(await prisma.restaurantOrderTable.count({where:{orderId}}),1);assert.equal((await prisma.restaurantTable.findUniqueOrThrow({where:{id:tableA}})).status,"DIRTY");
 });
 
 test("dashboard e tenant isolation non espongono aggregate di altre sedi",async()=>{

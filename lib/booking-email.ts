@@ -52,14 +52,14 @@ async function bookingDetails(companyId: string, locationId: string, reservation
   const reservation = await prisma.restaurantReservation.findFirst({
     where: { id: reservationId, companyId, locationId, deletedAt: null },
     select: {
-      id: true, code: true, guestName: true, email: true, phone: true, notes: true, startTime: true, partySize: true,
+      id: true, code: true, guestName: true, email: true, phone: true, notes: true, startTime: true, partySize: true, status: true,
       location: { select: { name: true, email: true, phone: true, slug: true, restaurantBookingSettings: { select: { internalNotificationEmail: true } } } },
     },
   });
   if (!reservation?.email) return null;
   const contact = [reservation.location.email, reservation.location.phone].filter(Boolean).join(" · ") || null;
   return {
-    details: { code: reservation.code, locationName: reservation.location.name, startTime: reservation.startTime, partySize: reservation.partySize, guestName: reservation.guestName, guestEmail: reservation.email, guestPhone: reservation.phone, notes: reservation.notes, restaurantContact: contact } satisfies BookingEmailDetails,
+    details: { code: reservation.code, locationName: reservation.location.name, startTime: reservation.startTime, partySize: reservation.partySize, guestName: reservation.guestName, guestEmail: reservation.email, guestPhone: reservation.phone, notes: reservation.notes, status: reservation.status === "CONFIRMED" ? "CONFIRMED" : "PENDING", restaurantContact: contact } satisfies BookingEmailDetails,
     locationSlug: reservation.location.slug,
     internalEmail: reservation.location.restaurantBookingSettings?.internalNotificationEmail ?? process.env.BOOKING_NOTIFICATION_EMAIL ?? null,
   };

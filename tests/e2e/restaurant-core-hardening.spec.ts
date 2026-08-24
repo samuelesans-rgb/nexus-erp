@@ -93,15 +93,10 @@ test("Restaurant Core: login, cucina, pagamenti e idempotenza UI", async ({ page
       active: true,
       deletedAt: null,
     },
-    select: {
-      id: true,
-      name: true,
-    },
+    select: { id: true, name: true, recipeComponents: { select: { componentItem: { select: { id: true, trackLots: true, trackExpiration: true } } }, take: 1 } },
   });
-  const ingredient = await prisma.item.findFirstOrThrow({
-    where: { companyId: company.id, type: "INGREDIENT" },
-    select: { id: true, trackLots: true, trackExpiration: true },
-  });
+  const ingredient = recipe.recipeComponents[0]?.componentItem;
+  if (!ingredient) throw new Error("La fixture Core E2E richiede una ricetta con componente.");
   await prisma.item.update({
     where: { id: ingredient.id },
     data: { trackLots: false, trackExpiration: false },
@@ -110,13 +105,29 @@ test("Restaurant Core: login, cucina, pagamenti e idempotenza UI", async ({ page
   const createdOrderIds: string[] = [];
   const createdTableIds: string[] = [];
   const createdDocumentIds: string[] = [];
+  let createdAreaId = "";
+  let fixtureMembershipId = "";
+  let originalDefaultLocationId: string | null = null;
+  let fixtureBalanceId = "";
+  let originalBalanceQuantity = 0;
   const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
   const tableCode = `E2E-${suffix}`;
   const tableName = `Tavolo E2E ${suffix}`;
 
   try {
-    const location = await prisma.location.findFirstOrThrow({ where: { companyId: company.id, active: true, deletedAt: null } });
-    const area = await prisma.restaurantArea.findFirstOrThrow({ where: { companyId: company.id, locationId: location.id, active: true, deletedAt: null } });
+    const membership = await prisma.membership.findFirstOrThrow({ where: { companyId: company.id, user: { email }, active: true }, include: { authorizedLocations: { include: { location: { include: { warehouses: { where: { active: true, deletedAt: null }, include: { balances: { where: { itemId: ingredient.id, quantity: { gt: 0 } } } } } } } } } } });
+    const location = membership.authorizedLocations.map((row) => row.location).find((row) => row.active && !row.deletedAt && row.warehouses.some((warehouse) => warehouse.balances.length > 0));
+    if (!location) throw new Error("La fixture Core E2E richiede una Location autorizzata con stock ingrediente.");
+    fixtureMembershipId = membership.id;
+    originalDefaultLocationId = membership.defaultLocationId;
+    await prisma.membership.update({ where: { id: membership.id }, data: { defaultLocationId: location.id } });
+    const fixtureBalance = location.warehouses.flatMap((warehouse) => warehouse.balances)[0];
+    if (!fixtureBalance) throw new Error("Stock ingrediente non disponibile per la fixture Core E2E.");
+    fixtureBalanceId = fixtureBalance.id;
+    originalBalanceQuantity = Number(fixtureBalance.quantity);
+    await prisma.stockBalance.update({ where: { id: fixtureBalance.id }, data: { quantity: 100 } });
+    const area = await prisma.restaurantArea.create({ data: { companyId: company.id, locationId: location.id, code: `E2E-AREA-${suffix}`, name: `Area Core E2E ${suffix}` } });
+    createdAreaId = area.id;
     const table = await prisma.restaurantTable.create({
       data: {
         companyId: company.id,
@@ -138,7 +149,7 @@ test("Restaurant Core: login, cucina, pagamenti e idempotenza UI", async ({ page
     await expect(page).toHaveURL(/\/dashboard/);
 
     await page.goto("/restaurant/orders/new");
-    await page.locator('select[name="tableId"]').selectOption({ label: table.name });
+    await page.locator('select[name="tableIds"]').selectOption(table.id);
     await page.locator('select[name="partnerId"]').selectOption({ index: 1 });
     await page.getByRole("button", { name: "Apri comanda" }).click();
     await expect(page).toHaveURL(
@@ -299,6 +310,9 @@ test("Restaurant Core: login, cucina, pagamenti e idempotenza UI", async ({ page
     await expect(page).toHaveURL(/\/login/);
   } finally {
     await cleanupRestaurantE2ETestArtifacts(company.id, createdOrderIds, createdTableIds, createdDocumentIds);
+    if (fixtureMembershipId) await prisma.membership.update({ where: { id: fixtureMembershipId }, data: { defaultLocationId: originalDefaultLocationId } });
+    if (fixtureBalanceId) await prisma.stockBalance.update({ where: { id: fixtureBalanceId }, data: { quantity: originalBalanceQuantity } });
+    if (createdAreaId) await prisma.restaurantArea.deleteMany({ where: { id: createdAreaId, companyId: company.id } });
     await prisma.item.update({
       where: { id: ingredient.id },
       data: {

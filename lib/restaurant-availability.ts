@@ -2,97 +2,16 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 
-export class RestaurantAvailabilityError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "RestaurantAvailabilityError";
-  }
-}
-
-export type BookingSettings = {
-  enabled: boolean;
-  slotIntervalMinutes: number;
-  defaultDurationMinutes: number;
-  minAdvanceMinutes: number;
-  maxAdvanceDays: number;
-  maxCoversPerSlot: number;
-  openingHours: Record<string, Array<[string, string]>>;
-};
-
-const defaults: BookingSettings = {
-  enabled: true,
-  slotIntervalMinutes: 30,
-  defaultDurationMinutes: 120,
-  minAdvanceMinutes: 60,
-  maxAdvanceDays: 90,
-  maxCoversPerSlot: 0,
-  openingHours: {},
-};
-
-function intervals(value: unknown): BookingSettings["openingHours"] {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-  return Object.fromEntries(
-    Object.entries(value).flatMap(([day, rows]) =>
-      Array.isArray(rows)
-        ? [[day, rows.filter((row): row is [string, string] => Array.isArray(row) && row.length === 2 && row.every((entry) => typeof entry === "string"))]]
-        : [],
-    ),
-  );
-}
-
-export async function getBookingSettings(companyId: string, locationId: string): Promise<BookingSettings> {
-  const location = await prisma.location.findFirst({ where: { id: locationId, companyId, active: true, deletedAt: null }, select: { id: true } });
-  if (!location) throw new RestaurantAvailabilityError("Sede non disponibile.");
-  const settings = await prisma.restaurantBookingSettings.findFirst({ where: { companyId, locationId }, select: { enabled: true, slotIntervalMinutes: true, defaultDurationMinutes: true, minAdvanceMinutes: true, maxAdvanceDays: true, maxCoversPerSlot: true, openingHours: true } });
-  return settings ? { ...settings, openingHours: intervals(settings.openingHours) } : defaults;
-}
-
-function atTime(day: Date, time: string) {
-  const [hours, minutes] = time.split(":").map(Number);
-  const value = new Date(day);
-  value.setHours(hours, minutes, 0, 0);
-  return value;
-}
-
-function overlaps(start: Date, end: Date, otherStart: Date, otherEnd: Date) {
-  return otherStart < end && otherEnd > start;
-}
-
-export async function checkAvailability(companyId: string, locationId: string, input: { startTime: Date; partySize: number; durationMinutes?: number; tableId?: string | null; excludeReservationId?: string }) {
-  if (!Number.isInteger(input.partySize) || input.partySize < 1) throw new RestaurantAvailabilityError("Numero coperti non valido.");
-  const settings = await getBookingSettings(companyId, locationId);
-  if (!settings.enabled) throw new RestaurantAvailabilityError("Le prenotazioni online non sono disponibili per questa sede.");
-  const durationMinutes = input.durationMinutes ?? settings.defaultDurationMinutes;
-  if (!Number.isInteger(durationMinutes) || durationMinutes < 15) throw new RestaurantAvailabilityError("Durata prenotazione non valida.");
-  const startTime = new Date(input.startTime);
-  if (Number.isNaN(startTime.getTime())) throw new RestaurantAvailabilityError("Data prenotazione non valida.");
-  const endTime = new Date(startTime.getTime() + durationMinutes * 60_000);
-  const now = new Date();
-  if (startTime.getTime() < now.getTime() + settings.minAdvanceMinutes * 60_000) throw new RestaurantAvailabilityError("L'anticipo minimo non è rispettato.");
-  if (startTime.getTime() > now.getTime() + settings.maxAdvanceDays * 86_400_000) throw new RestaurantAvailabilityError("La data è oltre l'anticipo massimo consentito.");
-  const dayIntervals = settings.openingHours[String(startTime.getDay())] ?? [];
-  if (dayIntervals.length && !dayIntervals.some(([from, to]) => startTime >= atTime(startTime, from) && endTime <= atTime(startTime, to))) throw new RestaurantAvailabilityError("L'orario selezionato è fuori apertura.");
-  const activeStatuses = ["PENDING", "CONFIRMED", "SEATED"] as const;
-  const reservations = await prisma.restaurantReservation.findMany({
-    where: { companyId, locationId, deletedAt: null, id: input.excludeReservationId ? { not: input.excludeReservationId } : undefined, status: { in: [...activeStatuses] }, startTime: { lt: endTime }, endTime: { gt: startTime } },
-    include: { tables: { select: { tableId: true } } },
-  });
-  if (settings.maxCoversPerSlot > 0 && reservations.reduce((total, reservation) => total + reservation.partySize, 0) + input.partySize > settings.maxCoversPerSlot) throw new RestaurantAvailabilityError("Capienza massima della fascia raggiunta.");
-  const busyTableIds = new Set(reservations.filter((reservation) => overlaps(startTime, endTime, reservation.startTime, reservation.endTime ?? new Date(reservation.startTime.getTime() + settings.defaultDurationMinutes * 60_000))).flatMap((reservation) => reservation.tables.map((table) => table.tableId)));
-  const tables = await prisma.restaurantTable.findMany({ where: { companyId, locationId, active: true, deletedAt: null, status: { notIn: ["OUT_OF_SERVICE", "OCCUPIED"] }, ...(input.tableId ? { id: input.tableId } : {}) }, select: { id: true, seats: true, maxSeats: true } });
-  const table = tables.find((candidate) => !busyTableIds.has(candidate.id) && (candidate.maxSeats ?? candidate.seats) >= input.partySize);
-  return { available: Boolean(table), tableId: table?.id ?? null, startTime, endTime, durationMinutes };
-}
-
-export async function getAvailableSlots(companyId: string, locationId: string, input: { date: Date; partySize: number }) {
-  const settings = await getBookingSettings(companyId, locationId);
-  const date = new Date(input.date); date.setHours(0, 0, 0, 0);
-  const windows = settings.openingHours[String(date.getDay())] ?? [["12:00", "23:00"]];
-  const slots: Date[] = [];
-  for (const [from, to] of windows) {
-    for (let cursor = atTime(date, from), limit = atTime(date, to); cursor.getTime() + settings.defaultDurationMinutes * 60_000 <= limit.getTime(); cursor = new Date(cursor.getTime() + settings.slotIntervalMinutes * 60_000)) {
-      try { if ((await checkAvailability(companyId, locationId, { startTime: cursor, partySize: input.partySize })).available) slots.push(cursor); } catch { /* unavailable slot */ }
-    }
-  }
-  return slots;
-}
+export class RestaurantAvailabilityError extends Error { constructor(message:string){super(message);this.name="RestaurantAvailabilityError";} }
+type Interval=[string,string];
+export type BookingSettings={enabled:boolean;slotIntervalMinutes:number;defaultDurationMinutes:number;minAdvanceMinutes:number;maxAdvanceDays:number;maxCoversPerSlot:number;bufferBeforeMinutes:number;bufferAfterMinutes:number;confirmationPolicy:"MANUAL"|"AUTO_CONFIRM";cancellationEnabled:boolean;cancellationDeadlineMinutes:number;customerCancellationMessage:string|null;noShowThresholdMinutes:number;openingHours:Record<string,Interval[]>};
+const defaults:BookingSettings={enabled:true,slotIntervalMinutes:30,defaultDurationMinutes:120,minAdvanceMinutes:60,maxAdvanceDays:90,maxCoversPerSlot:0,bufferBeforeMinutes:0,bufferAfterMinutes:0,confirmationPolicy:"MANUAL",cancellationEnabled:true,cancellationDeadlineMinutes:1440,customerCancellationMessage:null,noShowThresholdMinutes:30,openingHours:{}};
+function intervals(value:unknown):Interval[]{return Array.isArray(value)?value.filter((row):row is Interval=>Array.isArray(row)&&row.length===2&&row.every(entry=>typeof entry==="string")):[]}
+function weekly(value:unknown){return !value||typeof value!=="object"||Array.isArray(value)?{}:Object.fromEntries(Object.entries(value).map(([day,rows])=>[day,intervals(rows)]))}
+function atTime(day:Date,time:string){const[h,m]=time.split(":").map(Number),value=new Date(day);value.setHours(h,m,0,0);return value}
+function overlaps(a:Date,b:Date,c:Date,d:Date){return c<b&&d>a}
+function occupiedWindow(start:Date,end:Date,before:number,after:number){return{start:new Date(start.getTime()-before*60000),end:new Date(end.getTime()+after*60000)}}
+export async function getBookingSettings(companyId:string,locationId:string):Promise<BookingSettings>{const location=await prisma.location.findFirst({where:{id:locationId,companyId,active:true,deletedAt:null},select:{id:true}});if(!location)throw new RestaurantAvailabilityError("Sede non disponibile.");const settings=await prisma.restaurantBookingSettings.findFirst({where:{companyId,locationId}});return settings?{...settings,customerCancellationMessage:settings.customerCancellationMessage??null,openingHours:weekly(settings.openingHours)}:defaults}
+async function rulesFor(companyId:string,locationId:string,startTime:Date,settings:BookingSettings,requestedServiceId?:string|null){const day=startTime.getDay(),dayStart=new Date(startTime);dayStart.setHours(0,0,0,0);const dayEnd=new Date(dayStart);dayEnd.setDate(dayEnd.getDate()+1);const[services,exceptions]=await Promise.all([prisma.restaurantServiceWindow.findMany({where:{companyId,locationId,active:true,daysOfWeek:{has:day}},orderBy:{startTime:"asc"}}),prisma.restaurantCalendarException.findMany({where:{companyId,locationId,active:true,date:{gte:dayStart,lt:dayEnd}},orderBy:{createdAt:"asc"}})]);if(exceptions.some(x=>x.type==="CLOSED"))throw new RestaurantAvailabilityError("La sede è chiusa nella data selezionata.");const openingOverride=exceptions.find(x=>x.type==="SPECIAL_OPENING"||x.type==="OVERRIDE_HOURS"),allowed=openingOverride?intervals(openingOverride.intervals):null,eligible=services.filter(s=>requestedServiceId?s.id===requestedServiceId:startTime>=atTime(startTime,s.startTime)&&startTime<atTime(startTime,s.endTime));if(requestedServiceId&&!eligible.length)throw new RestaurantAvailabilityError("Servizio non attivo o non valido per l’orario selezionato.");const service=eligible[0]??null,windows=allowed??(requestedServiceId&&service?[[service.startTime,service.endTime] as Interval]:services.length?services.map(s=>[s.startTime,s.endTime] as Interval):(settings.openingHours[String(day)]??[["00:00","23:59"]]));if(!windows.length)throw new RestaurantAvailabilityError("La sede è chiusa nell’orario selezionato.");const maxCovers=exceptions.filter(x=>x.type==="CAPACITY_OVERRIDE").at(-1)?.maxCovers??service?.maxCovers??(settings.maxCoversPerSlot||null);return{service,windows,maxCovers,slotIntervalMinutes:service?.slotIntervalMinutes??settings.slotIntervalMinutes,durationMinutes:service?.defaultDurationMinutes??settings.defaultDurationMinutes,bufferBefore:service?.bufferBeforeMinutes??settings.bufferBeforeMinutes,bufferAfter:service?.bufferAfterMinutes??settings.bufferAfterMinutes}}
+export async function checkAvailability(companyId:string,locationId:string,input:{startTime:Date;partySize:number;durationMinutes?:number;tableId?:string|null;tableIds?:string[];serviceWindowId?:string|null;excludeReservationId?:string;ignoreAdvance?:boolean}){if(!Number.isInteger(input.partySize)||input.partySize<1)throw new RestaurantAvailabilityError("Numero coperti non valido.");const settings=await getBookingSettings(companyId,locationId);if(!settings.enabled)throw new RestaurantAvailabilityError("Le prenotazioni non sono disponibili per questa sede.");const startTime=new Date(input.startTime);if(Number.isNaN(startTime.getTime()))throw new RestaurantAvailabilityError("Data prenotazione non valida.");const rules=await rulesFor(companyId,locationId,startTime,settings,input.serviceWindowId),durationMinutes=input.durationMinutes??rules.durationMinutes;if(!Number.isInteger(durationMinutes)||durationMinutes<15)throw new RestaurantAvailabilityError("Durata prenotazione non valida.");const endTime=new Date(startTime.getTime()+durationMinutes*60000);if(!rules.windows.some(([from,to])=>startTime>=atTime(startTime,from)&&endTime<=atTime(startTime,to)))throw new RestaurantAvailabilityError("L’orario selezionato è fuori servizio.");if(!input.ignoreAdvance){const now=Date.now();if(startTime.getTime()<now+settings.minAdvanceMinutes*60000)throw new RestaurantAvailabilityError("L’anticipo minimo non è rispettato.");if(startTime.getTime()>now+settings.maxAdvanceDays*86400000)throw new RestaurantAvailabilityError("La data è oltre l’anticipo massimo consentito.");}const target=occupiedWindow(startTime,endTime,rules.bufferBefore,rules.bufferAfter);const reservations=await prisma.restaurantReservation.findMany({where:{companyId,locationId,deletedAt:null,id:input.excludeReservationId?{not:input.excludeReservationId}:undefined,status:{in:["PENDING","CONFIRMED","SEATED"]},startTime:{lt:new Date(target.end.getTime()+86400000)},endTime:{gt:new Date(target.start.getTime()-86400000)}},include:{tables:{select:{tableId:true}},serviceWindow:true}});const overlapping=reservations.filter(r=>{const occupied=occupiedWindow(r.startTime,r.endTime??new Date(r.startTime.getTime()+r.durationMinutes*60000),r.serviceWindow?.bufferBeforeMinutes??settings.bufferBeforeMinutes,r.serviceWindow?.bufferAfterMinutes??settings.bufferAfterMinutes);return overlaps(target.start,target.end,occupied.start,occupied.end)});if(rules.maxCovers&&overlapping.reduce((n,r)=>n+r.partySize,0)+input.partySize>rules.maxCovers)throw new RestaurantAvailabilityError("Capienza massima della fascia raggiunta.");const busy=new Set(overlapping.flatMap(r=>r.tables.map(t=>t.tableId))),requested=[...(input.tableIds??[]),...(input.tableId?[input.tableId]:[])],unique=[...new Set(requested)];const tables=await prisma.restaurantTable.findMany({where:{companyId,locationId,active:true,deletedAt:null,status:{notIn:["OUT_OF_SERVICE","OCCUPIED"]},...(unique.length?{id:{in:unique}}:{})},select:{id:true,areaId:true,seats:true,maxSeats:true,combinable:true}}),usable=tables.filter(t=>!busy.has(t.id));if(unique.length){if(usable.length!==unique.length)return{available:false,tableId:null,tableIds:[],startTime,endTime,durationMinutes,serviceWindowId:rules.service?.id??null};if(new Set(usable.map(t=>t.areaId)).size!==1)throw new RestaurantAvailabilityError("I tavoli combinati devono appartenere alla stessa area.");if(usable.reduce((n,t)=>n+(t.maxSeats??t.seats),0)<input.partySize)return{available:false,tableId:null,tableIds:[],startTime,endTime,durationMinutes,serviceWindowId:rules.service?.id??null};if(unique.length>1){const combo=await prisma.restaurantTableCombination.findFirst({where:{companyId,locationId,active:true,tables:{every:{tableId:{in:unique}}}},include:{tables:true}});if(!combo||combo.tables.length!==unique.length||unique.some(id=>!combo.tables.some(t=>t.tableId===id)))throw new RestaurantAvailabilityError("Combinazione tavoli non consentita.");}return{available:true,tableId:unique[0],tableIds:unique,startTime,endTime,durationMinutes,serviceWindowId:rules.service?.id??null}}const single=usable.find(t=>(t.maxSeats??t.seats)>=input.partySize);if(single)return{available:true,tableId:single.id,tableIds:[single.id],startTime,endTime,durationMinutes,serviceWindowId:rules.service?.id??null};const combos=await prisma.restaurantTableCombination.findMany({where:{companyId,locationId,active:true},include:{tables:{include:{table:{select:{id:true,seats:true,maxSeats:true,status:true,active:true,deletedAt:true}}}}}}),combo=combos.find(c=>c.tables.every(x=>x.table.active&&!x.table.deletedAt&&!busy.has(x.tableId)&&!["OUT_OF_SERVICE","OCCUPIED"].includes(x.table.status))&&c.tables.reduce((n,x)=>n+(x.table.maxSeats??x.table.seats),0)>=input.partySize),tableIds=combo?.tables.map(x=>x.tableId)??[];return{available:Boolean(combo),tableId:tableIds[0]??null,tableIds,startTime,endTime,durationMinutes,serviceWindowId:rules.service?.id??null}}
+export async function getAvailableSlots(companyId:string,locationId:string,input:{date:Date;partySize:number;serviceWindowId?:string|null}){const settings=await getBookingSettings(companyId,locationId),date=new Date(input.date);date.setHours(0,0,0,0);let rules;try{rules=await rulesFor(companyId,locationId,date,settings,input.serviceWindowId)}catch{return[]}const slots:Date[]=[];for(const[from,to]of rules.windows)for(let cursor=atTime(date,from),limit=atTime(date,to);cursor.getTime()+rules.durationMinutes*60000<=limit.getTime();cursor=new Date(cursor.getTime()+rules.slotIntervalMinutes*60000)){try{if((await checkAvailability(companyId,locationId,{startTime:cursor,partySize:input.partySize,serviceWindowId:input.serviceWindowId})).available)slots.push(cursor)}catch{}}return slots}

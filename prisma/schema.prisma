@@ -229,6 +229,18 @@ enum RestaurantReservationSource {
   THIRD_PARTY
 }
 
+enum RestaurantBookingConfirmationPolicy {
+  MANUAL
+  AUTO_CONFIRM
+}
+
+enum RestaurantCalendarExceptionType {
+  CLOSED
+  SPECIAL_OPENING
+  OVERRIDE_HOURS
+  CAPACITY_OVERRIDE
+}
+
 enum RestaurantOrderStatus {
   OPEN
   SENT
@@ -369,11 +381,15 @@ model Company {
   restaurantReservations       RestaurantReservation[]
   restaurantBookingSettings    RestaurantBookingSettings[]
   restaurantBookingWidgets     RestaurantBookingWidget[]
+  restaurantServiceWindows     RestaurantServiceWindow[]
+  restaurantCalendarExceptions RestaurantCalendarException[]
+  restaurantTableCombinations  RestaurantTableCombination[]
   restaurantReservationTables  RestaurantReservationTable[]
   restaurantMenus              RestaurantMenu[]
   restaurantMenuSections       RestaurantMenuSection[]
   restaurantMenuItems          RestaurantMenuItem[]
   restaurantOrders             RestaurantOrder[]
+  restaurantOrderTables        RestaurantOrderTable[]
   restaurantOrderLines         RestaurantOrderLine[]
   restaurantOrderLineModifiers RestaurantOrderLineModifier[]
   kitchenStations              KitchenStation[]
@@ -1203,67 +1219,71 @@ model GiftCardProfile {
 }
 
 model Location {
-  id                        String                     @id @default(cuid())
-  slug                      String                     @unique @default(cuid())
-  companyId                 String
-  code                      String
-  name                      String
-  description               String?
-  email                     String?
-  phone                     String?
-  address                   String?
-  city                      String?
-  province                  String?
-  postalCode                String?
-  country                   String                     @default("IT")
-  timezone                  String                     @default("Europe/Rome")
-  currency                  String                     @default("EUR")
-  isHeadquarters            Boolean                    @default(false)
-  active                    Boolean                    @default(true)
-  deletedAt                 DateTime?
-  company                   Company                    @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  warehouses                Warehouse[]
-  documentSeries            DocumentSeries[]
-  businessDocuments         BusinessDocument[]
-  financialAccounts         FinancialAccount[]
-  paymentSchedules          PaymentSchedule[]
-  financialMovements        FinancialMovement[]
-  financialAllocations      FinancialAllocation[]
-  financialTransfers        FinancialTransfer[]
-  bankStatements            BankStatement[]
-  bankStatementLines        BankStatementLine[]
-  openBankingConnections    OpenBankingConnection[]
-  openBankingAccounts       OpenBankingAccount[]
-  restaurantAreas           RestaurantArea[]
-  restaurantTables          RestaurantTable[]
-  restaurantReservations    RestaurantReservation[]
-  restaurantMenus           RestaurantMenu[]
-  restaurantOrders          RestaurantOrder[]
-  restaurantOrderLines      RestaurantOrderLine[]
-  kitchenStations           KitchenStation[]
-  kitchenTickets            KitchenTicket[]
-  kitchenTicketLines        KitchenTicketLine[]
-  recipeConsumptions        RecipeConsumption[]
-  inventoryLots             InventoryLot[]
-  inventorySerials          InventorySerial[]
-  inventoryMovements        InventoryMovement[]
-  inventoryTransfersFrom    InventoryTransfer[]        @relation("TransferSourceLocation")
-  inventoryTransfersTo      InventoryTransfer[]        @relation("TransferDestinationLocation")
-  inventoryCounts           InventoryCount[]
-  stockBalances             StockBalance[]
-  defaultMemberships        Membership[]               @relation("MembershipDefaultLocation")
-  authorizedMemberships     MembershipLocation[]
-  auditLogs                 AuditLog[]
-  createdById               String?
-  createdBy                 User?                      @relation("LocationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  updatedById               String?
-  updatedBy                 User?                      @relation("LocationUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
-  createdAt                 DateTime                   @default(now())
-  updatedAt                 DateTime                   @updatedAt
-  restaurantBookingSettings RestaurantBookingSettings?
-  restaurantBookingWidget   RestaurantBookingWidget?
-  crmOpportunities          CrmOpportunity[]
-  crmActivities             CrmActivity[]
+  id                           String                        @id @default(cuid())
+  slug                         String                        @unique @default(cuid())
+  companyId                    String
+  code                         String
+  name                         String
+  description                  String?
+  email                        String?
+  phone                        String?
+  address                      String?
+  city                         String?
+  province                     String?
+  postalCode                   String?
+  country                      String                        @default("IT")
+  timezone                     String                        @default("Europe/Rome")
+  currency                     String                        @default("EUR")
+  isHeadquarters               Boolean                       @default(false)
+  active                       Boolean                       @default(true)
+  deletedAt                    DateTime?
+  company                      Company                       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  warehouses                   Warehouse[]
+  documentSeries               DocumentSeries[]
+  businessDocuments            BusinessDocument[]
+  financialAccounts            FinancialAccount[]
+  paymentSchedules             PaymentSchedule[]
+  financialMovements           FinancialMovement[]
+  financialAllocations         FinancialAllocation[]
+  financialTransfers           FinancialTransfer[]
+  bankStatements               BankStatement[]
+  bankStatementLines           BankStatementLine[]
+  openBankingConnections       OpenBankingConnection[]
+  openBankingAccounts          OpenBankingAccount[]
+  restaurantAreas              RestaurantArea[]
+  restaurantTables             RestaurantTable[]
+  restaurantReservations       RestaurantReservation[]
+  restaurantServiceWindows     RestaurantServiceWindow[]
+  restaurantCalendarExceptions RestaurantCalendarException[]
+  restaurantTableCombinations  RestaurantTableCombination[]
+  restaurantMenus              RestaurantMenu[]
+  restaurantOrders             RestaurantOrder[]
+  restaurantOrderTables        RestaurantOrderTable[]
+  restaurantOrderLines         RestaurantOrderLine[]
+  kitchenStations              KitchenStation[]
+  kitchenTickets               KitchenTicket[]
+  kitchenTicketLines           KitchenTicketLine[]
+  recipeConsumptions           RecipeConsumption[]
+  inventoryLots                InventoryLot[]
+  inventorySerials             InventorySerial[]
+  inventoryMovements           InventoryMovement[]
+  inventoryTransfersFrom       InventoryTransfer[]           @relation("TransferSourceLocation")
+  inventoryTransfersTo         InventoryTransfer[]           @relation("TransferDestinationLocation")
+  inventoryCounts              InventoryCount[]
+  stockBalances                StockBalance[]
+  defaultMemberships           Membership[]                  @relation("MembershipDefaultLocation")
+  authorizedMemberships        MembershipLocation[]
+  auditLogs                    AuditLog[]
+  createdById                  String?
+  createdBy                    User?                         @relation("LocationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedById                  String?
+  updatedBy                    User?                         @relation("LocationUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt                    DateTime                      @default(now())
+  updatedAt                    DateTime                      @updatedAt
+  restaurantBookingSettings    RestaurantBookingSettings?
+  restaurantBookingWidget      RestaurantBookingWidget?
+  crmOpportunities             CrmOpportunity[]
+  crmActivities                CrmActivity[]
 
   @@unique([companyId, code])
   @@unique([companyId, id])
@@ -2032,22 +2052,23 @@ model OpenBankingSync {
 }
 
 model RestaurantArea {
-  id          String            @id @default(cuid())
-  companyId   String
-  locationId  String
-  code        String
-  name        String
-  description String?
-  sortOrder   Int               @default(0)
-  active      Boolean           @default(true)
-  createdById String?
-  updatedById String?
-  deletedAt   DateTime?
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
-  company     Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  location    Location          @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
-  tables      RestaurantTable[]
+  id           String                       @id @default(cuid())
+  companyId    String
+  locationId   String
+  code         String
+  name         String
+  description  String?
+  sortOrder    Int                          @default(0)
+  active       Boolean                      @default(true)
+  createdById  String?
+  updatedById  String?
+  deletedAt    DateTime?
+  createdAt    DateTime                     @default(now())
+  updatedAt    DateTime                     @updatedAt
+  company      Company                      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  location     Location                     @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+  tables       RestaurantTable[]
+  combinations RestaurantTableCombination[]
 
   @@unique([companyId, locationId, code])
   @@unique([companyId, id])
@@ -2055,34 +2076,38 @@ model RestaurantArea {
 }
 
 model RestaurantTable {
-  id           String                       @id @default(cuid())
-  companyId    String
-  locationId   String
-  areaId       String
-  code         String
-  name         String
-  seats        Int
-  minSeats     Int?
-  maxSeats     Int?
-  shape        String?
-  positionX    Decimal?                     @db.Decimal(10, 2)
-  positionY    Decimal?                     @db.Decimal(10, 2)
-  width        Decimal?                     @db.Decimal(10, 2)
-  height       Decimal?                     @db.Decimal(10, 2)
-  status       RestaurantTableStatus        @default(AVAILABLE)
-  combinable   Boolean                      @default(true)
-  active       Boolean                      @default(true)
-  deletedAt    DateTime?
-  createdAt    DateTime                     @default(now())
-  updatedAt    DateTime                     @updatedAt
-  company      Company                      @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  location     Location                     @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
-  area         RestaurantArea               @relation(fields: [companyId, areaId], references: [companyId, id], onDelete: Restrict)
-  reservations RestaurantReservationTable[]
-  orders       RestaurantOrder[]
+  id                String                            @id @default(cuid())
+  companyId         String
+  locationId        String
+  areaId            String
+  code              String
+  name              String
+  seats             Int
+  minSeats          Int?
+  maxSeats          Int?
+  shape             String?
+  positionX         Decimal?                          @db.Decimal(10, 2)
+  positionY         Decimal?                          @db.Decimal(10, 2)
+  width             Decimal?                          @db.Decimal(10, 2)
+  height            Decimal?                          @db.Decimal(10, 2)
+  rotation          Decimal?                          @db.Decimal(6, 2)
+  status            RestaurantTableStatus             @default(AVAILABLE)
+  combinable        Boolean                           @default(true)
+  active            Boolean                           @default(true)
+  deletedAt         DateTime?
+  createdAt         DateTime                          @default(now())
+  updatedAt         DateTime                          @updatedAt
+  company           Company                           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  location          Location                          @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+  area              RestaurantArea                    @relation(fields: [companyId, areaId], references: [companyId, id], onDelete: Restrict)
+  reservations      RestaurantReservationTable[]
+  orders            RestaurantOrder[]
+  combinationTables RestaurantTableCombinationTable[]
+  orderTables       RestaurantOrderTable[]
 
   @@unique([companyId, locationId, code])
   @@unique([companyId, id])
+  @@unique([companyId, locationId, id])
   @@index([companyId, locationId, status, deletedAt])
 }
 
@@ -2109,6 +2134,7 @@ model RestaurantReservation {
   privacyConsentAt      DateTime?
   depositAmount         Decimal?                     @db.Decimal(15, 2)
   depositScheduleId     String?
+  serviceWindowId       String?
   createdById           String?
   updatedById           String?
   cancelledAt           DateTime?
@@ -2119,6 +2145,7 @@ model RestaurantReservation {
   location              Location                     @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
   partner               Partner?                     @relation(fields: [companyId, partnerId], references: [companyId, id], onDelete: Restrict)
   depositSchedule       PaymentSchedule?             @relation(fields: [companyId, depositScheduleId], references: [companyId, id], onDelete: Restrict)
+  serviceWindow         RestaurantServiceWindow?     @relation(fields: [companyId, serviceWindowId], references: [companyId, id], onDelete: Restrict)
   tables                RestaurantReservationTable[]
   orders                RestaurantOrder[]
 
@@ -2129,25 +2156,107 @@ model RestaurantReservation {
 }
 
 model RestaurantBookingSettings {
-  id                        String   @id @default(cuid())
-  companyId                 String
-  locationId                String
-  enabled                   Boolean  @default(true)
-  openingHours              Json     @default("{}")
-  slotIntervalMinutes       Int      @default(30)
-  defaultDurationMinutes    Int      @default(120)
-  minAdvanceMinutes         Int      @default(60)
-  maxAdvanceDays            Int      @default(90)
-  maxCoversPerSlot          Int      @default(0)
-  confirmationMessage       String?
-  internalNotificationEmail String?
-  createdAt                 DateTime @default(now())
-  updatedAt                 DateTime @updatedAt
-  company                   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  location                  Location @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Cascade)
+  id                          String                              @id @default(cuid())
+  companyId                   String
+  locationId                  String
+  enabled                     Boolean                             @default(true)
+  openingHours                Json                                @default("{}")
+  slotIntervalMinutes         Int                                 @default(30)
+  defaultDurationMinutes      Int                                 @default(120)
+  minAdvanceMinutes           Int                                 @default(60)
+  maxAdvanceDays              Int                                 @default(90)
+  maxCoversPerSlot            Int                                 @default(0)
+  bufferBeforeMinutes         Int                                 @default(0)
+  bufferAfterMinutes          Int                                 @default(0)
+  confirmationPolicy          RestaurantBookingConfirmationPolicy @default(MANUAL)
+  cancellationEnabled         Boolean                             @default(true)
+  cancellationDeadlineMinutes Int                                 @default(1440)
+  customerCancellationMessage String?
+  noShowThresholdMinutes      Int                                 @default(30)
+  cancellationMessage         String?
+  confirmationMessage         String?
+  internalNotificationEmail   String?
+  createdAt                   DateTime                            @default(now())
+  updatedAt                   DateTime                            @updatedAt
+  company                     Company                             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location                    Location                            @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Cascade)
 
   @@unique([companyId, locationId])
   @@index([companyId, locationId, enabled])
+}
+
+model RestaurantServiceWindow {
+  id                     String                  @id @default(cuid())
+  companyId              String
+  locationId             String
+  name                   String
+  daysOfWeek             Int[]
+  startTime              String
+  endTime                String
+  slotIntervalMinutes    Int
+  defaultDurationMinutes Int
+  maxCovers              Int?
+  bufferBeforeMinutes    Int?
+  bufferAfterMinutes     Int?
+  active                 Boolean                 @default(true)
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  company                Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location               Location                @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Cascade)
+  reservations           RestaurantReservation[]
+
+  @@unique([companyId, id])
+  @@unique([companyId, locationId, name])
+  @@index([companyId, locationId, active])
+}
+
+model RestaurantCalendarException {
+  id         String                          @id @default(cuid())
+  companyId  String
+  locationId String
+  date       DateTime                        @db.Date
+  type       RestaurantCalendarExceptionType
+  intervals  Json                            @default("[]")
+  maxCovers  Int?
+  reason     String?
+  active     Boolean                         @default(true)
+  createdAt  DateTime                        @default(now())
+  updatedAt  DateTime                        @updatedAt
+  company    Company                         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location   Location                        @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Cascade)
+
+  @@unique([companyId, id])
+  @@index([companyId, locationId, date, active])
+}
+
+model RestaurantTableCombination {
+  id         String                            @id @default(cuid())
+  companyId  String
+  locationId String
+  areaId     String
+  name       String
+  active     Boolean                           @default(true)
+  createdAt  DateTime                          @default(now())
+  updatedAt  DateTime                          @updatedAt
+  company    Company                           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location   Location                          @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Cascade)
+  area       RestaurantArea                    @relation(fields: [companyId, areaId], references: [companyId, id], onDelete: Cascade)
+  tables     RestaurantTableCombinationTable[]
+
+  @@unique([companyId, id])
+  @@unique([companyId, locationId, name])
+  @@index([companyId, locationId, areaId, active])
+}
+
+model RestaurantTableCombinationTable {
+  companyId     String
+  combinationId String
+  tableId       String
+  combination   RestaurantTableCombination @relation(fields: [companyId, combinationId], references: [companyId, id], onDelete: Cascade)
+  table         RestaurantTable            @relation(fields: [companyId, tableId], references: [companyId, id], onDelete: Cascade)
+
+  @@id([companyId, combinationId, tableId])
+  @@index([companyId, tableId])
 }
 
 model RestaurantBookingWidget {
@@ -2377,11 +2486,28 @@ model RestaurantOrder {
   lines         RestaurantOrderLine[]
   tickets       KitchenTicket[]
   consumptions  RecipeConsumption[]
+  tables        RestaurantOrderTable[]
 
   @@unique([companyId, locationId, code])
   @@unique([companyId, id])
+  @@unique([companyId, locationId, id])
   @@unique([companyId, documentId])
   @@index([companyId, locationId, status])
+}
+
+model RestaurantOrderTable {
+  companyId  String
+  locationId String
+  orderId    String
+  tableId    String
+  createdAt  DateTime        @default(now())
+  company    Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  location   Location        @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+  order      RestaurantOrder @relation(fields: [companyId, locationId, orderId], references: [companyId, locationId, id], onDelete: Cascade)
+  table      RestaurantTable @relation(fields: [companyId, locationId, tableId], references: [companyId, locationId, id], onDelete: Restrict)
+
+  @@id([companyId, orderId, tableId])
+  @@index([companyId, locationId, tableId])
 }
 
 model RestaurantOrderLine {

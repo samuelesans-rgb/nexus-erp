@@ -64,7 +64,7 @@ async function resolveLocation(slug: string) {
       name: true,
       city: true,
       address: true,
-      restaurantBookingSettings: { select: { confirmationMessage: true } },
+      restaurantBookingSettings: { select: { confirmationMessage: true, confirmationPolicy: true, cancellationEnabled: true, cancellationDeadlineMinutes: true, customerCancellationMessage: true } },
     },
   });
 }
@@ -112,7 +112,8 @@ export async function submitPublicBooking(slug: string, rateKey: string, input: 
     startTime: parsed.data.startTime,
     partySize: parsed.data.partySize,
     locationName: location.name,
-    confirmationMessage: location.restaurantBookingSettings?.confirmationMessage ?? "La prenotazione è stata registrata. Attendi la conferma dello staff.",
+    status: location.restaurantBookingSettings?.confirmationPolicy === "AUTO_CONFIRM" ? "CONFIRMED" : "PENDING",
+    confirmationMessage: location.restaurantBookingSettings?.confirmationMessage ?? (location.restaurantBookingSettings?.confirmationPolicy === "AUTO_CONFIRM" ? "Prenotazione confermata." : "La prenotazione è stata registrata. Attendi la conferma dello staff."),
   };
 }
 
@@ -124,10 +125,13 @@ export async function cancelPublicBooking(slug: string, cancellationToken: strin
   const tokenHash = createHash("sha256").update(parsedToken.data).digest("hex");
   const reservation = await prisma.restaurantReservation.findFirst({
     where: { companyId: location.companyId, locationId: location.id, cancellationTokenHash: tokenHash, deletedAt: null },
-    select: { id: true, code: true, status: true },
+    select: { id: true, code: true, status: true, startTime: true },
   });
   if (!reservation) throw new PublicBookingError("Prenotazione non trovata.");
+  const policy = location.restaurantBookingSettings;
+  if (!policy?.cancellationEnabled) throw new PublicBookingError(policy?.customerCancellationMessage ?? "La cancellazione online non è abilitata.");
   if (reservation.status !== "CANCELLED") {
+    if (Date.now() > reservation.startTime.getTime() - policy.cancellationDeadlineMinutes * 60_000) throw new PublicBookingError(policy.customerCancellationMessage ?? "Il termine per la cancellazione online è scaduto. Contatta il ristorante.");
     if (!["PENDING", "CONFIRMED"].includes(reservation.status)) throw new PublicBookingError("La prenotazione non può essere annullata.");
     await transitionReservation(location.companyId, location.id, reservation.id, "CANCELLED");
   }

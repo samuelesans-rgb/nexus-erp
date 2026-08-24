@@ -1,48 +1,12 @@
 "use server";
-
-import { requireCurrentLocation } from "@/lib/location-access";
-import { MODULE_CODES } from "@/lib/module-catalog";
-import { requireRestaurantContext } from "@/lib/restaurant-access";
-import { canManageBookingSettings, RestaurantBookingSettingsError, saveRestaurantBookingSettings } from "@/lib/restaurant-booking-settings";
-import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
-
-const route = "/restaurant/settings/booking";
-const text = (formData: FormData, key: string) => String(formData.get(key) ?? "").trim();
-
-function openingHours(formData: FormData) {
-  return Object.fromEntries(Array.from({ length: 7 }, (_, day) => {
-    if (formData.get(`day-${day}-enabled`) !== "on") return [String(day), []];
-    const intervals = text(formData, `day-${day}-intervals`).split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
-      const match = line.match(/^([^\s-]+)\s*-\s*([^\s-]+)$/);
-      return match ? [match[1], match[2]] : [line, ""];
-    });
-    return [String(day), intervals];
-  }));
-}
-
-export async function saveBookingSettingsAction(formData: FormData) {
-  const [context, location] = await Promise.all([
-    requireRestaurantContext(MODULE_CODES.RESTAURANT_RESERVATIONS, "manage"),
-    requireCurrentLocation(),
-  ]);
-  if (!canManageBookingSettings(context.roles) || context.companyId !== location.companyId) redirect("/dashboard");
-  try {
-    await saveRestaurantBookingSettings(context.companyId, location.id, {
-      enabled: formData.get("enabled") === "on",
-      openingHours: openingHours(formData),
-      slotIntervalMinutes: Number(text(formData, "slotIntervalMinutes")),
-      defaultDurationMinutes: Number(text(formData, "defaultDurationMinutes")),
-      minAdvanceMinutes: Number(text(formData, "minAdvanceMinutes")),
-      maxAdvanceDays: Number(text(formData, "maxAdvanceDays")),
-      maxCoversPerSlot: Number(text(formData, "maxCoversPerSlot")),
-      internalNotificationEmail: text(formData, "internalNotificationEmail"),
-      confirmationMessage: text(formData, "confirmationMessage"),
-    });
-  } catch (error) {
-    const message = error instanceof RestaurantBookingSettingsError || error instanceof Error ? error.message : "Impostazioni non salvate.";
-    redirect(`${route}?error=${encodeURIComponent(message)}`);
-  }
-  revalidatePath(route);
-  redirect(`${route}?success=Impostazioni salvate`);
-}
+import { revalidatePath } from "next/cache";import { redirect } from "next/navigation";
+import { requireCurrentLocation } from "@/lib/location-access";import { MODULE_CODES } from "@/lib/module-catalog";import { requireRestaurantContext } from "@/lib/restaurant-access";
+import { canManageBookingSettings,saveRestaurantBookingSettings,saveServiceWindow,saveCalendarException } from "@/lib/restaurant-booking-settings";
+const route="/restaurant/settings/booking",text=(f:FormData,k:string)=>String(f.get(k)??"").trim();
+function openingHours(f:FormData){return Object.fromEntries(Array.from({length:7},(_,day)=>[String(day),f.get("day-"+day+"-enabled")==="on"?text(f,"day-"+day+"-intervals").split(/\r?\n/).map(x=>x.trim()).filter(Boolean).map(line=>{const m=line.match(/^([^\s-]+)\s*-\s*([^\s-]+)$/);return m?[m[1],m[2]]:[line,""]}):[]]))}
+function intervals(value:string){return value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean).map(line=>{const m=line.match(/^([^\s-]+)\s*-\s*([^\s-]+)$/);return m?[m[1],m[2]]:[line,""]})}
+async function ctx(){const[c,l]=await Promise.all([requireRestaurantContext(MODULE_CODES.RESTAURANT_RESERVATIONS,"manage"),requireCurrentLocation()]);if(!canManageBookingSettings(c.roles)||c.companyId!==l.companyId)redirect("/dashboard");return{...c,locationId:l.id}}
+const fail=(e:unknown)=>redirect(route+"?error="+encodeURIComponent(e instanceof Error?e.message:"Configurazione non salvata."));
+export async function saveBookingSettingsAction(f:FormData){const c=await ctx();try{await saveRestaurantBookingSettings(c.companyId,c.locationId,{enabled:f.get("enabled")==="on",openingHours:openingHours(f),slotIntervalMinutes:Number(text(f,"slotIntervalMinutes")),defaultDurationMinutes:Number(text(f,"defaultDurationMinutes")),minAdvanceMinutes:Number(text(f,"minAdvanceMinutes")),maxAdvanceDays:Number(text(f,"maxAdvanceDays")),maxCoversPerSlot:Number(text(f,"maxCoversPerSlot")),bufferBeforeMinutes:Number(text(f,"bufferBeforeMinutes")),bufferAfterMinutes:Number(text(f,"bufferAfterMinutes")),confirmationPolicy:text(f,"confirmationPolicy"),cancellationEnabled:f.get("cancellationEnabled")==="on",cancellationDeadlineMinutes:Number(text(f,"cancellationDeadlineMinutes")),customerCancellationMessage:text(f,"customerCancellationMessage"),noShowThresholdMinutes:Number(text(f,"noShowThresholdMinutes")),internalNotificationEmail:text(f,"internalNotificationEmail"),confirmationMessage:text(f,"confirmationMessage"),cancellationMessage:text(f,"cancellationMessage")})}catch(e){fail(e)}revalidatePath(route);redirect(route+"?success=Impostazioni salvate")}
+export async function saveServiceWindowAction(f:FormData){const c=await ctx();try{await saveServiceWindow(c.companyId,c.locationId,{name:text(f,"name"),daysOfWeek:f.getAll("daysOfWeek").map(Number),startTime:text(f,"startTime"),endTime:text(f,"endTime"),slotIntervalMinutes:Number(text(f,"slotIntervalMinutes")),defaultDurationMinutes:Number(text(f,"defaultDurationMinutes")),maxCovers:text(f,"maxCovers")?Number(text(f,"maxCovers")):null,bufferBeforeMinutes:text(f,"bufferBeforeMinutes")?Number(text(f,"bufferBeforeMinutes")):null,bufferAfterMinutes:text(f,"bufferAfterMinutes")?Number(text(f,"bufferAfterMinutes")):null,active:f.get("active")==="on"})}catch(e){fail(e)}revalidatePath(route);redirect(route+"?success=Servizio salvato")}
+export async function saveCalendarExceptionAction(f:FormData){const c=await ctx();try{await saveCalendarException(c.companyId,c.locationId,{date:text(f,"date"),type:text(f,"type"),intervals:intervals(text(f,"intervals")),maxCovers:text(f,"maxCovers")?Number(text(f,"maxCovers")):null,reason:text(f,"reason")||null,active:f.get("active")==="on"})}catch(e){fail(e)}revalidatePath(route);redirect(route+"?success=Eccezione salvata")}

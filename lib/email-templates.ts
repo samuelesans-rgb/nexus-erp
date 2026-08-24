@@ -13,6 +13,7 @@ export type BookingEmailDetails = {
   notes?: string | null;
   restaurantContact?: string | null;
   cancellationUrl?: string;
+  status?: "PENDING" | "CONFIRMED";
 };
 
 const formatter = new Intl.DateTimeFormat("it-IT", { dateStyle: "long", timeStyle: "short", timeZone: "Europe/Rome" });
@@ -42,13 +43,16 @@ function summaryHtml(details: BookingEmailDetails) {
 }
 
 export function bookingCustomerConfirmation(details: BookingEmailDetails): EmailMessage {
+  const confirmed = details.status === "CONFIRMED";
+  const label = confirmed ? "Prenotazione confermata" : "Prenotazione ricevuta";
+  const sentence = confirmed ? "la tua prenotazione è confermata." : "abbiamo ricevuto la tua prenotazione.";
   const cancellation = details.cancellationUrl ? `\nPer annullare in sicurezza: ${details.cancellationUrl}` : "";
   const cancellationHtml = details.cancellationUrl ? `<p><a href="${escapeHtml(details.cancellationUrl)}">Annulla la prenotazione</a></p>` : "";
   return {
     to: details.guestEmail,
-    subject: `Prenotazione ricevuta · ${details.locationName}`,
-    text: `Ciao ${details.guestName},\n\nabbiamo ricevuto la tua prenotazione.\n\n${summary(details)}${cancellation}`,
-    html: `<p>Ciao ${escapeHtml(details.guestName)},</p><p>abbiamo ricevuto la tua prenotazione.</p>${summaryHtml(details)}${cancellationHtml}`,
+    subject: `${label} · ${details.locationName}`,
+    text: `Ciao ${details.guestName},\n\n${sentence}\n\n${summary(details)}${cancellation}`,
+    html: `<p>Ciao ${escapeHtml(details.guestName)},</p><p>${escapeHtml(sentence)}</p>${summaryHtml(details)}${cancellationHtml}`,
   };
 }
 

@@ -172,6 +172,7 @@ test("Widget Designer: configurazione, preview responsive e snippet", async ({ p
     await prisma.restaurantBookingSettings.deleteMany({ where: { companyId: company.id, locationId } });
     await prisma.restaurantTable.deleteMany({ where: { id: table.id, companyId: company.id } });
     await prisma.restaurantArea.deleteMany({ where: { id: area.id, companyId: company.id } });
+    await prisma.auditLog.deleteMany({ where: { companyId: company.id, membershipId: membership.id } });
     await prisma.membershipRole.deleteMany({ where: { membershipId: membership.id } });
     await prisma.membership.delete({ where: { id: membership.id } });
     await prisma.location.delete({ where: { id: location.id } });
