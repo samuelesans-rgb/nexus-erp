@@ -282,6 +282,37 @@ enum KitchenTicketStatus {
   CANCELLED
 }
 
+enum KitchenDispatchType {
+  NEW
+  ADDITION
+  CHANGE
+  CANCELLATION
+}
+
+enum KitchenPrinterType {
+  MOCK
+  ESC_POS
+}
+
+enum KitchenPrinterConnectionType {
+  MOCK
+  NETWORK
+  USB
+}
+
+enum KitchenPrintJobStatus {
+  PENDING
+  PROCESSING
+  PRINTED
+  FAILED
+  CANCELLED
+}
+
+enum KitchenPrintJobType {
+  PRINT
+  REPRINT
+}
+
 enum IdempotencyStatus {
   PROCESSING
   SUCCEEDED
@@ -396,6 +427,9 @@ model Company {
   kitchenStationAssignments    KitchenStationAssignment[]
   kitchenTickets               KitchenTicket[]
   kitchenTicketLines           KitchenTicketLine[]
+  kitchenDispatches            KitchenDispatch[]
+  restaurantPrinters           RestaurantPrinter[]
+  kitchenPrintJobs             KitchenPrintJob[]
   recipeConsumptions           RecipeConsumption[]
   idempotencyRecords           IdempotencyRecord[]
   crmPipelines                 CrmPipeline[]
@@ -1263,6 +1297,9 @@ model Location {
   kitchenStations              KitchenStation[]
   kitchenTickets               KitchenTicket[]
   kitchenTicketLines           KitchenTicketLine[]
+  kitchenDispatches            KitchenDispatch[]
+  restaurantPrinters           RestaurantPrinter[]
+  kitchenPrintJobs             KitchenPrintJob[]
   recipeConsumptions           RecipeConsumption[]
   inventoryLots                InventoryLot[]
   inventorySerials             InventorySerial[]
@@ -2485,6 +2522,7 @@ model RestaurantOrder {
   document      BusinessDocument?       @relation(fields: [companyId, documentId], references: [companyId, id], onDelete: Restrict)
   lines         RestaurantOrderLine[]
   tickets       KitchenTicket[]
+  dispatches    KitchenDispatch[]
   consumptions  RecipeConsumption[]
   tables        RestaurantOrderTable[]
 
@@ -2547,6 +2585,7 @@ model RestaurantOrderLine {
   vatRate       VatRate                       @relation(fields: [companyId, vatRateId], references: [companyId, id], onDelete: Restrict)
   modifiers     RestaurantOrderLineModifier[]
   ticketLines   KitchenTicketLine[]
+  sentQuantity  Decimal                       @default(0) @db.Decimal(15, 3)
   consumptions  RecipeConsumption[]
 
   @@unique([companyId, id])
@@ -2587,6 +2626,8 @@ model KitchenStation {
   location    Location                   @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
   assignments KitchenStationAssignment[]
   tickets     KitchenTicket[]
+  printers    RestaurantPrinter[]
+  printJobs   KitchenPrintJob[]
 
   @@unique([companyId, locationId, code])
   @@unique([companyId, id])
@@ -2614,7 +2655,17 @@ model KitchenTicket {
   locationId       String
   kitchenStationId String
   orderId          String
+  dispatchId       String
   status           KitchenTicketStatus @default(NEW)
+  dispatchType     KitchenDispatchType
+  dispatchNumber   Int
+  orderCode        String
+  tableNames       Json
+  guestCount       Int
+  operatorName     String
+  stationCode      String
+  stationName      String
+  reprintCount     Int                 @default(0)
   createdAt        DateTime            @default(now())
   startedAt        DateTime?
   completedAt      DateTime?
@@ -2622,9 +2673,12 @@ model KitchenTicket {
   location         Location            @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
   station          KitchenStation      @relation(fields: [companyId, kitchenStationId], references: [companyId, id], onDelete: Restrict)
   order            RestaurantOrder     @relation(fields: [companyId, orderId], references: [companyId, id], onDelete: Restrict)
+  dispatch         KitchenDispatch     @relation(fields: [companyId, dispatchId], references: [companyId, id], onDelete: Restrict)
   lines            KitchenTicketLine[]
+  printJobs        KitchenPrintJob[]
 
   @@unique([companyId, id])
+  @@unique([companyId, dispatchId, kitchenStationId])
   @@index([companyId, kitchenStationId, status, createdAt])
 }
 
@@ -2634,6 +2688,15 @@ model KitchenTicketLine {
   locationId  String
   ticketId    String
   orderLineId String
+  dispatchId  String
+  quantity    Decimal             @db.Decimal(15, 3)
+  productName String
+  variantName String?
+  modifiers   Json
+  notes       String?
+  allergens   Json
+  stationCode String
+  stationName String
   status      KitchenTicketStatus @default(NEW)
   createdAt   DateTime            @default(now())
   updatedAt   DateTime            @updatedAt
@@ -2641,9 +2704,86 @@ model KitchenTicketLine {
   location    Location            @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
   ticket      KitchenTicket       @relation(fields: [companyId, ticketId], references: [companyId, id], onDelete: Cascade)
   orderLine   RestaurantOrderLine @relation(fields: [companyId, orderLineId], references: [companyId, id], onDelete: Restrict)
+  dispatch    KitchenDispatch     @relation(fields: [companyId, dispatchId], references: [companyId, id], onDelete: Restrict)
 
-  @@unique([companyId, ticketId, orderLineId])
+  @@unique([companyId, dispatchId, orderLineId])
   @@index([companyId, orderLineId])
+}
+
+model KitchenDispatch {
+  id             String              @id @default(cuid())
+  companyId      String
+  locationId     String
+  orderId        String
+  sequenceNumber Int
+  type           KitchenDispatchType
+  idempotencyKey String
+  createdById    String
+  createdAt      DateTime            @default(now())
+  company        Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  location       Location            @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+  order          RestaurantOrder     @relation(fields: [companyId, orderId], references: [companyId, id], onDelete: Restrict)
+  tickets        KitchenTicket[]
+  lines          KitchenTicketLine[]
+
+  @@unique([companyId, id])
+  @@unique([companyId, orderId, sequenceNumber])
+  @@unique([companyId, orderId, idempotencyKey])
+  @@index([companyId, locationId, createdAt])
+}
+
+model RestaurantPrinter {
+  id             String                       @id @default(cuid())
+  companyId      String
+  locationId     String
+  stationId      String
+  name           String
+  code           String
+  type           KitchenPrinterType           @default(MOCK)
+  connectionType KitchenPrinterConnectionType @default(MOCK)
+  address        String?
+  enabled        Boolean                      @default(true)
+  copies         Int                          @default(1)
+  paperWidth     Int                          @default(80)
+  createdAt      DateTime                     @default(now())
+  updatedAt      DateTime                     @updatedAt
+  company        Company                      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  location       Location                     @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+  station        KitchenStation               @relation(fields: [companyId, stationId], references: [companyId, id], onDelete: Restrict)
+  printJobs      KitchenPrintJob[]
+
+  @@unique([companyId, id])
+  @@unique([companyId, locationId, code])
+  @@index([companyId, locationId, stationId, enabled])
+}
+
+model KitchenPrintJob {
+  id             String                @id @default(cuid())
+  companyId      String
+  locationId     String
+  stationId      String
+  ticketId       String
+  printerId      String
+  type           KitchenPrintJobType   @default(PRINT)
+  status         KitchenPrintJobStatus @default(PENDING)
+  attempts       Int                   @default(0)
+  lastError      String?
+  payload        String
+  idempotencyKey String
+  requestedById  String
+  createdAt      DateTime              @default(now())
+  startedAt      DateTime?
+  printedAt      DateTime?
+  company        Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  location       Location              @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+  station        KitchenStation        @relation(fields: [companyId, stationId], references: [companyId, id], onDelete: Restrict)
+  ticket         KitchenTicket         @relation(fields: [companyId, ticketId], references: [companyId, id], onDelete: Restrict)
+  printer        RestaurantPrinter     @relation(fields: [companyId, printerId], references: [companyId, id], onDelete: Restrict)
+
+  @@unique([companyId, id])
+  @@unique([companyId, idempotencyKey])
+  @@index([companyId, locationId, status, createdAt])
+  @@index([companyId, printerId, status])
 }
 
 model RecipeConsumption {
