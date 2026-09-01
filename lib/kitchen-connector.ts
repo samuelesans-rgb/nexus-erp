@@ -76,7 +76,9 @@ export async function claimConnectorJob(device: { id: string; companyId: string;
     return tx.kitchenPrintJob.findFirst({ where: { id: jobId, companyId: device.companyId, locationId: device.locationId, connectorId: device.id }, include: { printer: true, ticket: { include: { order: { include: { tables: true } }, lines: { include: { orderLine: { include: { modifiers: true } } } } } } } });
   });
   if (!job) throw new ConnectorError("Job non disponibile o già acquisito.", 409);
-  const fusionOrder = job.ticket ? { tableIds: job.ticket.order.tables.map((row) => row.tableId), lines: job.ticket.lines.map((line) => ({ lineId: line.id, itemId: line.orderLine.itemId, quantity: Number(line.quantity), hasModifiers: line.orderLine.modifiers.length > 0, hasNotes: Boolean(line.notes) })) } : undefined;
+  const persistentMappings=job.ticket?await prisma.fusionCatalogMapping.findMany({where:{companyId:device.companyId,locationId:device.locationId,itemId:{in:job.ticket.lines.map(line=>line.orderLine.itemId)},missingFromFusion:false},select:{itemId:true,plu:true}}):[];
+  const pluByItem=new Map(persistentMappings.map(mapping=>[mapping.itemId,mapping.plu]));
+  const fusionOrder = job.ticket ? { tableIds: job.ticket.order.tables.map((row) => row.tableId), lines: job.ticket.lines.map((line) => ({ lineId: line.id, itemId: line.orderLine.itemId, plu:pluByItem.get(line.orderLine.itemId), quantity: Number(line.quantity), hasModifiers: line.orderLine.modifiers.length > 0, hasNotes: Boolean(line.notes) })) } : undefined;
   return { jobId: job.id, leaseToken, leaseExpiresAt: expires, payload: job.payload, printType: job.printType, copies: job.printer.copies, paperWidth: job.printer.paperWidth, printerType: job.printer.type, connectionType: job.printer.connectionType, attempts: job.attempts, fusionOrder };
 }
 

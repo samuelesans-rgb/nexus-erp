@@ -333,6 +333,13 @@ enum KitchenConnectorStatus {
   REVOKED
 }
 
+enum FusionCatalogSyncStatus {
+  READY
+  SYNCING
+  STALE
+  ERROR
+}
+
 enum IdempotencyStatus {
   PROCESSING
   SUCCEEDED
@@ -2821,39 +2828,90 @@ model KitchenPrintJob {
 }
 
 model KitchenConnectorDevice {
-  id                    String                 @id @default(cuid())
+  id                    String                  @id @default(cuid())
   companyId             String
   locationId            String
   printerId             String
   name                  String
-  status                KitchenConnectorStatus @default(PAIRED)
-  credentialHash        String                 @unique
+  status                KitchenConnectorStatus  @default(PAIRED)
+  credentialHash        String                  @unique
   credentialPrefix      String
-  credentialVersion     Int                    @default(1)
-  active                Boolean                @default(true)
-  leaseSeconds          Int                    @default(60)
-  pairedAt              DateTime               @default(now())
+  credentialVersion     Int                     @default(1)
+  active                Boolean                 @default(true)
+  leaseSeconds          Int                     @default(60)
+  pairedAt              DateTime                @default(now())
   lastHeartbeatAt       DateTime?
   lastSeenAt            DateTime?
   connectorVersion      String?
-  printerOnline         Boolean                @default(false)
+  printerOnline         Boolean                 @default(false)
   lastSuccessfulPrintAt DateTime?
-  queueDepth            Int                    @default(0)
-  failedJobs            Int                    @default(0)
+  queueDepth            Int                     @default(0)
+  failedJobs            Int                     @default(0)
   lastError             String?
   diagnostics           Json?
   serialConfig          Json?
   revokedAt             DateTime?
-  createdAt             DateTime               @default(now())
-  updatedAt             DateTime               @updatedAt
-  company               Company                @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  location              Location               @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
-  printer               RestaurantPrinter      @relation(fields: [companyId, printerId], references: [companyId, id], onDelete: Restrict)
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+  company               Company                 @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  location              Location                @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+  printer               RestaurantPrinter       @relation(fields: [companyId, printerId], references: [companyId, id], onDelete: Restrict)
   printJobs             KitchenPrintJob[]
+  fusionCatalogState    FusionCatalogSyncState?
 
   @@unique([companyId, id])
   @@unique([companyId, locationId, printerId, name])
   @@index([companyId, locationId, active, lastHeartbeatAt])
+}
+
+model FusionCatalogMapping {
+  id                String   @id @default(cuid())
+  companyId         String
+  locationId        String
+  itemId            String
+  plu               Int
+  synchronizedName  String
+  priceCents        Int?
+  fingerprint       String
+  missingFromFusion Boolean  @default(false)
+  needsReview       Boolean  @default(true)
+  firstSeenAt       DateTime @default(now())
+  lastSeenAt        DateTime @default(now())
+  lastChangedAt     DateTime @default(now())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([companyId, locationId, plu])
+  @@unique([companyId, locationId, itemId])
+  @@index([companyId, locationId, missingFromFusion])
+}
+
+model FusionCatalogSyncState {
+  id                     String                  @id @default(cuid())
+  companyId              String
+  locationId             String
+  connectorId            String                  @unique
+  status                 FusionCatalogSyncStatus @default(READY)
+  manualRequestVersion   Int                     @default(0)
+  consumedRequestVersion Int                     @default(0)
+  requestedAt            DateTime?
+  requestedById          String?
+  syncStartedAt          DateTime?
+  lastSyncAt             DateTime?
+  lastError              String?
+  totalCount             Int                     @default(0)
+  createdCount           Int                     @default(0)
+  updatedCount           Int                     @default(0)
+  unchangedCount         Int                     @default(0)
+  missingCount           Int                     @default(0)
+  errorCount             Int                     @default(0)
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  connector              KitchenConnectorDevice  @relation(fields: [companyId, connectorId], references: [companyId, id], onDelete: Cascade)
+
+  @@unique([companyId, locationId, connectorId])
+  @@unique([companyId, connectorId])
+  @@index([companyId, locationId, status])
 }
 
 model KitchenConnectorPairingToken {

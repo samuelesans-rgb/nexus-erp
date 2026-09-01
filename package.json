@@ -39,6 +39,8 @@
     "kitchen-connector:simulator": "tsx tools/kitchen-connector/simulator.ts",
     "kitchen-connector:fusion": "tsx tools/kitchen-connector/fusion.ts",
     "test:integration:fusion-xml1745": "node --import tsx --test tests/integration/fusion-xml1745.test.ts",
+    "test:integration:fusion-catalog": "node --import tsx --test tests/integration/fusion-catalog-sync.test.ts",
+    "test:integration:fusion-catalog-db": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/fusion-catalog-sync-db.test.ts",
     "test:integration:fusion-xml1745-db": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/fusion-xml1745-db.test.ts",
     "test:integration:management": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/management-dashboard.test.ts",
     "test:integration:sales-purchasing": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/sales-purchasing-location-scoping.test.ts",
