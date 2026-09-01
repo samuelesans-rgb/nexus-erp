@@ -292,12 +292,14 @@ enum KitchenDispatchType {
 enum KitchenPrinterType {
   MOCK
   ESC_POS
+  CUSTOM_KUBE
 }
 
 enum KitchenPrinterConnectionType {
   MOCK
   NETWORK
   USB
+  RS232
 }
 
 enum KitchenPrintJobStatus {
@@ -311,6 +313,22 @@ enum KitchenPrintJobStatus {
 enum KitchenPrintJobType {
   PRINT
   REPRINT
+}
+
+enum KitchenPrintType {
+  KITCHEN_TICKET
+  PREBILL
+  NON_FISCAL_RECEIPT
+  FISCAL_RECEIPT
+  TEST
+}
+
+enum KitchenConnectorStatus {
+  PAIRED
+  ONLINE
+  OFFLINE
+  DEGRADED
+  REVOKED
 }
 
 enum IdempotencyStatus {
@@ -430,6 +448,8 @@ model Company {
   kitchenDispatches            KitchenDispatch[]
   restaurantPrinters           RestaurantPrinter[]
   kitchenPrintJobs             KitchenPrintJob[]
+  kitchenConnectors            KitchenConnectorDevice[]
+  kitchenConnectorPairingTokens KitchenConnectorPairingToken[]
   recipeConsumptions           RecipeConsumption[]
   idempotencyRecords           IdempotencyRecord[]
   crmPipelines                 CrmPipeline[]
@@ -1300,6 +1320,8 @@ model Location {
   kitchenDispatches            KitchenDispatch[]
   restaurantPrinters           RestaurantPrinter[]
   kitchenPrintJobs             KitchenPrintJob[]
+  kitchenConnectors            KitchenConnectorDevice[]
+  kitchenConnectorPairingTokens KitchenConnectorPairingToken[]
   recipeConsumptions           RecipeConsumption[]
   inventoryLots                InventoryLot[]
   inventorySerials             InventorySerial[]
@@ -2751,6 +2773,8 @@ model RestaurantPrinter {
   location       Location                     @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
   station        KitchenStation               @relation(fields: [companyId, stationId], references: [companyId, id], onDelete: Restrict)
   printJobs      KitchenPrintJob[]
+  connectors     KitchenConnectorDevice[]
+  pairingTokens  KitchenConnectorPairingToken[]
 
   @@unique([companyId, id])
   @@unique([companyId, locationId, code])
@@ -2758,32 +2782,95 @@ model RestaurantPrinter {
 }
 
 model KitchenPrintJob {
-  id             String                @id @default(cuid())
+  id             String                  @id @default(cuid())
   companyId      String
   locationId     String
   stationId      String
-  ticketId       String
+  ticketId       String?
   printerId      String
-  type           KitchenPrintJobType   @default(PRINT)
-  status         KitchenPrintJobStatus @default(PENDING)
-  attempts       Int                   @default(0)
+  type           KitchenPrintJobType     @default(PRINT)
+  printType      KitchenPrintType        @default(KITCHEN_TICKET)
+  status         KitchenPrintJobStatus   @default(PENDING)
+  attempts       Int                     @default(0)
   lastError      String?
   payload        String
   idempotencyKey String
   requestedById  String
-  createdAt      DateTime              @default(now())
+  createdAt      DateTime                @default(now())
   startedAt      DateTime?
   printedAt      DateTime?
-  company        Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  location       Location              @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
-  station        KitchenStation        @relation(fields: [companyId, stationId], references: [companyId, id], onDelete: Restrict)
-  ticket         KitchenTicket         @relation(fields: [companyId, ticketId], references: [companyId, id], onDelete: Restrict)
-  printer        RestaurantPrinter     @relation(fields: [companyId, printerId], references: [companyId, id], onDelete: Restrict)
+  connectorId    String?
+  leaseTokenHash String?
+  leaseExpiresAt DateTime?
+  claimedAt      DateTime?
+  acknowledgedAt DateTime?
+  company        Company                 @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  location       Location                @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+  station        KitchenStation          @relation(fields: [companyId, stationId], references: [companyId, id], onDelete: Restrict)
+  ticket         KitchenTicket?          @relation(fields: [companyId, ticketId], references: [companyId, id], onDelete: Restrict)
+  printer        RestaurantPrinter       @relation(fields: [companyId, printerId], references: [companyId, id], onDelete: Restrict)
+  connector      KitchenConnectorDevice? @relation(fields: [companyId, connectorId], references: [companyId, id], onDelete: Restrict)
 
   @@unique([companyId, id])
   @@unique([companyId, idempotencyKey])
   @@index([companyId, locationId, status, createdAt])
   @@index([companyId, printerId, status])
+  @@index([companyId, locationId, connectorId, leaseExpiresAt])
+}
+
+model KitchenConnectorDevice {
+  id                    String                 @id @default(cuid())
+  companyId             String
+  locationId            String
+  printerId             String
+  name                  String
+  status                KitchenConnectorStatus @default(PAIRED)
+  credentialHash        String                 @unique
+  credentialPrefix      String
+  credentialVersion     Int                    @default(1)
+  active                Boolean                @default(true)
+  leaseSeconds          Int                    @default(60)
+  pairedAt              DateTime               @default(now())
+  lastHeartbeatAt       DateTime?
+  lastSeenAt            DateTime?
+  connectorVersion      String?
+  printerOnline         Boolean                @default(false)
+  lastSuccessfulPrintAt DateTime?
+  queueDepth            Int                    @default(0)
+  failedJobs            Int                    @default(0)
+  lastError             String?
+  diagnostics           Json?
+  serialConfig          Json?
+  revokedAt             DateTime?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  company               Company                @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  location              Location               @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+  printer               RestaurantPrinter      @relation(fields: [companyId, printerId], references: [companyId, id], onDelete: Restrict)
+  printJobs             KitchenPrintJob[]
+
+  @@unique([companyId, id])
+  @@unique([companyId, locationId, printerId, name])
+  @@index([companyId, locationId, active, lastHeartbeatAt])
+}
+
+model KitchenConnectorPairingToken {
+  id             String            @id @default(cuid())
+  companyId      String
+  locationId     String
+  printerId      String
+  tokenHash      String            @unique
+  expiresAt      DateTime
+  usedAt         DateTime?
+  usedByDeviceId String?
+  createdById    String
+  createdAt      DateTime          @default(now())
+  company        Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location       Location          @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Cascade)
+  printer        RestaurantPrinter @relation(fields: [companyId, printerId], references: [companyId, id], onDelete: Cascade)
+
+  @@unique([companyId, id])
+  @@index([companyId, locationId, expiresAt, usedAt])
 }
 
 model RecipeConsumption {
