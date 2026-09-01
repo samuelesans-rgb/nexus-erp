@@ -73,10 +73,11 @@ export async function claimConnectorJob(device: { id: string; companyId: string;
     if (candidate?.printType === "FISCAL_RECEIPT") throw new ConnectorError("Protocollo fiscale non certificato.", 422);
     const changed = await tx.kitchenPrintJob.updateMany({ where: { id: jobId, companyId: device.companyId, locationId: device.locationId, printerId: device.printerId, OR: [{ status: "PENDING" }, { status: "PROCESSING", leaseExpiresAt: { lt: now } }] }, data: { status: "PROCESSING", connectorId: device.id, leaseTokenHash: digest(leaseToken), leaseExpiresAt: expires, claimedAt: now, startedAt: now, attempts: { increment: 1 }, lastError: null } });
     if (!changed.count) return null;
-    return tx.kitchenPrintJob.findFirst({ where: { id: jobId, companyId: device.companyId, locationId: device.locationId, connectorId: device.id }, include: { printer: true } });
+    return tx.kitchenPrintJob.findFirst({ where: { id: jobId, companyId: device.companyId, locationId: device.locationId, connectorId: device.id }, include: { printer: true, ticket: { include: { order: { include: { tables: true } }, lines: { include: { orderLine: { include: { modifiers: true } } } } } } } });
   });
   if (!job) throw new ConnectorError("Job non disponibile o già acquisito.", 409);
-  return { jobId: job.id, leaseToken, leaseExpiresAt: expires, payload: job.payload, printType: job.printType, copies: job.printer.copies, paperWidth: job.printer.paperWidth, printerType: job.printer.type, connectionType: job.printer.connectionType };
+  const fusionOrder = job.ticket ? { tableIds: job.ticket.order.tables.map((row) => row.tableId), lines: job.ticket.lines.map((line) => ({ lineId: line.id, itemId: line.orderLine.itemId, quantity: Number(line.quantity), hasModifiers: line.orderLine.modifiers.length > 0, hasNotes: Boolean(line.notes) })) } : undefined;
+  return { jobId: job.id, leaseToken, leaseExpiresAt: expires, payload: job.payload, printType: job.printType, copies: job.printer.copies, paperWidth: job.printer.paperWidth, printerType: job.printer.type, connectionType: job.printer.connectionType, attempts: job.attempts, fusionOrder };
 }
 
 async function ownedLease(device: { id: string; companyId: string; locationId: string }, jobId: string, leaseToken: string) {

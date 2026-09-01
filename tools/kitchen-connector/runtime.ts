@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 export const HARDWARE_PROTOCOL_REQUIRED = "HARDWARE_PROTOCOL_REQUIRED";
 export const UNCERTAIN_PRINT_OUTCOME = "UNCERTAIN_PRINT_OUTCOME";
-export type ClaimedJob = { jobId:string;leaseToken:string;leaseExpiresAt:string;payload:string;printType:string;copies:number;paperWidth:number;printerType:string;connectionType:string };
+export type ClaimedJob = { jobId:string;leaseToken:string;leaseExpiresAt:string;payload:string;printType:string;copies:number;paperWidth:number;printerType:string;connectionType:string;attempts?:number;fusionOrder?:{tableIds:string[];lines:Array<{lineId:string;itemId:string;quantity:number;hasModifiers:boolean;hasNotes:boolean}>} };
 export type SpoolState = "RECEIVED"|"PRINTING"|"PRINTED"|"FAILED";
 export type SpoolRecord = ClaimedJob & { state:SpoolState;updatedAt:string;error?:string;printStartedAt?:string;printedAt?:string };
 export type SerialConfiguration = { devicePath:string;baudRate:number;dataBits:5|6|7|8;parity:"none"|"even"|"odd"|"mark"|"space";stopBits:1|1.5|2;flowControl:"none"|"hardware"|"software";readTimeoutMs:number;writeTimeoutMs:number };

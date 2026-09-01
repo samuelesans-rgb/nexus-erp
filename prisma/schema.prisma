@@ -293,6 +293,7 @@ enum KitchenPrinterType {
   MOCK
   ESC_POS
   CUSTOM_KUBE
+  FUSION_XML_1745
 }
 
 enum KitchenPrinterConnectionType {
@@ -300,6 +301,7 @@ enum KitchenPrinterConnectionType {
   NETWORK
   USB
   RS232
+  TCP
 }
 
 enum KitchenPrintJobStatus {
