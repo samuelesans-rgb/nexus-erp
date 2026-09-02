@@ -1,0 +1,51 @@
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { after, before, test } from "node:test";
+import { prisma } from "../../lib/prisma";
+import { configureFrisaFusionMenu } from "../../lib/restaurant-fusion-menu";
+import { isRestaurantMenuNameEligible, restaurantMenuPrice } from "../../lib/restaurant-menu-eligibility";
+
+const databaseName = new URL(process.env.DATABASE_URL ?? "postgresql://invalid/invalid").pathname.slice(1);
+if (!databaseName.endsWith("_test")) throw new Error("Restaurant Fusion Menu tests require a database ending in _test.");
+const suffix = randomUUID().slice(0, 8); let companyId = ""; let locationId = ""; let unitId = "";
+const products = [
+  [1, "PLU 138", 1000], [2, "plu 138", 1000], [3, "Prodotto PLU 138", 1000],
+  [4, "ORECCHIETTE PUGLIESI", 1200], [5, "PRODOTTO AMBIGUO", 900], [6, "FRITTI DELLA CASA", 0], [7, "", 0], [8, "PLACEHOLDER PLU 8", 0],
+] as const;
+before(async () => {
+  const company = await prisma.company.create({ data: { name: `Frisa ${suffix}`, vatNumber: `FRISA${suffix}` } }); companyId = company.id;
+  locationId = (await prisma.location.create({ data: { companyId, code: `F-${suffix}`, slug: `frisa-${suffix}`, name: "Frisà Bistrò" } })).id;
+  unitId = (await prisma.unitOfMeasure.create({ data: { companyId, code: `PZ-${suffix}`, name: "Pezzo", symbol: "pz" } })).id;
+  for (const [plu, name, priceCents] of products) {
+    const item = await prisma.item.create({ data: { companyId, code: `FUSION_${plu}`, name: name || " ", type: "PRODUCT", unitOfMeasureId: unitId, salePrice: priceCents / 100, sellable: true } });
+    await prisma.fusionCatalogMapping.create({ data: { companyId, locationId, itemId: item.id, plu, synchronizedName: name || " ", priceCents, fingerprint: String(plu).padStart(64, "0") } });
+  }
+});
+after(async () => {
+  await prisma.restaurantMenuItem.deleteMany({ where: { companyId } }); await prisma.restaurantMenuSection.deleteMany({ where: { companyId } }); await prisma.restaurantMenu.deleteMany({ where: { companyId } });
+  await prisma.fusionCatalogMapping.deleteMany({ where: { companyId } }); await prisma.item.deleteMany({ where: { companyId } }); await prisma.unitOfMeasure.deleteMany({ where: { companyId } }); await prisma.location.deleteMany({ where: { companyId } }); await prisma.company.delete({ where: { id: companyId } }); await prisma.$disconnect();
+});
+
+test("PLU filter is case-insensitive, substring based and reversible", () => {
+  assert.equal(isRestaurantMenuNameEligible("PLU 138"), false); assert.equal(isRestaurantMenuNameEligible("plu 138"), false); assert.equal(isRestaurantMenuNameEligible("Prodotto PLU 138"), false);
+  assert.equal(isRestaurantMenuNameEligible("TARTARE DI MANZO"), true); assert.equal(isRestaurantMenuNameEligible(""), false);
+  assert.equal(restaurantMenuPrice({ salePrice: 13.5, priceOverride: 99, fusionManaged: true }), 13.5); assert.equal(restaurantMenuPrice({ salePrice: 13.5, priceOverride: 15, fusionManaged: false }), 15);
+});
+test("configuration preserves mappings/items, uses Fusion prices and reports ambiguous records", async () => {
+  const beforeMappings = await prisma.fusionCatalogMapping.findMany({ where: { companyId }, select: { id: true, itemId: true, plu: true }, orderBy: { plu: "asc" } });
+  const beforeItems = await prisma.item.count({ where: { companyId } }); const result = await configureFrisaFusionMenu(prisma, companyId, locationId);
+  assert.deepEqual(result.menuCategories, ["ANTIPASTI", "FRISE", "PRIMI", "SECONDI", "FRITTI", "CONTORNI", "DOLCI", "BEVANDE"]); assert.equal(result.autoAssignedCount, 1); assert.equal(result.pluContainingProductsHidden, 4);
+  assert.deepEqual(result.unassignedProducts.map(({ plu }) => plu), [5, 6]); assert.deepEqual(result.zeroPriceRealProducts.map(({ plu }) => plu), [6]);
+  const menuItem = await prisma.restaurantMenuItem.findFirstOrThrow({ where: { companyId }, include: { item: true } }); assert.equal(menuItem.priceOverride, null); assert.equal(menuItem.item.salePrice?.toFixed(2), "12.00");
+  await prisma.item.update({ where: { id: menuItem.itemId }, data: { salePrice: 13.5 } }); const refreshed = await prisma.restaurantMenuItem.findUniqueOrThrow({ where: { id: menuItem.id }, include: { item: true } }); assert.equal(refreshed.item.salePrice?.toFixed(2), "13.50");
+  assert.deepEqual(await prisma.fusionCatalogMapping.findMany({ where: { companyId }, select: { id: true, itemId: true, plu: true }, orderBy: { plu: "asc" } }), beforeMappings); assert.equal(await prisma.item.count({ where: { companyId } }), beforeItems);
+});
+test("renaming a mapped PLU product makes it eligible without replacing mapping", async () => {
+  const mapping = await prisma.fusionCatalogMapping.findFirstOrThrow({ where: { companyId, plu: 1 } }); await prisma.item.update({ where: { id: mapping.itemId }, data: { name: "TARTARE DI MANZO" } });
+  const result = await configureFrisaFusionMenu(prisma, companyId, locationId, { dryRun: true }); assert.ok(result.unassignedProducts.some(({ plu }) => plu === 1)); assert.equal((await prisma.fusionCatalogMapping.findUniqueOrThrow({ where: { id: mapping.id } })).itemId, mapping.itemId);
+});
+test("configuration is idempotent and transactional", async () => {
+  await configureFrisaFusionMenu(prisma, companyId, locationId); await configureFrisaFusionMenu(prisma, companyId, locationId);
+  assert.equal(await prisma.restaurantMenu.count({ where: { companyId } }), 1); assert.equal(await prisma.restaurantMenuSection.count({ where: { companyId } }), 8); assert.equal(await prisma.restaurantMenuItem.count({ where: { companyId } }), 1);
+  await assert.rejects(configureFrisaFusionMenu(prisma, companyId, locationId, { failAfterSections: true }), /simulato/); assert.equal(await prisma.restaurantMenuSection.count({ where: { companyId } }), 8);
+});

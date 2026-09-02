@@ -1,6 +1,7 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import type { Prisma, RestaurantTableStatus } from "@/generated/prisma/client";
+import { restaurantMenuEligibleItemWhere } from "@/lib/restaurant-menu-eligibility";
 
 export class RestaurantDomainError extends Error {}
 export async function emitRestaurantEventTx(tx: Prisma.TransactionClient, companyId: string, eventType: string, aggregateType: string, aggregateId: string, payload: Prisma.InputJsonValue = {}) {
@@ -13,7 +14,7 @@ export async function getRestaurantOptions(companyId: string, locationId: string
   const [locations, partners, items, areas, tables, stations, warehouses, accounts, series] = await Promise.all([
     prisma.location.findMany({ where: { companyId, id: locationId, active: true, deletedAt: null }, select: { id: true, code: true, name: true } }),
     prisma.partner.findMany({ where: { companyId, active: true, deletedAt: null }, select: { id: true, name: true, displayName: true } }),
-    prisma.item.findMany({ where: { companyId, active: true, deletedAt: null, sellable: true, category: { active: true, deletedAt: null }, restaurantMenuItems: { some: { available: true, section: { active: true, menu: { locationId, active: true, deletedAt: null } } } } }, select: { id: true, code: true, name: true, type: true, salePrice: true, vatRateId: true, unitOfMeasureId: true, restaurantVariants: { where: { active: true, available: true, deletedAt: null }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }] }, restaurantModifierGroups: { where: { active: true, deletedAt: null }, include: { modifiers: { where: { active: true, deletedAt: null }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }] } }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }] } } }),
+    prisma.item.findMany({ where: { companyId, ...restaurantMenuEligibleItemWhere, category: { active: true, deletedAt: null }, restaurantMenuItems: { some: { available: true, section: { active: true, menu: { locationId, active: true, deletedAt: null } } } } }, select: { id: true, code: true, name: true, type: true, salePrice: true, vatRateId: true, unitOfMeasureId: true, restaurantVariants: { where: { active: true, available: true, deletedAt: null }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }] }, restaurantModifierGroups: { where: { active: true, deletedAt: null }, include: { modifiers: { where: { active: true, deletedAt: null }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }] } }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }] } } }),
     prisma.restaurantArea.findMany({ where: { companyId, locationId, active: true, deletedAt: null }, orderBy: { sortOrder: "asc" } }),
     prisma.restaurantTable.findMany({ where: { companyId, locationId, active: true, deletedAt: null }, orderBy: { code: "asc" } }),
     prisma.kitchenStation.findMany({ where: { companyId, locationId, active: true }, orderBy: { sortOrder: "asc" } }),

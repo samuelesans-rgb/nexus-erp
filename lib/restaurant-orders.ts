@@ -6,6 +6,7 @@ import { executeIdempotent } from "@/lib/idempotency";
 import { emitRestaurantEvent, emitRestaurantEventTx, RestaurantDomainError } from "@/lib/restaurant";
 import { restaurantFiscalAdapter } from "@/lib/restaurant-fiscal-adapter";
 import { lockRestaurantResources } from "@/lib/restaurant-locking";
+import { restaurantMenuEligibleItemWhere, restaurantMenuPrice } from "@/lib/restaurant-menu-eligibility";
 
 export async function openOrder(companyId:string,locationId:string,userId:string,input:{tableId?:string|null;tableIds?:string[];reservationId?:string|null;partnerId?:string|null;guestCount:number;serviceType:"DINE_IN"|"TAKEAWAY"|"DELIVERY"|"EVENT";notes?:string}){
   if(input.guestCount<1)throw new RestaurantDomainError("Numero coperti non valido.");
@@ -40,7 +41,7 @@ export async function addOrderLine(companyId:string,locationId:string,orderId:st
   const line=await prisma.$transaction(async tx=>{
     const [order,item]=await Promise.all([
       tx.restaurantOrder.findFirst({where:{id:orderId,companyId,locationId,status:{notIn:["CLOSED","CANCELLED"]}}}),
-      tx.item.findFirst({where:{id:input.itemId,companyId,sellable:true,active:true,deletedAt:null,category:{active:true,deletedAt:null}},include:{vatRate:true,restaurantMenuItems:{where:{available:true,section:{active:true,menu:{locationId,active:true,deletedAt:null}}},orderBy:{createdAt:"desc"},take:1},restaurantVariants:{where:{id:input.variantId??undefined,active:true,available:true,deletedAt:null}},restaurantModifierGroups:{where:{active:true,deletedAt:null},include:{modifiers:{where:{id:{in:modifierIds},active:true,deletedAt:null}}}}}})
+      tx.item.findFirst({where:{id:input.itemId,companyId,...restaurantMenuEligibleItemWhere,category:{active:true,deletedAt:null}},include:{vatRate:true,restaurantMenuItems:{where:{available:true,section:{active:true,menu:{locationId,active:true,deletedAt:null}}},orderBy:{createdAt:"desc"},take:1},restaurantVariants:{where:{id:input.variantId??undefined,active:true,available:true,deletedAt:null}},restaurantModifierGroups:{where:{active:true,deletedAt:null},include:{modifiers:{where:{id:{in:modifierIds},active:true,deletedAt:null}}}}}})
     ]);
     if(!order||!item||!item.vatRate||!item.vatRate.active||!item.restaurantMenuItems.length||input.quantity<=0)throw new RestaurantDomainError("Ordine o Item non valido.");
     const variant=input.variantId?item.restaurantVariants.find(row=>row.id===input.variantId):null;
@@ -48,7 +49,8 @@ export async function addOrderLine(companyId:string,locationId:string,orderId:st
     const selected=item.restaurantModifierGroups.flatMap(group=>group.modifiers.map(modifier=>({group,modifier})));
     if(selected.length!==modifierIds.length)throw new RestaurantDomainError("Modifier inattivo o non associato al prodotto.");
     for(const group of item.restaurantModifierGroups){const count=selected.filter(row=>row.group.id===group.id).length;if(count<group.minSelections||count>group.maxSelections||(group.required&&count===0))throw new RestaurantDomainError("Selezioni non valide per " + group.name + ".");}
-    const menuPrice=item.restaurantMenuItems[0]?.priceOverride;const catalogBase=Number(menuPrice??item.salePrice??0);
+    const fusionManaged=Boolean(await tx.fusionCatalogMapping.findFirst({where:{companyId,locationId,itemId:item.id,missingFromFusion:false},select:{id:true}}));
+    const catalogBase=restaurantMenuPrice({salePrice:item.salePrice,priceOverride:item.restaurantMenuItems[0]?.priceOverride,fusionManaged});
     const baseUnitPrice=variant?.priceOverride!=null?Number(variant.priceOverride):catalogBase+Number(variant?.priceDelta??0);
     const modifierTotal=selected.reduce((sum,row)=>sum+Number(row.modifier.priceDelta),0);const unitPrice=baseUnitPrice+modifierTotal;
     if(unitPrice<0)throw new RestaurantDomainError("Il prezzo finale non può essere negativo.");
