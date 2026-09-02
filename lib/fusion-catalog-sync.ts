@@ -5,12 +5,14 @@ import { ConnectorError } from "@/lib/kitchen-connector";
 import { prisma } from "@/lib/prisma";
 
 export type CatalogSyncItemInput={plu:number;name:string;priceCents:number|null;fingerprint:string};
-export type CatalogSyncInput={idempotencyKey:string;requestVersion:number;totalCount:number;unchangedCount:number;items:CatalogSyncItemInput[];missingPlus:number[]};
+export type CatalogSyncInput={idempotencyKey:string;requestVersion:number;totalCount:number;unchangedCount:number;placeholdersSkipped?:number;items:CatalogSyncItemInput[];missingPlus:number[]};
+const isPlaceholder=(item:{plu:number;name:string})=>item.name===`PLU${item.plu}`;
 const validItem=(item:CatalogSyncItemInput)=>Number.isInteger(item.plu)&&item.plu>0&&item.plu<=2_147_483_647&&item.name.length>0&&item.name.length<=200&&(item.priceCents===null||Number.isSafeInteger(item.priceCents)&&item.priceCents>=0)&&/^[a-f0-9]{64}$/.test(item.fingerprint);
 
 export async function syncFusionCatalog(device:{id:string;companyId:string;locationId:string},input:CatalogSyncInput){
   const itemPlus=input.items.map(item=>item.plu),uniquePlus=new Set(itemPlus);
-  if(!/^[A-Za-z0-9._:-]{8,120}$/.test(input.idempotencyKey)||!Number.isInteger(input.requestVersion)||input.requestVersion<0||!Number.isInteger(input.totalCount)||input.totalCount<0||!Number.isInteger(input.unchangedCount)||input.unchangedCount<0||input.items.length>500||input.missingPlus.length>10_000||input.items.some(item=>!validItem(item))||input.missingPlus.some(plu=>!Number.isInteger(plu)||plu<=0)||uniquePlus.size!==itemPlus.length)throw new ConnectorError("Payload catalogo non valido.",400);
+  if(!/^[A-Za-z0-9._:-]{8,120}$/.test(input.idempotencyKey)||!Number.isInteger(input.requestVersion)||input.requestVersion<0||!Number.isInteger(input.totalCount)||input.totalCount<0||!Number.isInteger(input.unchangedCount)||input.unchangedCount<0||!Number.isInteger(input.placeholdersSkipped??0)||(input.placeholdersSkipped??0)<0||input.items.length>500||input.missingPlus.length>10_000||input.items.some(item=>!validItem(item))||input.missingPlus.some(plu=>!Number.isInteger(plu)||plu<=0)||uniquePlus.size!==itemPlus.length)throw new ConnectorError("Payload catalogo non valido.",400);
+  const importableItems=input.items.filter(item=>!isPlaceholder(item)),placeholdersSkipped=(input.placeholdersSkipped??0)+(input.items.length-importableItems.length);
   return prisma.$transaction(async tx=>{
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${device.companyId}:${device.locationId}:fusion-catalog`}))`;
     const previous=await tx.idempotencyRecord.findUnique({where:{companyId_commandType_idempotencyKey:{companyId:device.companyId,commandType:"FUSION_CATALOG_SYNC",idempotencyKey:input.idempotencyKey}}});
@@ -18,9 +20,9 @@ export async function syncFusionCatalog(device:{id:string;companyId:string;locat
     if(previous)throw new ConnectorError("Sync già in elaborazione o fallita.",409);
     const idempotency=await tx.idempotencyRecord.create({data:{companyId:device.companyId,commandType:"FUSION_CATALOG_SYNC",idempotencyKey:input.idempotencyKey}});
     const uom=await tx.unitOfMeasure.findFirst({where:{companyId:device.companyId,code:"PZ",active:true,deletedAt:null},select:{id:true}});
-    if(!uom&&input.items.length)throw new ConnectorError("Unità di misura PZ non configurata.",422);
+    if(!uom&&importableItems.length)throw new ConnectorError("Unità di misura PZ non configurata.",422);
     let created=0,updated=0;
-    for(const incoming of input.items){
+    for(const incoming of importableItems){
       const mapping=await tx.fusionCatalogMapping.findUnique({where:{companyId_locationId_plu:{companyId:device.companyId,locationId:device.locationId,plu:incoming.plu}}});
       const salePrice=incoming.priceCents===null?null:(incoming.priceCents/100).toFixed(2);
       if(mapping){
@@ -34,7 +36,7 @@ export async function syncFusionCatalog(device:{id:string;companyId:string;locat
       }
     }
     if(input.missingPlus.length)await tx.fusionCatalogMapping.updateMany({where:{companyId:device.companyId,locationId:device.locationId,plu:{in:input.missingPlus}},data:{missingFromFusion:true}});
-    const result={created,updated,unchanged:input.unchangedCount,missing:input.missingPlus.length};
+    const result={created,updated,unchanged:input.unchangedCount,missing:input.missingPlus.length,placeholdersSkipped};
     await tx.fusionCatalogSyncState.upsert({where:{connectorId:device.id},create:{companyId:device.companyId,locationId:device.locationId,connectorId:device.id,status:"READY",consumedRequestVersion:input.requestVersion,lastSyncAt:new Date(),totalCount:input.totalCount,createdCount:created,updatedCount:updated,unchangedCount:input.unchangedCount,missingCount:input.missingPlus.length},update:{status:"READY",consumedRequestVersion:input.requestVersion,lastSyncAt:new Date(),lastError:null,totalCount:input.totalCount,createdCount:created,updatedCount:updated,unchangedCount:input.unchangedCount,missingCount:input.missingPlus.length}});
     await tx.idempotencyRecord.update({where:{id:idempotency.id},data:{status:"SUCCEEDED",result,completedAt:new Date()}});
     await writeAuditLogTx(tx,{companyId:device.companyId,locationId:device.locationId,action:"FUSION_CATALOG_SYNCED",entityType:"KitchenConnectorDevice",entityId:device.id,metadata:{...result,totalCount:input.totalCount}});

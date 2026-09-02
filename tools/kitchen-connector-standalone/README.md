@@ -56,11 +56,12 @@ export CATALOG_SYNC_ENABLED="false"
 export CATALOG_SYNC_INTERVAL_MS="30000"
 export CATALOG_SYNC_FULL_INTERVAL_MS="900000"
 export CATALOG_SYNC_MAX_BACKOFF_MS="300000"
+export CATALOG_SYNC_WATCHDOG_MS="300000"
 export FUSION_CATALOG_MAX_PLU="VERIFIED_UPPER_BOUND"
 export FUSION_CATALOG_SNAPSHOT="$HOME/.local/state/nexus-kitchen/catalog/fusion.json"
 ```
 
-`CATALOG_SYNC_INTERVAL_MS` cannot be below 10000. `FUSION_CATALOG_MAX_PLU` is mandatory when catalog sync is enabled because XML1745 provides no proven maximum or modified-since query.
+`CATALOG_SYNC_INTERVAL_MS` and `CATALOG_SYNC_WATCHDOG_MS` cannot be below 10000. The watchdog bounds the complete sync independently from the per-frame idle timeout. `FUSION_CATALOG_MAX_PLU` is mandatory when catalog sync is enabled because XML1745 provides no proven maximum or modified-since query.
 
 ## Run
 
