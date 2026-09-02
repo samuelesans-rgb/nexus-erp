@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import { prisma } from "../../lib/prisma";
-import { configureFrisaFusionMenu } from "../../lib/restaurant-fusion-menu";
+import { classifyFrisaMenuProduct, configureFrisaFusionMenu, FRISA_MENU_SECTIONS, isFrisaTechnicalItem } from "../../lib/restaurant-fusion-menu";
 import { isRestaurantMenuNameEligible, restaurantMenuPrice } from "../../lib/restaurant-menu-eligibility";
 
 const databaseName = new URL(process.env.DATABASE_URL ?? "postgresql://invalid/invalid").pathname.slice(1);
@@ -11,6 +11,7 @@ const suffix = randomUUID().slice(0, 8); let companyId = ""; let locationId = ""
 const products = [
   [1, "PLU 138", 1000], [2, "plu 138", 1000], [3, "Prodotto PLU 138", 1000],
   [4, "ORECCHIETTE PUGLIESI", 1200], [5, "PRODOTTO AMBIGUO", 900], [6, "FRITTI DELLA CASA", 0], [7, "", 0], [8, "PLACEHOLDER PLU 8", 0],
+  [9, "MENU", 1200], [10, "CAPPUCCINO SOIA", 250], [11, "DESSERT", 700],
 ] as const;
 before(async () => {
   const company = await prisma.company.create({ data: { name: `Frisa ${suffix}`, vatNumber: `FRISA${suffix}` } }); companyId = company.id;
@@ -31,21 +32,31 @@ test("PLU filter is case-insensitive, substring based and reversible", () => {
   assert.equal(isRestaurantMenuNameEligible("TARTARE DI MANZO"), true); assert.equal(isRestaurantMenuNameEligible(""), false);
   assert.equal(restaurantMenuPrice({ salePrice: 13.5, priceOverride: 99, fusionManaged: true }), 13.5); assert.equal(restaurantMenuPrice({ salePrice: 13.5, priceOverride: 15, fusionManaged: false }), 15);
 });
+test("deterministic classifier covers every menu category and keyword priority", () => {
+  const cases: [string, string][] = [
+    ["CAPPUCCINO SOIA", "COLAZIONE E CAFFETTERIA"], ["CORNETTO ARTIGIANALE", "PASTICCERIA"], ["RUSTICO LECCESE", "ROSTICCERIA"], ["ANTIPASTO DI MARE", "ANTIPASTI"],
+    ["FRISA DI MARE", "FRISE"], ["PACCHERI AL POLPO", "PRIMI"], ["TARTARE DI MANZO", "SECONDI"], ["FRITTURA MISTA", "FRITTI"], ["INSALATONA", "CONTORNI E INSALATE"],
+    ["DESSERT", "DOLCI"], ["ACQUA", "BEVANDE"], ["BIRRA MAHOU IPA", "BIRRE"], ["BOTT. FALANGHINA", "VINI"], ["AMARO", "DRINK E APERITIVI"], ["DEGUSTAZIONE MARE", "DEGUSTAZIONI"],
+  ];
+  assert.deepEqual(cases.map(([name]) => classifyFrisaMenuProduct(name)), cases.map(([, category]) => category));
+  assert.deepEqual([...new Set(cases.map(([name]) => classifyFrisaMenuProduct(name)))].sort(), [...FRISA_MENU_SECTIONS].sort());
+  assert.equal(classifyFrisaMenuProduct("DEGUSTAZIONE LATTICINI"), "ANTIPASTI"); assert.equal(isFrisaTechnicalItem("menu cena"), true); assert.equal(isFrisaTechnicalItem("MENU DELLO CHEF"), false);
+});
 test("configuration preserves mappings/items, uses Fusion prices and reports ambiguous records", async () => {
   const beforeMappings = await prisma.fusionCatalogMapping.findMany({ where: { companyId }, select: { id: true, itemId: true, plu: true }, orderBy: { plu: "asc" } });
   const beforeItems = await prisma.item.count({ where: { companyId } }); const result = await configureFrisaFusionMenu(prisma, companyId, locationId);
-  assert.deepEqual(result.menuCategories, ["ANTIPASTI", "FRISE", "PRIMI", "SECONDI", "FRITTI", "CONTORNI", "DOLCI", "BEVANDE"]); assert.equal(result.autoAssignedCount, 1); assert.equal(result.pluContainingProductsHidden, 4);
-  assert.deepEqual(result.unassignedProducts.map(({ plu }) => plu), [5, 6]); assert.deepEqual(result.zeroPriceRealProducts.map(({ plu }) => plu), [6]);
-  const menuItem = await prisma.restaurantMenuItem.findFirstOrThrow({ where: { companyId }, include: { item: true } }); assert.equal(menuItem.priceOverride, null); assert.equal(menuItem.item.salePrice?.toFixed(2), "12.00");
+  assert.deepEqual(result.menuCategories, [...FRISA_MENU_SECTIONS]); assert.equal(result.autoAssignedCount, 3); assert.equal(result.pluHiddenCount, 4); assert.equal(result.technicalHiddenCount, 1); assert.equal(result.zeroPriceReviewCount, 1); assert.equal(result.duplicateAssignments, 0);
+  assert.deepEqual(result.unassignedProducts.map(({ plu }) => plu), [5]); assert.deepEqual(result.zeroPriceReview.map(({ plu }) => plu), [6]); assert.deepEqual(result.technicalHidden.map(({ plu }) => plu), [9]);
+  const menuItem = await prisma.restaurantMenuItem.findFirstOrThrow({ where: { companyId, item: { name: "ORECCHIETTE PUGLIESI" } }, include: { item: true } }); assert.equal(menuItem.priceOverride, null); assert.equal(menuItem.item.salePrice?.toFixed(2), "12.00");
   await prisma.item.update({ where: { id: menuItem.itemId }, data: { salePrice: 13.5 } }); const refreshed = await prisma.restaurantMenuItem.findUniqueOrThrow({ where: { id: menuItem.id }, include: { item: true } }); assert.equal(refreshed.item.salePrice?.toFixed(2), "13.50");
   assert.deepEqual(await prisma.fusionCatalogMapping.findMany({ where: { companyId }, select: { id: true, itemId: true, plu: true }, orderBy: { plu: "asc" } }), beforeMappings); assert.equal(await prisma.item.count({ where: { companyId } }), beforeItems);
 });
 test("renaming a mapped PLU product makes it eligible without replacing mapping", async () => {
   const mapping = await prisma.fusionCatalogMapping.findFirstOrThrow({ where: { companyId, plu: 1 } }); await prisma.item.update({ where: { id: mapping.itemId }, data: { name: "TARTARE DI MANZO" } });
-  const result = await configureFrisaFusionMenu(prisma, companyId, locationId, { dryRun: true }); assert.ok(result.unassignedProducts.some(({ plu }) => plu === 1)); assert.equal((await prisma.fusionCatalogMapping.findUniqueOrThrow({ where: { id: mapping.id } })).itemId, mapping.itemId);
+  const result = await configureFrisaFusionMenu(prisma, companyId, locationId, { dryRun: true }); assert.ok(result.autoAssignedProducts.some(({ plu, category }) => plu === 1 && category === "SECONDI")); assert.equal((await prisma.fusionCatalogMapping.findUniqueOrThrow({ where: { id: mapping.id } })).itemId, mapping.itemId);
 });
 test("configuration is idempotent and transactional", async () => {
   await configureFrisaFusionMenu(prisma, companyId, locationId); await configureFrisaFusionMenu(prisma, companyId, locationId);
-  assert.equal(await prisma.restaurantMenu.count({ where: { companyId } }), 1); assert.equal(await prisma.restaurantMenuSection.count({ where: { companyId } }), 8); assert.equal(await prisma.restaurantMenuItem.count({ where: { companyId } }), 1);
-  await assert.rejects(configureFrisaFusionMenu(prisma, companyId, locationId, { failAfterSections: true }), /simulato/); assert.equal(await prisma.restaurantMenuSection.count({ where: { companyId } }), 8);
+  assert.equal(await prisma.restaurantMenu.count({ where: { companyId } }), 1); assert.equal(await prisma.restaurantMenuSection.count({ where: { companyId } }), 15); assert.equal(await prisma.restaurantMenuItem.count({ where: { companyId } }), 4);
+  await assert.rejects(configureFrisaFusionMenu(prisma, companyId, locationId, { failAfterSections: true }), /simulato/); assert.equal(await prisma.restaurantMenuSection.count({ where: { companyId } }), 15);
 });
