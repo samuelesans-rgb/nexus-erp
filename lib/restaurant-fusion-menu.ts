@@ -7,14 +7,17 @@ export type FrisaMenuSection = (typeof FRISA_MENU_SECTIONS)[number];
 export const normalizeFusionName = (name: string) => name.trim().replace(/[’`]/g, "'").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").toLocaleUpperCase("it-IT");
 
 const exactAssignments: Partial<Record<FrisaMenuSection, readonly string[]>> = {
+  "COLAZIONE E CAFFETTERIA": ["PANNA"],
+  PASTICCERIA: ["ALBICOCCA", "CIOCCOLATO", "VUOTA", "CREMA"],
   ANTIPASTI: ["ANTIPASTO DEL CONTADINO", "BURRATA", "DEGUSTAZIONE LATTICINI", "INSALATA DI MARE", "ANTIPASTO DI TERRA", "ANTIPASTO DI MARE", "CAPOCOLLO E PANCETTA", "SCAPECE ALLO ZAFFERANO"],
   FRISE: ["CRUMBLE VEGETALE", "CRUMBLE MARE", "MARE E FAVE"],
-  PRIMI: ["ORECCHIETTE PUGLIESI", "TRIA NCANNULATA AL SUGO", "RAVIOLI CREMA DI ZUCCA", "BIGOLI CREMA BASILICO", "ORECCHIETTE ANDATICCHIA", "CICERI E TRIA", "TRIA MEDITERRANEA", "PRIMO DI MARE", "ORECCHIETTE DI MARE", "TAGLIOLINI ALLO SCOGLIO", "CACIO E PEPE CON TARTARE", "SAGNE AL BACCALA", "TAGLIOLINI AL NERO", "TAGLIOLINI DI MARE", "PACCHERI AL POLPO"],
-  SECONDI: ["POLPO ALLA PIGNATA", "FILETTO DI ORATA", "PIGNATA DI MARE", "PARMIGIANA DI MELANZANE", "POLPETTE ALLA SALENTINA", "PEZZETTI ALLA SALENTINA", "BRACIOLE NEL SUO SUGO", "FAVE E CICORIE E BACCALA", "TRANCIO DI PESCE SPADA", "BRASATO CON POLENTA", "PARMIGIANA DI MARE", "FILETTO DI MAIALETTO", "POLPO IN PIGNATA", "TARTARE DI MANZO", "POLPETTE AL SUGO", "TAGLIATA CONTROFILETTO", "PEZZETTI AL SUGO", "BOMBETTE PUGLIESI", "FILETTO AL PEPE VERDE"],
+  PRIMI: ["PRIMO", "ORECCHIETTE PUGLIESI", "TRIA NCANNULATA AL SUGO", "RAVIOLI CREMA DI ZUCCA", "BIGOLI CREMA BASILICO", "ORECCHIETTE ANDATICCHIA", "CICERI E TRIA", "TRIA MEDITERRANEA", "PRIMO DI MARE", "ORECCHIETTE DI MARE", "TAGLIOLINI ALLO SCOGLIO", "CACIO E PEPE CON TARTARE", "SAGNE AL BACCALA", "TAGLIOLINI AL NERO", "TAGLIOLINI DI MARE", "PACCHERI AL POLPO"],
+  SECONDI: ["SECONDO", "POLPO ALLA PIGNATA", "FILETTO DI ORATA", "PIGNATA DI MARE", "PARMIGIANA DI MELANZANE", "POLPETTE ALLA SALENTINA", "PEZZETTI ALLA SALENTINA", "BRACIOLE NEL SUO SUGO", "FAVE E CICORIE E BACCALA", "TRANCIO DI PESCE SPADA", "BRASATO CON POLENTA", "PARMIGIANA DI MARE", "FILETTO DI MAIALETTO", "POLPO IN PIGNATA", "TARTARE DI MANZO", "POLPETTE AL SUGO", "TAGLIATA CONTROFILETTO", "PEZZETTI AL SUGO", "BOMBETTE PUGLIESI", "FILETTO AL PEPE VERDE"],
   FRITTI: ["FRITTURA DI PARANZA", "COZZE FRITTE", "PITTULE", "CROCCHETTE DI PATATE", "POLPETTE DI VERDURE", "MUERSI FRITTI", "FRITTURA MISTA"],
 };
 const exactCategory = new Map(Object.entries(exactAssignments).flatMap(([category, names]) => (names ?? []).map((name) => [normalizeFusionName(name), category as FrisaMenuSection])));
 const technicalNames = new Set(["MENU", "PRANZO", "MENU CENA", "COLAZIONE", "COPERTO", "ASPORTO", "SERVIZIO", "SENZA GLUTINE"]);
+export const FRISA_LEGACY_HIDDEN_PLUS = new Set([19, 20, 115]);
 export const isFrisaTechnicalItem = (name: string) => technicalNames.has(normalizeFusionName(name));
 const has = (name: string, values: readonly string[]) => values.some((value) => name.includes(value));
 
@@ -49,12 +52,13 @@ export async function configureFrisaFusionMenu(client: PrismaClient, companyId: 
     const eligible = mappings.filter(({ item }) => isRestaurantMenuItemEligible(item));
     const pluHidden = mappings.filter(({ item }) => /PLU/i.test(item.name));
     const technicalHidden = eligible.filter(({ item }) => isFrisaTechnicalItem(item.name));
+    const legacyHidden = eligible.filter(({ plu }) => FRISA_LEGACY_HIDDEN_PLUS.has(plu));
     const zeroPriceReview = eligible.filter(({ item }) => Number(item.salePrice ?? 0) === 0);
-    const assignable = eligible.filter(({ item }) => !isFrisaTechnicalItem(item.name) && Number(item.salePrice ?? 0) > 0);
+    const assignable = eligible.filter(({ item, plu }) => !isFrisaTechnicalItem(item.name) && !FRISA_LEGACY_HIDDEN_PLUS.has(plu) && Number(item.salePrice ?? 0) > 0);
     const assigned = assignable.flatMap((mapping) => { const section = classifyFrisaMenuProduct(mapping.item.name); return section ? [{ mapping, section }] : []; });
     const assignedIds = new Set(assigned.map(({ mapping }) => mapping.itemId));
     const unassigned = assignable.filter(({ itemId }) => !assignedIds.has(itemId));
-    const unavailableIds = [...new Set([...pluHidden, ...technicalHidden, ...zeroPriceReview].map(({ itemId }) => itemId))];
+    const unavailableIds = [...new Set([...pluHidden, ...technicalHidden, ...legacyHidden, ...zeroPriceReview].map(({ itemId }) => itemId))];
     if (!options.dryRun) {
       const menu = await tx.restaurantMenu.upsert({ where: { companyId_code: { companyId, code: "FRISA_BISTRO" } }, create: { companyId, locationId, code: "FRISA_BISTRO", name: "Frisà Bistrò", active: true }, update: { locationId, name: "Frisà Bistrò", active: true, deletedAt: null } });
       const sections = new Map<string, string>();
@@ -65,6 +69,6 @@ export async function configureFrisaFusionMenu(client: PrismaClient, companyId: 
     }
     const row = (value: (typeof mappings)[number]) => ({ plu: value.plu, name: value.item.name, price: value.item.salePrice?.toFixed(2) ?? null });
     const categoryCounts = Object.fromEntries(FRISA_MENU_SECTIONS.map((category) => [category, assigned.filter(({ section }) => section === category).length]));
-    return { menuCategories: [...FRISA_MENU_SECTIONS], catalogItemsAnalyzed: mappings.length, eligibleRealProducts: eligible.length, pluHiddenCount: pluHidden.length, technicalHiddenCount: technicalHidden.length, technicalHidden: technicalHidden.map(row), zeroPriceReviewCount: zeroPriceReview.length, zeroPriceReview: zeroPriceReview.map(row), autoAssignedCount: assigned.length, autoAssignedProducts: assigned.map(({ mapping, section }) => ({ category: section, ...row(mapping) })), categoryCounts, unassignedCount: unassigned.length, unassignedProducts: unassigned.map(row), duplicateAssignments: assigned.length - new Set(assigned.map(({ mapping }) => mapping.itemId)).size, dryRun: options.dryRun ?? false };
+    return { menuCategories: [...FRISA_MENU_SECTIONS], catalogItemsAnalyzed: mappings.length, eligibleRealProducts: eligible.length, pluHiddenCount: pluHidden.length, technicalHiddenCount: technicalHidden.length, technicalHidden: technicalHidden.map(row), legacyHiddenCount: legacyHidden.length, legacyHidden: legacyHidden.map(row), zeroPriceReviewCount: zeroPriceReview.length, zeroPriceReview: zeroPriceReview.map(row), autoAssignedCount: assigned.length, autoAssignedProducts: assigned.map(({ mapping, section }) => ({ category: section, ...row(mapping) })), categoryCounts, unassignedCount: unassigned.length, unassignedProducts: unassigned.map(row), duplicateAssignments: assigned.length - new Set(assigned.map(({ mapping }) => mapping.itemId)).size, dryRun: options.dryRun ?? false };
   }, { isolationLevel: "Serializable" });
 }
