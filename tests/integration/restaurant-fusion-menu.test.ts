@@ -40,7 +40,7 @@ test("deterministic classifier covers every menu category and keyword priority",
   ];
   assert.deepEqual(cases.map(([name]) => classifyFrisaMenuProduct(name)), cases.map(([, category]) => category));
   assert.deepEqual([...new Set(cases.map(([name]) => classifyFrisaMenuProduct(name)))].sort(), [...FRISA_MENU_SECTIONS].sort());
-  assert.equal(classifyFrisaMenuProduct("DEGUSTAZIONE LATTICINI"), "ANTIPASTI"); assert.equal(isFrisaTechnicalItem("menu cena"), true); assert.equal(isFrisaTechnicalItem("MENU DELLO CHEF"), false);
+  assert.equal(classifyFrisaMenuProduct("DEGUSTAZIONE LATTICINI"), "ANTIPASTI"); assert.equal(classifyFrisaMenuProduct("FRISE ORZO"), "FRISE"); assert.equal(isFrisaTechnicalItem("menu cena"), true); assert.equal(isFrisaTechnicalItem("MENU DELLO CHEF"), false);
 });
 test("configuration preserves mappings/items, uses Fusion prices and reports ambiguous records", async () => {
   const beforeMappings = await prisma.fusionCatalogMapping.findMany({ where: { companyId }, select: { id: true, itemId: true, plu: true }, orderBy: { plu: "asc" } });

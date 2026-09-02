@@ -24,10 +24,10 @@ export function classifyFrisaMenuProduct(name: string): FrisaMenuSection | null 
   if (has(value, ["CALICE DI VINO", "VINO DELLA CASA", "BOTT.", "BOTTIGLIA DI VINO", "FALANGHINA", "BONSIGNORE", "CARMINIO", "AMARONE", "KRASI'", "METODO CLASSICO", "FERRARI", "PRIMITIVO", "VEUVE CLICQUOT", "NEGROAMARO", "CHAMPAGNE"])) return "VINI";
   if (has(value, ["DRINK", "APERITIVO", "SUPERALCOLICO", "AMARO"])) return "DRINK E APERITIVI";
   if (value.includes("DEGUSTAZIONE")) return "DEGUSTAZIONI";
+  if (value.includes("FRISA") || value.includes("FRISE")) return "FRISE";
   if (has(value, ["CAPPUCCINO", "MAROCCHINO", "GINSENG", "ORZO", "LATTE", "CIOCCOLATA CALDA", "SHAKERATO", "CAFFE", "SOIA", "SPREMUTA", "SUCCO DI FRUTTA", "CENTRIFUGA", "TISANA"])) return "COLAZIONE E CAFFETTERIA";
   if (has(value, ["CROISSANT", "CORNETTO", "PASTICCIOTTO", "MIGNON", "CROSTATINA", "BISCOTTO", "FROLLA", "PASTICCERIA", "TORTA", "BRIOCHE", "CREMA E AMARENA", "CREMA E CIOCCOLATO", "CREMA E PISTACCHIO"])) return "PASTICCERIA";
   if (has(value, ["ROSTICCERIA", "RUSTICO LECCESE", "RUSTICO FARCITO", "SFOGLIA SALATA", "PANINO", "PITTA FRITTA"])) return "ROSTICCERIA";
-  if (value.includes("FRISA") || value.includes("FRISE")) return "FRISE";
   if (has(value, ["TAGLIOLINI", "ORECCHIETTE", "PACCHERI", "RAVIOLI", "BIGOLI", "CICERI E TRIA", "TRIA ", "SAGNE", "CACIO E PEPE"])) return "PRIMI";
   if (has(value, ["FILETTO", "POLPETTE", "PEZZETTI", "BRACIOLE", "BRASATO", "PARMIGIANA", "PIGNATA", "TARTARE", "TAGLIATA", "BOMBETTE", "TRANCIO DI PESCE", "FAVE E CICORIE"])) return "SECONDI";
   if (has(value, ["FRITTURA", "FRITTO", "FRITTI", "PITTULE", "CROCCHETTE"])) return "FRITTI";
