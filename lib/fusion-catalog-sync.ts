@@ -7,13 +7,13 @@ import { ConnectorError } from "@/lib/kitchen-connector";
 import { prisma } from "@/lib/prisma";
 
 export type CatalogSyncItemInput={plu:number;name:string;priceCents:number|null;fingerprint:string};
-export type CatalogSyncInput={runId?:string;idempotencyKey:string;requestVersion:number;totalCount:number;unchangedCount:number;placeholdersSkipped?:number;items:CatalogSyncItemInput[];missingPlus:number[]};
+export type CatalogSyncInput={runId?:string;idempotencyKey:string;requestVersion:number;totalCount:number;unchangedCount:number;placeholdersSkipped?:number;emptySlotsSkipped?:number;items:CatalogSyncItemInput[];missingPlus:number[]};
 const isPlaceholder=(item:{plu:number;name:string})=>item.name===`PLU${item.plu}`;
 const validItem=(item:CatalogSyncItemInput)=>Number.isInteger(item.plu)&&item.plu>0&&item.plu<=2_147_483_647&&item.name.length>0&&item.name.length<=200&&(item.priceCents===null||Number.isSafeInteger(item.priceCents)&&item.priceCents>=0)&&/^[a-f0-9]{64}$/.test(item.fingerprint);
 const validRunId=(value:string)=>/^[A-Za-z0-9._:-]{8,120}$/.test(value);
 const runCommand="FUSION_CATALOG_RUN";
 type Device={id:string;companyId:string;locationId:string};
-type SyncResult={created:number;updated:number;unchanged:number;missing:number;placeholdersSkipped:number};
+type SyncResult={created:number;updated:number;unchanged:number;missing:number;placeholdersSkipped:number;emptySlotsSkipped:number};
 
 async function activeRun(tx:Prisma.TransactionClient,device:Device,runId?:string){
   if(runId){const run=await tx.idempotencyRecord.findUnique({where:{companyId_commandType_idempotencyKey:{companyId:device.companyId,commandType:runCommand,idempotencyKey:runId}}});return run?.aggregateType==="KitchenConnectorDevice"&&run.aggregateId===device.id?run:null;}
@@ -45,7 +45,7 @@ export async function failFusionCatalogSync(device:Device,runId:string|undefined
 
 export async function syncFusionCatalog(device:Device,input:CatalogSyncInput){
   const itemPlus=input.items.map(item=>item.plu),uniquePlus=new Set(itemPlus);
-  if(!/^[A-Za-z0-9._:-]{8,120}$/.test(input.idempotencyKey)||!Number.isInteger(input.requestVersion)||input.requestVersion<0||!Number.isInteger(input.totalCount)||input.totalCount<0||!Number.isInteger(input.unchangedCount)||input.unchangedCount<0||!Number.isInteger(input.placeholdersSkipped??0)||(input.placeholdersSkipped??0)<0||input.items.length>500||input.missingPlus.length>10_000||input.items.some(item=>!validItem(item))||input.missingPlus.some(plu=>!Number.isInteger(plu)||plu<=0)||uniquePlus.size!==itemPlus.length)throw new ConnectorError("Payload catalogo non valido.",400);
+  if(!/^[A-Za-z0-9._:-]{8,120}$/.test(input.idempotencyKey)||!Number.isInteger(input.requestVersion)||input.requestVersion<0||!Number.isInteger(input.totalCount)||input.totalCount<0||!Number.isInteger(input.unchangedCount)||input.unchangedCount<0||!Number.isInteger(input.placeholdersSkipped??0)||(input.placeholdersSkipped??0)<0||!Number.isInteger(input.emptySlotsSkipped??0)||(input.emptySlotsSkipped??0)<0||input.items.length>500||input.missingPlus.length>10_000||input.items.some(item=>!validItem(item))||input.missingPlus.some(plu=>!Number.isInteger(plu)||plu<=0)||uniquePlus.size!==itemPlus.length)throw new ConnectorError("Payload catalogo non valido.",400);
   const importableItems=input.items.filter(item=>!isPlaceholder(item)),placeholdersSkipped=(input.placeholdersSkipped??0)+(input.items.length-importableItems.length);
   return prisma.$transaction(async tx=>{
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${device.companyId}:${device.locationId}:fusion-catalog-run`}))`;
@@ -70,8 +70,8 @@ export async function syncFusionCatalog(device:Device,input:CatalogSyncInput){
       }
     }
     if(!replayed&&input.missingPlus.length)await tx.fusionCatalogMapping.updateMany({where:{companyId:device.companyId,locationId:device.locationId,plu:{in:input.missingPlus}},data:{missingFromFusion:true}});
-    const result={created,updated,unchanged:input.unchangedCount,missing:input.missingPlus.length,placeholdersSkipped};
-    const completedAt=new Date();await tx.fusionCatalogSyncState.upsert({where:{connectorId:device.id},create:{companyId:device.companyId,locationId:device.locationId,connectorId:device.id,status:"READY",consumedRequestVersion:input.requestVersion,lastSyncAt:completedAt,totalCount:input.totalCount,createdCount:created,updatedCount:updated,unchangedCount:input.unchangedCount,missingCount:input.missingPlus.length},update:{status:"READY",syncStartedAt:null,consumedRequestVersion:input.requestVersion,lastSyncAt:completedAt,lastError:null,totalCount:input.totalCount,createdCount:created,updatedCount:updated,unchangedCount:input.unchangedCount,missingCount:input.missingPlus.length}});
+    const result={created,updated,unchanged:input.unchangedCount,missing:input.missingPlus.length,placeholdersSkipped,emptySlotsSkipped:input.emptySlotsSkipped??0};
+    const completedAt=new Date();await tx.fusionCatalogSyncState.upsert({where:{connectorId:device.id},create:{companyId:device.companyId,locationId:device.locationId,connectorId:device.id,status:"READY",consumedRequestVersion:input.requestVersion,lastSyncAt:completedAt,totalCount:input.totalCount,createdCount:created,updatedCount:updated,unchangedCount:input.unchangedCount,missingCount:input.missingPlus.length,emptySlotsSkipped:input.emptySlotsSkipped??0},update:{status:"READY",syncStartedAt:null,consumedRequestVersion:input.requestVersion,lastSyncAt:completedAt,lastError:null,totalCount:input.totalCount,createdCount:created,updatedCount:updated,unchangedCount:input.unchangedCount,missingCount:input.missingPlus.length,emptySlotsSkipped:input.emptySlotsSkipped??0}});
     if(idempotency)await tx.idempotencyRecord.update({where:{id:idempotency.id},data:{status:"SUCCEEDED",result,completedAt:new Date()}});
     await tx.idempotencyRecord.update({where:{id:run.id},data:{status:"SUCCEEDED",result,completedAt}});await writeAuditLogTx(tx,{companyId:device.companyId,locationId:device.locationId,action:"FUSION_CATALOG_SYNCED",entityType:"KitchenConnectorDevice",entityId:device.id,metadata:{...result,totalCount:input.totalCount,runId:run.id}});
     return result;

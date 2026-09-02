@@ -2904,6 +2904,7 @@ model FusionCatalogSyncState {
   updatedCount           Int                     @default(0)
   unchangedCount         Int                     @default(0)
   missingCount           Int                     @default(0)
+  emptySlotsSkipped      Int                     @default(0)
   errorCount             Int                     @default(0)
   createdAt              DateTime                @default(now())
   updatedAt              DateTime                @updatedAt
