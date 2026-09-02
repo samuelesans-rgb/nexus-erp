@@ -6,12 +6,24 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { FusionCatalogSyncController } from "../dist/kitchen-connector/catalog-sync-runtime.js";
-import { catalogFingerprint, FusionCatalogReader, FusionCatalogSnapshotStore, reconcileCatalog } from "../dist/kitchen-connector/fusion-catalog.js";
+import { catalogFingerprint, FusionCatalogError, FusionCatalogReader, FusionCatalogSnapshotStore, parseFusionCatalogFrame, reconcileCatalog } from "../dist/kitchen-connector/fusion-catalog.js";
 import { FusionDeliveryLedger, FusionXml1745Error, FusionXml1745PrinterAdapter, validateFusionConfig } from "../dist/kitchen-connector/fusion-xml1745.js";
 import { JsonSpool, KitchenConnectorClient, SimulatorPrinterAdapter } from "../dist/kitchen-connector/runtime.js";
 
 const close = server => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
 const listen = server => new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+
+test("catalog parser exposes bounded fail-closed diagnostics in standalone", () => {
+  const frame = `<CE><DATA_SEND><PLU>201<DESC></DESC><PRICE>1000</PRICE></PLU></DATA_SEND></CE>${"x".repeat(600)}`;
+  assert.throws(() => parseFusionCatalogFrame(frame), error => {
+    assert.ok(error instanceof FusionCatalogError);
+    assert.equal(error.code, "INVALID_FRAME_STRUCTURE");
+    assert.equal(error.diagnostic.frameByteLength, Buffer.byteLength(frame));
+    assert.equal(Buffer.from(error.diagnostic.frameHex, "hex").length, 512);
+    assert.equal(error.diagnostic.truncated, true);
+    return true;
+  });
+});
 
 test("heartbeat, claim, ACK and restart recovery use the standalone HTTP client", async () => {
   const directory = await mkdtemp(join(tmpdir(), "nexus-standalone-http-"));

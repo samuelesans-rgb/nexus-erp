@@ -10,9 +10,11 @@ export type FusionCatalogItem = { plu:number;name:string;priceCents:number|null;
 export type CatalogSnapshotItem = FusionCatalogItem & { lastSeenAt:string;lastChangedAt:string;syncState:"SYNCED"|"PENDING"|"MISSING_FROM_FUSION"|"PLACEHOLDER_SKIPPED" };
 export type CatalogSnapshot = { version:1;completedAt:string;items:Record<string,CatalogSnapshotItem> };
 export type FusionCatalogReaderConfig = { host:string;port:number;upperBoundPlu:number;connectTimeoutMs:number;readTimeoutMs:number;writeTimeoutMs:number;maxFrameBytes:number;maxItems:number };
+export type FusionCatalogDiagnosticCode = "INVALID_PLU"|"MISSING_DESC"|"EMPTY_DESC"|"INVALID_PRICE"|"INVALID_FRAME_STRUCTURE";
+export type FusionCatalogFrameDiagnostic = {code:FusionCatalogDiagnosticCode;frameByteLength:number;rawPlu:string|null;descLength:number|null;rawPrice:string|null;frameUtf8Escaped:string;frameHex:string;truncated:boolean};
 
 export class FusionCatalogError extends Error {
-  constructor(readonly code:"INVALID_CONFIG"|"CONNECTION"|"TIMEOUT"|"PROTOCOL"|"LIMIT",message:string){super(`${code}: ${message}`);this.name="FusionCatalogError";}
+  constructor(readonly code:"INVALID_CONFIG"|"CONNECTION"|"TIMEOUT"|"PROTOCOL"|"LIMIT"|FusionCatalogDiagnosticCode,message:string,readonly diagnostic?:FusionCatalogFrameDiagnostic){super(`${code}: ${message}${diagnostic?` Diagnostic: ${JSON.stringify(diagnostic)}`:""}`);this.name="FusionCatalogError";}
 }
 
 export function normalizeFusionName(value:string){return value.replace(/\s+/g," ").trim();}
@@ -25,12 +27,22 @@ export function buildFusionDataRequest(upperBoundPlu:number){
   return `<CE><DATA_REQ><PLU>${upperBoundPlu}</PLU></DATA_REQ></CE>`;
 }
 function textTag(frame:string,tag:string){const match=frame.match(new RegExp(`<${tag}>([^<]*)</${tag}>`));return match?.[1];}
+const FUSION_FRAME_LOG_LIMIT=512;
+function boundedDiagnosticValue(value:string|undefined){if(value===undefined)return null;return Buffer.from(value,"utf8").subarray(0,FUSION_FRAME_LOG_LIMIT).toString("utf8");}
+function invalidCatalogFrame(code:FusionCatalogDiagnosticCode,frame:string,message:string):never{
+  const bytes=Buffer.from(frame,"utf8"),sample=bytes.subarray(0,FUSION_FRAME_LOG_LIMIT),rawDesc=textTag(frame,"DESC");
+  const diagnostic: FusionCatalogFrameDiagnostic={code,frameByteLength:bytes.length,rawPlu:boundedDiagnosticValue(frame.match(/<PLU>([^<]*)/)?.[1]),descLength:rawDesc===undefined?null:Buffer.byteLength(rawDesc,"utf8"),rawPrice:boundedDiagnosticValue(textTag(frame,"PRICE")),frameUtf8Escaped:JSON.stringify(sample.toString("utf8")),frameHex:sample.toString("hex"),truncated:bytes.length>FUSION_FRAME_LOG_LIMIT};
+  throw new FusionCatalogError(code,message,diagnostic);
+}
 export function parseFusionCatalogFrame(frame:string):{kind:"ITEM";item:FusionCatalogItem}|{kind:"END"}{
   if(frame==="<CE><DB_END/></CE>"||frame==="<CE><DB_END></DB_END></CE>")return{kind:"END"};
-  if(!frame.startsWith("<CE><DATA_SEND>")||!frame.endsWith("</DATA_SEND></CE>"))throw new FusionCatalogError("PROTOCOL","Frame DATA_SEND/DB_END non riconosciuto.");
+  if(!frame.startsWith("<CE><DATA_SEND>")||!frame.endsWith("</DATA_SEND></CE>"))invalidCatalogFrame("INVALID_FRAME_STRUCTURE",frame,"Frame DATA_SEND/DB_END non riconosciuto.");
   const rawPlu=frame.match(/<PLU>(\d+)(?:<|$)/)?.[1],rawName=textTag(frame,"DESC"),rawPrice=textTag(frame,"PRICE");
   const plu=Number(rawPlu),priceCents=rawPrice===undefined?null:Number(rawPrice);
-  if(!Number.isSafeInteger(plu)||plu<=0||rawName===undefined||!normalizeFusionName(rawName)||rawPrice!==undefined&&(priceCents===null||!Number.isSafeInteger(priceCents)||priceCents<0))throw new FusionCatalogError("PROTOCOL","DATA_SEND contiene campi non validi.");
+  if(!Number.isSafeInteger(plu)||plu<=0)invalidCatalogFrame("INVALID_PLU",frame,"PLU mancante o non valido.");
+  if(rawName===undefined)invalidCatalogFrame("MISSING_DESC",frame,"DESC mancante.");
+  if(!normalizeFusionName(rawName))invalidCatalogFrame("EMPTY_DESC",frame,"DESC vuota.");
+  if(rawPrice!==undefined&&(priceCents===null||!Number.isSafeInteger(priceCents)||priceCents<0))invalidCatalogFrame("INVALID_PRICE",frame,"PRICE non valido.");
   const item={plu,name:normalizeFusionName(rawName),priceCents};
   return{kind:"ITEM",item:{...item,rawFingerprint:catalogFingerprint(item)}};
 }
