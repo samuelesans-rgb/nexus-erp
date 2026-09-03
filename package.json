@@ -44,6 +44,7 @@
     "test:integration:fusion-catalog-db": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/fusion-catalog-sync-db.test.ts",
     "test:integration:restaurant-fusion-menu": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/restaurant-fusion-menu.test.ts",
     "test:integration:restaurant-menu-manager": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/restaurant-menu-manager.test.ts",
+    "test:integration:restaurant-floor-operations": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/restaurant-floor-operations.test.ts",
     "test:integration:fusion-xml1745-db": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/fusion-xml1745-db.test.ts",
     "test:integration:management": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/management-dashboard.test.ts",
     "test:integration:sales-purchasing": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/sales-purchasing-location-scoping.test.ts",

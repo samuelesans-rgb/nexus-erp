@@ -111,7 +111,10 @@ export async function failConnectorJob(device: { id: string; companyId: string; 
 }
 
 export async function retryConnectorJob(companyId: string, locationId: string, jobId: string, userId: string) {
-  const changed = await prisma.kitchenPrintJob.updateMany({ where: { id: jobId, companyId, locationId, status: "FAILED" }, data: { status: "PENDING", lastError: null, connectorId: null, leaseTokenHash: null, leaseExpiresAt: null, acknowledgedAt: null } });
+  const current = await prisma.kitchenPrintJob.findFirst({ where: { id: jobId, companyId, locationId, status: "FAILED" }, select: { lastError: true } });
+  if (!current) throw new ConnectorError("Job fallito non trovato.", 404);
+  if (current?.lastError && /FUSION_UNCERTAIN_DELIVERY|UNCERTAIN_PRINT_OUTCOME/i.test(current.lastError)) throw new ConnectorError("Invio incerto: non reinviare automaticamente. Verificare la comanda in cucina.", 409);
+  const changed = await prisma.kitchenPrintJob.updateMany({ where: { id: jobId, companyId, locationId, status: "FAILED", lastError: current?.lastError }, data: { status: "PENDING", lastError: null, connectorId: null, leaseTokenHash: null, leaseExpiresAt: null, acknowledgedAt: null } });
   if (!changed.count) throw new ConnectorError("Job fallito non trovato.", 404);
   await writeAuditLogTx(prisma, { companyId, locationId, userId, action: "KITCHEN_CONNECTOR_JOB_RETRIED", entityType: "KitchenPrintJob", entityId: jobId });
 }

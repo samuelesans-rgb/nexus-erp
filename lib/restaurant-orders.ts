@@ -7,6 +7,7 @@ import { emitRestaurantEvent, emitRestaurantEventTx, RestaurantDomainError } fro
 import { restaurantFiscalAdapter } from "@/lib/restaurant-fiscal-adapter";
 import { lockRestaurantResources } from "@/lib/restaurant-locking";
 import { restaurantMenuEligibleItemWhere, restaurantMenuPrice } from "@/lib/restaurant-menu-eligibility";
+import { writeAuditLogTx } from "@/lib/audit";
 
 export async function openOrder(companyId:string,locationId:string,userId:string,input:{tableId?:string|null;tableIds?:string[];reservationId?:string|null;partnerId?:string|null;guestCount:number;serviceType:"DINE_IN"|"TAKEAWAY"|"DELIVERY"|"EVENT";notes?:string}){
   if(input.guestCount<1)throw new RestaurantDomainError("Numero coperti non valido.");
@@ -31,6 +32,7 @@ export async function openOrder(companyId:string,locationId:string,userId:string
     const created=await tx.restaurantOrder.create({data:{companyId,locationId,code:`ORD-${Date.now().toString(36).toUpperCase()}`,tableId:requested[0]??null,reservationId:reservation?.id??null,partnerId:input.partnerId??reservation?.partnerId??null,guestCount:input.guestCount,serviceType:input.serviceType,notes:input.notes,createdById:userId,updatedById:userId},select:{id:true}});
     if(requested.length)await tx.restaurantOrderTable.createMany({data:requested.map(tableId=>({companyId,locationId,orderId:created.id,tableId}))});
     if(requested.length)await tx.restaurantTable.updateMany({where:{companyId,locationId,id:{in:requested}},data:{status:"OCCUPIED"}});
+    await writeAuditLogTx(tx,{companyId,locationId,userId,action:"RESTAURANT_ORDER_OPENED",entityType:"RestaurantOrder",entityId:created.id,metadata:{tableIds:requested,guestCount:input.guestCount,serviceType:input.serviceType}});
     return created;
   });
   await emitRestaurantEvent(companyId,"RestaurantOrderOpened","RestaurantOrder",row.id,{reservationId:input.reservationId??null});return row;
