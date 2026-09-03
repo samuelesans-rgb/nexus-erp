@@ -2422,6 +2422,7 @@ model RestaurantMenuItem {
   description   String?
   priceOverride Decimal?              @db.Decimal(15, 2)
   sortOrder     Int                   @default(0)
+  visible       Boolean               @default(true)
   available     Boolean               @default(true)
   featured      Boolean               @default(false)
   createdAt     DateTime              @default(now())

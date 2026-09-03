@@ -41,7 +41,7 @@ export async function addOrderLine(companyId:string,locationId:string,orderId:st
   const line=await prisma.$transaction(async tx=>{
     const [order,item]=await Promise.all([
       tx.restaurantOrder.findFirst({where:{id:orderId,companyId,locationId,status:{notIn:["CLOSED","CANCELLED"]}}}),
-      tx.item.findFirst({where:{id:input.itemId,companyId,...restaurantMenuEligibleItemWhere,category:{active:true,deletedAt:null}},include:{vatRate:true,restaurantMenuItems:{where:{available:true,section:{active:true,menu:{locationId,active:true,deletedAt:null}}},orderBy:{createdAt:"desc"},take:1},restaurantVariants:{where:{id:input.variantId??undefined,active:true,available:true,deletedAt:null}},restaurantModifierGroups:{where:{active:true,deletedAt:null},include:{modifiers:{where:{id:{in:modifierIds},active:true,deletedAt:null}}}}}})
+      tx.item.findFirst({where:{id:input.itemId,companyId,...restaurantMenuEligibleItemWhere,category:{active:true,deletedAt:null}},include:{vatRate:true,restaurantMenuItems:{where:{visible:true,available:true,section:{active:true,menu:{locationId,active:true,deletedAt:null}}},orderBy:{createdAt:"desc"},take:1},restaurantVariants:{where:{id:input.variantId??undefined,active:true,available:true,deletedAt:null}},restaurantModifierGroups:{where:{active:true,deletedAt:null},include:{modifiers:{where:{id:{in:modifierIds},active:true,deletedAt:null}}}}}})
     ]);
     if(!order||!item||!item.vatRate||!item.vatRate.active||!item.restaurantMenuItems.length||input.quantity<=0)throw new RestaurantDomainError("Ordine o Item non valido.");
     const variant=input.variantId?item.restaurantVariants.find(row=>row.id===input.variantId):null;

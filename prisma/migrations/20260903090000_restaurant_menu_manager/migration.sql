@@ -1,0 +1,2 @@
+ALTER TABLE "RestaurantMenuItem"
+ADD COLUMN "visible" BOOLEAN NOT NULL DEFAULT true;

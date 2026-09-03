@@ -62,10 +62,24 @@ export async function configureFrisaFusionMenu(client: PrismaClient, companyId: 
     if (!options.dryRun) {
       const menu = await tx.restaurantMenu.upsert({ where: { companyId_code: { companyId, code: "FRISA_BISTRO" } }, create: { companyId, locationId, code: "FRISA_BISTRO", name: "Frisà Bistrò", active: true }, update: { locationId, name: "Frisà Bistrò", active: true, deletedAt: null } });
       const sections = new Map<string, string>();
-      for (const [sortOrder, name] of FRISA_MENU_SECTIONS.entries()) { const section = await tx.restaurantMenuSection.upsert({ where: { companyId_menuId_name: { companyId, menuId: menu.id, name } }, create: { companyId, menuId: menu.id, name, sortOrder, active: true }, update: { sortOrder, active: true } }); sections.set(name, section.id); }
+      for (const [sortOrder, name] of FRISA_MENU_SECTIONS.entries()) { const section = await tx.restaurantMenuSection.upsert({ where: { companyId_menuId_name: { companyId, menuId: menu.id, name } }, create: { companyId, menuId: menu.id, name, sortOrder, active: true }, update: { active: true } }); sections.set(name, section.id); }
       if (options.failAfterSections) throw new Error("Errore configurazione menu simulato.");
-      for (const [sortOrder, value] of assigned.entries()) await tx.restaurantMenuItem.upsert({ where: { companyId_menuSectionId_itemId: { companyId, menuSectionId: sections.get(value.section)!, itemId: value.mapping.itemId } }, create: { companyId, menuSectionId: sections.get(value.section)!, itemId: value.mapping.itemId, sortOrder, available: true, priceOverride: null }, update: { sortOrder, available: true, priceOverride: null, displayName: null } });
-      if (unavailableIds.length) await tx.restaurantMenuItem.updateMany({ where: { companyId, section: { menuId: menu.id }, itemId: { in: unavailableIds } }, data: { available: false } });
+      const existingRows = await tx.restaurantMenuItem.findMany({ where: { companyId, section: { menuId: menu.id } }, select: { itemId: true } });
+      const configuredItemIds = new Set(existingRows.map(({ itemId }) => itemId));
+      const nextSortOrder = new Map<string, number>();
+      for (const value of assigned) {
+        if (configuredItemIds.has(value.mapping.itemId)) continue;
+        const sectionId = sections.get(value.section)!;
+        let sortOrder = nextSortOrder.get(sectionId);
+        if (sortOrder === undefined) {
+          const last = await tx.restaurantMenuItem.findFirst({ where: { companyId, menuSectionId: sectionId }, orderBy: { sortOrder: "desc" }, select: { sortOrder: true } });
+          sortOrder = (last?.sortOrder ?? -1) + 1;
+        }
+        await tx.restaurantMenuItem.create({ data: { companyId, menuSectionId: sectionId, itemId: value.mapping.itemId, sortOrder, visible: true, available: true, priceOverride: null } });
+        nextSortOrder.set(sectionId, sortOrder + 1);
+        configuredItemIds.add(value.mapping.itemId);
+      }
+      if (unavailableIds.length) await tx.restaurantMenuItem.updateMany({ where: { companyId, section: { menuId: menu.id }, itemId: { in: unavailableIds } }, data: { visible: false, available: false } });
     }
     const row = (value: (typeof mappings)[number]) => ({ plu: value.plu, name: value.item.name, price: value.item.salePrice?.toFixed(2) ?? null });
     const categoryCounts = Object.fromEntries(FRISA_MENU_SECTIONS.map((category) => [category, assigned.filter(({ section }) => section === category).length]));
