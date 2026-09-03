@@ -10,7 +10,7 @@ An administrator creates a cryptographically random, hashed, single-use pairing 
 
 Device endpoints under `/api/kitchen-connector/v1` are `POST /pair`, `POST /heartbeat`, `GET /jobs`, and `POST /jobs/:jobId/{claim,ack,fail}`. Bearer authentication derives tenant/location/printer scope from the stored device, never from request data. Request bodies are bounded, errors are sanitized, and an in-process rate limiter provides basic abuse control (a shared deployment should replace it with a shared limiter).
 
-Claim uses a conditional PostgreSQL update from `PENDING`, or from `PROCESSING` with an expired lease, to `PROCESSING`. It stores connector ownership, a hashed random lease token, timestamps, expiry, and increments attempts. Competing claims cannot both update the row. ACK and FAIL require the same connector and lease token and accept duplicate reports already in their terminal state. Expired leases can be reclaimed safely; stale lease tokens then fail.
+Claim uses a conditional PostgreSQL update from `PENDING` to `PROCESSING`. It stores connector ownership, a hashed random lease token, timestamps, expiry, and increments attempts. Competing claims cannot both update the row. ACK and FAIL require the same connector and lease token and accept duplicate reports already in their terminal state. Kitchen Printing V2 supersedes lease recovery: an expired `PROCESSING` lease becomes `UNCERTAIN` and is never reclaimed automatically, because a prior write cannot be excluded.
 
 ## Local spool and recovery
 

@@ -304,12 +304,41 @@ enum KitchenPrinterConnectionType {
   TCP
 }
 
+enum KitchenPrinterDriver {
+  MOCK
+  ESC_POS_TCP
+  ESC_POS_USB
+  ESC_POS_SERIAL
+  VENDOR_SPECIFIC
+}
+
+enum KitchenPrinterMode {
+  LEGACY_FUSION
+  NEXUS_DIRECT
+}
+
+enum KitchenPrinterDeviceType {
+  FISCAL
+  NON_FISCAL
+}
+
 enum KitchenPrintJobStatus {
+  BLOCKED
   PENDING
   PROCESSING
   PRINTED
   FAILED
+  UNCERTAIN
   CANCELLED
+}
+
+enum KitchenFusionStatus {
+  NOT_REQUIRED
+  PENDING
+  DISPATCHING
+  ACCEPTED
+  REJECTED
+  UNCERTAIN
 }
 
 enum KitchenPrintJobType {
@@ -2750,6 +2779,9 @@ model KitchenDispatch {
   sequenceNumber Int
   type           KitchenDispatchType
   idempotencyKey String
+  fusionStatus    KitchenFusionStatus @default(NOT_REQUIRED)
+  fusionError     String?
+  fusionUpdatedAt DateTime?
   createdById    String
   createdAt      DateTime            @default(now())
   company        Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
@@ -2773,10 +2805,17 @@ model RestaurantPrinter {
   code           String
   type           KitchenPrinterType           @default(MOCK)
   connectionType KitchenPrinterConnectionType @default(MOCK)
+  driver         KitchenPrinterDriver         @default(MOCK)
+  mode           KitchenPrinterMode           @default(NEXUS_DIRECT)
+  deviceType     KitchenPrinterDeviceType      @default(NON_FISCAL)
   address        String?
+  host           String?
+  port           Int?
   enabled        Boolean                      @default(true)
   copies         Int                          @default(1)
   paperWidth     Int                          @default(80)
+  charsPerLine   Int?
+  encoding       String                       @default("UTF-8")
   createdAt      DateTime                     @default(now())
   updatedAt      DateTime                     @updatedAt
   company        Company                      @relation(fields: [companyId], references: [id], onDelete: Restrict)
@@ -2804,7 +2843,10 @@ model KitchenPrintJob {
   attempts       Int                     @default(0)
   lastError      String?
   payload        String
+  payloadHash    String
   idempotencyKey String
+  originalJobId  String?
+  reprintReason  String?
   requestedById  String
   createdAt      DateTime                @default(now())
   startedAt      DateTime?
@@ -2814,18 +2856,22 @@ model KitchenPrintJob {
   leaseExpiresAt DateTime?
   claimedAt      DateTime?
   acknowledgedAt DateTime?
+  writeStartedAt DateTime?
   company        Company                 @relation(fields: [companyId], references: [id], onDelete: Restrict)
   location       Location                @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
   station        KitchenStation          @relation(fields: [companyId, stationId], references: [companyId, id], onDelete: Restrict)
   ticket         KitchenTicket?          @relation(fields: [companyId, ticketId], references: [companyId, id], onDelete: Restrict)
   printer        RestaurantPrinter       @relation(fields: [companyId, printerId], references: [companyId, id], onDelete: Restrict)
   connector      KitchenConnectorDevice? @relation(fields: [companyId, connectorId], references: [companyId, id], onDelete: Restrict)
+  originalJob    KitchenPrintJob?        @relation("KitchenPrintReprints", fields: [companyId, originalJobId], references: [companyId, id], onDelete: Restrict)
+  reprints       KitchenPrintJob[]       @relation("KitchenPrintReprints")
 
   @@unique([companyId, id])
   @@unique([companyId, idempotencyKey])
   @@index([companyId, locationId, status, createdAt])
   @@index([companyId, printerId, status])
   @@index([companyId, locationId, connectorId, leaseExpiresAt])
+  @@index([companyId, originalJobId])
 }
 
 model KitchenConnectorDevice {
