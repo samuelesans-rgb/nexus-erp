@@ -122,6 +122,7 @@ export function OperationalFloor({
   const order = data.orders.find((row) => row.id === selectedOrderId) ?? null;
   const selectedArea =
     data.areas.find(({ id }) => id === selectedAreaId) ?? data.areas[0];
+  const hasVisibleTables = data.areas.some((area) => area.tables.length > 0);
   useEffect(() => {
     const remembered = sessionStorage.getItem("nexus-sala-area");
     const frame =
@@ -241,7 +242,7 @@ export function OperationalFloor({
       )}
       {!order && (
         <div className="space-y-6">
-          {!data.areas.length && (
+          {!hasVisibleTables && (
             <div className="rounded-2xl border border-dashed bg-white p-10 text-center">
               <h2 className="text-xl font-bold">Nessun tavolo configurato</h2>
               <p className="mt-2 text-slate-500">
@@ -257,7 +258,7 @@ export function OperationalFloor({
               )}
             </div>
           )}
-          {data.areas.length > 0 && (
+          {hasVisibleTables && (
             <>
               <nav
                 aria-label="Sale"
