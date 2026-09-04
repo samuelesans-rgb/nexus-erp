@@ -15,7 +15,9 @@ export default async function AppSidebar() {
   const activeCodes = new Set(
     modules.map(({ moduleDefinition }) => moduleDefinition.code),
   );
-  const items = [{ label: "Dashboard", href: "/dashboard" }];
+  const items: Array<{ label: string; href: string; icon?: "users" }> = [
+    { label: "Dashboard", href: "/dashboard" },
+  ];
   const salaOnly =
     session?.user?.roles.includes("SALA") &&
     !session.user.roles.some((role) =>
@@ -23,6 +25,10 @@ export default async function AppSidebar() {
     );
   if (salaOnly)
     items.splice(0, items.length, { label: "Sala", href: "/restaurant/floor" });
+  if (
+    session?.user?.roles.some((role) => ["SUPER_ADMIN", "ADMIN"].includes(role))
+  )
+    items.push({ label: "Utenti", href: "/users", icon: "users" });
   if (
     !salaOnly &&
     session?.user?.roles.some((role) =>

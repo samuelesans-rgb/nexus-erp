@@ -36,7 +36,7 @@ export default {
 
           const user = await prisma.user.findUnique({
             where: {
-              email: String(credentials.email),
+              email: String(credentials.email).trim().toLowerCase(),
             },
             include: {
               memberships: {
@@ -75,6 +75,7 @@ export default {
           if (!membership) { await safeWriteAuditLog({ userId: user.id, action: "LOGIN_FAILURE", entityType: "Authentication", entityId: user.id, metadata: { reason: "NO_ACTIVE_MEMBERSHIP" } }); return null; }
 
           await safeWriteAuditLog({ companyId: membership.companyId, membershipId: membership.id, userId: user.id, locationId: membership.defaultLocationId, action: "LOGIN_SUCCESS", entityType: "Authentication", entityId: user.id });
+          await prisma.user.update({ where: { id: user.id }, data: { lastLogin: new Date() } });
 
           return {
             id: user.id,
