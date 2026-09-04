@@ -25,7 +25,7 @@ const base = (port: number, readTimeoutMs = 150) =>
     writeTimeoutMs: 150,
     maxResponseBytes: 4096,
     maxMul: 1_000_000,
-    tableMappings: { table: 199 },
+    tableMappings: { table: 199, "12": 199 },
     productMappings: { item: 2 },
   });
 async function server(handler: (socket: Socket, payload: string) => void) {
@@ -176,7 +176,7 @@ test("pre-send refusal is retryable; post-write close and timeout are uncertain"
     }
   }
 });
-test("persistent mapping wins over JSON fallback and ledger suppresses duplicates", async () => {
+test("persistent mapping wins, JSON fallback remains and ledger suppresses duplicates", async () => {
   const directory = await mkdtemp(join(tmpdir(), "fusion-ledger-"));
   let payload = "";
   const fake = await server((socket, value) => {
@@ -220,9 +220,16 @@ test("persistent mapping wins over JSON fallback and ledger suppresses duplicate
     assert.doesNotMatch(payload, /<PLU>2</);
     assert.doesNotMatch(payload, /note|ignored/i);
     assert.equal(fake.count(), 1);
+    await adapter.print({
+      ...job,
+      jobId: "persistent-mapping-job",
+      fusionOrder: { ...job.fusionOrder, tableIds: ["12"] },
+    });
+    assert.match(payload, /<TABLE>12<PLU>/);
+    assert.equal(fake.count(), 2);
     await ledger.mark("uncertain-job", "line", "UNCERTAIN");
     await adapter.print({ ...job, jobId: "uncertain-job" });
-    assert.equal(fake.count(), 1);
+    assert.equal(fake.count(), 2);
   } finally {
     await close(fake.instance);
     await rm(directory, { recursive: true });

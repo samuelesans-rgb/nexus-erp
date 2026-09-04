@@ -156,7 +156,11 @@ export function buildFusionOrder(
   table: number,
   items: readonly FusionOrderItem[],
 ): string;
-export function buildFusionOrder(table: number, plu: number, mul: number): string;
+export function buildFusionOrder(
+  table: number,
+  plu: number,
+  mul: number,
+): string;
 export function buildFusionOrder(
   table: number,
   itemsOrPlu: readonly FusionOrderItem[] | number,
@@ -359,14 +363,17 @@ export class FusionXml1745PrinterAdapter implements PrinterAdapter {
         "V1 richiede esattamente un tavolo.",
         "PRE_SEND_FAILURE",
       );
-    const table = this.config.tableMappings[order.tableIds[0]];
+    const table = /^\d+$/.test(order.tableIds[0])
+      ? Number(order.tableIds[0])
+      : this.config.tableMappings[order.tableIds[0]];
     if (!table)
       throw new FusionXml1745Error(
         "FUSION_MAPPING_ERROR",
         "Mapping tavolo FUSION mancante.",
         "PRE_SEND_FAILURE",
       );
-    const items: Array<FusionOrderItem & { lineId: string; itemId: string }> = [];
+    const items: Array<FusionOrderItem & { lineId: string; itemId: string }> =
+      [];
     for (const line of order.lines) {
       if (line.hasModifiers || line.quantity <= 0)
         throw new FusionXml1745Error(

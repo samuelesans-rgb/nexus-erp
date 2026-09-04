@@ -21,8 +21,8 @@ export async function getOperationalRestaurantFloor(
       where: { companyId, locationId, active: true, deletedAt: null },
       include: {
         tables: {
-          where: { active: true, deletedAt: null },
-          orderBy: { code: "asc" },
+          where: { active: true, visibleInFloor: true, deletedAt: null },
+          orderBy: [{ sortOrder: "asc" }, { code: "asc" }],
         },
       },
       orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
@@ -197,12 +197,22 @@ export async function getOperationalRestaurantFloor(
     areas: areas.map((area) => ({
       id: area.id,
       name: area.name,
+      layoutWidth: area.layoutWidth,
+      layoutHeight: area.layoutHeight,
+      backgroundImage: area.backgroundImage,
+      backgroundOpacity: Number(area.backgroundOpacity),
       tables: area.tables.map((table) => ({
         id: table.id,
         code: table.code,
         name: table.name,
         seats: table.seats,
         status: table.status,
+        shape: table.shape,
+        positionX: Number(table.positionX),
+        positionY: Number(table.positionY),
+        width: Number(table.width),
+        height: Number(table.height),
+        rotation: Number(table.rotation),
       })),
     })),
     orders: shapedOrders,
@@ -217,6 +227,20 @@ export async function openFloorTable(
 ) {
   if (!Number.isInteger(guestCount) || guestCount < 1 || guestCount > 999)
     throw new RestaurantDomainError("Numero coperti non valido.");
+  const table = await prisma.restaurantTable.findFirst({
+    where: {
+      id: tableId,
+      companyId: actor.companyId,
+      locationId: actor.locationId,
+      active: true,
+      visibleInFloor: true,
+      deletedAt: null,
+      area: { active: true, deletedAt: null },
+    },
+    select: { id: true },
+  });
+  if (!table)
+    throw new RestaurantDomainError("Tavolo non disponibile in Sala.");
   return openOrder(actor.companyId, actor.locationId, actor.userId, {
     tableId,
     guestCount,

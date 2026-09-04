@@ -320,7 +320,7 @@ export async function claimConnectorJob(
         printer: true,
         ticket: {
           include: {
-            order: { include: { tables: true } },
+            order: { include: { tables: { include: { table: true } } } },
             lines: {
               include: {
                 orderLine: {
@@ -355,7 +355,11 @@ export async function claimConnectorJob(
   );
   const fusionOrder = job.ticket
     ? {
-        tableIds: job.ticket.order.tables.map((row) => row.tableId),
+        tableIds: job.ticket.order.tables.map((row) =>
+          row.table.fusionTableNumber
+            ? String(row.table.fusionTableNumber)
+            : row.tableId,
+        ),
         lines: buildFusionDispatchLines(
           job.ticket.lines.map((line) => ({
             id: line.id,

@@ -11,7 +11,7 @@ export default function SidebarNav({
   const pathname = usePathname();
 
   return (
-    <nav className="space-y-1 p-4">
+    <nav className="space-y-1 p-2 sm:p-4">
       {items.map((item) => {
         const isActive =
           pathname === item.href || pathname.startsWith(`${item.href}/`);
@@ -20,7 +20,7 @@ export default function SidebarNav({
           <Link
             key={item.href}
             href={item.href}
-            className={`block w-full rounded-lg px-3 py-2 transition ${
+            className={`block w-full rounded-lg px-2 py-2 text-sm transition sm:px-3 sm:text-base ${
               isActive ? "bg-slate-700 font-medium" : "hover:bg-slate-800"
             }`}
           >

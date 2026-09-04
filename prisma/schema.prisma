@@ -2150,23 +2150,27 @@ model OpenBankingSync {
 }
 
 model RestaurantArea {
-  id           String                       @id @default(cuid())
-  companyId    String
-  locationId   String
-  code         String
-  name         String
-  description  String?
-  sortOrder    Int                          @default(0)
-  active       Boolean                      @default(true)
-  createdById  String?
-  updatedById  String?
-  deletedAt    DateTime?
-  createdAt    DateTime                     @default(now())
-  updatedAt    DateTime                     @updatedAt
-  company      Company                      @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  location     Location                     @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
-  tables       RestaurantTable[]
-  combinations RestaurantTableCombination[]
+  id                String                       @id @default(cuid())
+  companyId         String
+  locationId        String
+  code              String
+  name              String
+  description       String?
+  layoutWidth       Int                          @default(1200)
+  layoutHeight      Int                          @default(800)
+  backgroundImage   String?
+  backgroundOpacity Decimal                      @default(0.15) @db.Decimal(3, 2)
+  sortOrder         Int                          @default(0)
+  active            Boolean                      @default(true)
+  createdById       String?
+  updatedById       String?
+  deletedAt         DateTime?
+  createdAt         DateTime                     @default(now())
+  updatedAt         DateTime                     @updatedAt
+  company           Company                      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  location          Location                     @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+  tables            RestaurantTable[]
+  combinations      RestaurantTableCombination[]
 
   @@unique([companyId, locationId, code])
   @@unique([companyId, id])
@@ -2183,12 +2187,15 @@ model RestaurantTable {
   seats             Int
   minSeats          Int?
   maxSeats          Int?
-  shape             String?
-  positionX         Decimal?                          @db.Decimal(10, 2)
-  positionY         Decimal?                          @db.Decimal(10, 2)
-  width             Decimal?                          @db.Decimal(10, 2)
-  height            Decimal?                          @db.Decimal(10, 2)
-  rotation          Decimal?                          @db.Decimal(6, 2)
+  shape             String                            @default("RECTANGLE")
+  positionX         Decimal                           @default(40) @db.Decimal(10, 2)
+  positionY         Decimal                           @default(40) @db.Decimal(10, 2)
+  width             Decimal                           @default(120) @db.Decimal(10, 2)
+  height            Decimal                           @default(80) @db.Decimal(10, 2)
+  rotation          Decimal                           @default(0) @db.Decimal(6, 2)
+  sortOrder         Int                               @default(0)
+  visibleInFloor    Boolean                           @default(true)
+  fusionTableNumber Int?
   status            RestaurantTableStatus             @default(AVAILABLE)
   combinable        Boolean                           @default(true)
   active            Boolean                           @default(true)
@@ -2204,6 +2211,7 @@ model RestaurantTable {
   orderTables       RestaurantOrderTable[]
 
   @@unique([companyId, locationId, code])
+  @@unique([companyId, locationId, fusionTableNumber])
   @@unique([companyId, id])
   @@unique([companyId, locationId, id])
   @@index([companyId, locationId, status, deletedAt])

@@ -17,7 +17,7 @@ export default async function AppHeader() {
   }
 
   return (
-    <header className="flex h-16 items-center justify-between border-b bg-white px-6">
+    <header className="flex h-16 max-w-full items-center justify-between overflow-x-auto border-b bg-white px-6">
       <h2 className="text-lg font-semibold">
         Dashboard
       </h2>

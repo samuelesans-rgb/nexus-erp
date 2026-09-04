@@ -10,10 +10,10 @@ export default function AppShell({
     <div className="flex min-h-screen bg-slate-50">
       <AppSidebar />
 
-      <main className="flex flex-1 flex-col">
+      <main className="flex min-w-0 flex-1 flex-col">
         <AppHeader />
 
-        <section className="flex-1 p-6">
+        <section className="min-w-0 flex-1 p-6">
           {children}
         </section>
       </main>

@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   addFloorItemAction,
@@ -63,12 +64,22 @@ type Props = {
     areas: Array<{
       id: string;
       name: string;
+      layoutWidth: number;
+      layoutHeight: number;
+      backgroundImage: string | null;
+      backgroundOpacity: number;
       tables: Array<{
         id: string;
         code: string;
         name: string;
         seats: number;
         status: string;
+        shape: string;
+        positionX: number;
+        positionY: number;
+        width: number;
+        height: number;
+        rotation: number;
       }>;
     }>;
     orders: Order[];
@@ -90,7 +101,10 @@ const labels: Record<LineState, string> = {
   UNCERTAIN: "INVIO INCERTO",
 };
 
-export function OperationalFloor({ data }: Props) {
+export function OperationalFloor({
+  data,
+  canConfigure = false,
+}: Props & { canConfigure?: boolean }) {
   const router = useRouter(),
     [pending, startTransition] = useTransition();
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null),
@@ -103,8 +117,25 @@ export function OperationalFloor({ data }: Props) {
     [feedback, setFeedback] = useState<FloorActionResult | null>(null),
     [selectedProduct, setSelectedProduct] = useState<Product | null>(null),
     [selectedModifiers, setSelectedModifiers] = useState<string[]>([]);
+  const [selectedAreaId, setSelectedAreaId] = useState(data.areas[0]?.id ?? "");
   const dispatchKeys = useRef(new Map<string, string>());
   const order = data.orders.find((row) => row.id === selectedOrderId) ?? null;
+  const selectedArea =
+    data.areas.find(({ id }) => id === selectedAreaId) ?? data.areas[0];
+  useEffect(() => {
+    const remembered = sessionStorage.getItem("nexus-sala-area");
+    const frame =
+      remembered && data.areas.some(({ id }) => id === remembered)
+        ? window.requestAnimationFrame(() => setSelectedAreaId(remembered))
+        : null;
+    const timer = window.setInterval(() => {
+      if (!openingTableId && !selectedProduct) router.refresh();
+    }, 15000);
+    return () => {
+      if (frame !== null) window.cancelAnimationFrame(frame);
+      window.clearInterval(timer);
+    };
+  }, [data.areas, openingTableId, router, selectedProduct]);
   const selectedSection = data.menu.sections.find(
     (row) => row.id === selectedSectionId,
   );
@@ -210,101 +241,157 @@ export function OperationalFloor({ data }: Props) {
       )}
       {!order && (
         <div className="space-y-6">
-          {data.areas.map((area) => (
-            <section key={area.id}>
-              <h2 className="mb-3 text-lg font-bold">{area.name}</h2>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                {area.tables.map((table) => {
-                  const active = data.orders.find((candidate) =>
-                    candidate.tableIds.includes(table.id),
-                  );
-                  const available = !active && table.status === "AVAILABLE";
-                  const uncertain = active?.lines.some(
-                      (line) => line.state === "UNCERTAIN",
-                    ),
-                    failed = active?.lines.some(
-                      (line) => line.state === "ERROR",
-                    ),
-                    sending = active?.lines.some(
-                      (line) => line.state === "SENDING",
-                    );
-                  const state = available
-                    ? "LIBERO"
-                    : !active
-                      ? table.status.replaceAll("_", " ")
-                      : uncertain || failed
-                        ? "ERRORE CUCINA"
-                        : active.unsentCount
-                          ? "DA INVIARE"
-                          : sending
-                            ? "IN INVIO"
-                            : active.lines.length
-                              ? "INVIATO"
-                              : "APERTO";
-                  return (
-                    <article
-                      key={table.id}
-                      className={`min-h-44 rounded-2xl border-2 p-4 shadow-sm ${available ? "border-emerald-300 bg-emerald-50" : !active ? "border-slate-300 bg-slate-100" : uncertain || failed ? "border-red-400 bg-red-50" : active.unsentCount ? "border-amber-400 bg-amber-50" : "border-blue-300 bg-blue-50"}`}
-                    >
-                      <button
-                        disabled={!active && !available}
-                        className="flex h-full w-full flex-col text-left disabled:cursor-not-allowed"
-                        onClick={() =>
-                          active
-                            ? setSelectedOrderId(active.id)
-                            : setOpeningTableId(table.id)
-                        }
-                      >
-                        <span className="text-lg font-black">
-                          {table.name || table.code}
-                        </span>
-                        <span className="mt-1 text-xs font-bold tracking-wide">
-                          {state}
-                        </span>
-                        {active && (
-                          <span className="mt-auto space-y-1 text-sm">
-                            <span className="block">
-                              {active.guestCount} coperti
-                            </span>
-                            <span className="block font-bold">
-                              {money.format(active.total)}
-                            </span>
-                            <span className="block">
-                              {active.unsentCount} righe da inviare
-                            </span>
-                          </span>
-                        )}
-                      </button>
-                      {openingTableId === table.id && (
-                        <div className="mt-3 flex items-center gap-2 border-t border-emerald-200 pt-3">
-                          <label className="text-sm font-semibold">
-                            Coperti{" "}
-                            <input
-                              aria-label="Numero coperti"
-                              className="ml-1 w-16 rounded border p-2"
-                              type="number"
-                              min="1"
-                              value={guestCount}
-                              onChange={(event) =>
-                                setGuestCount(Number(event.target.value))
-                              }
-                            />
-                          </label>
+          {!data.areas.length && (
+            <div className="rounded-2xl border border-dashed bg-white p-10 text-center">
+              <h2 className="text-xl font-bold">Nessun tavolo configurato</h2>
+              <p className="mt-2 text-slate-500">
+                Contatta un amministratore per configurare la sala.
+              </p>
+              {canConfigure && (
+                <Link
+                  href="/restaurant/settings/floor"
+                  className="mt-4 inline-block rounded-lg bg-slate-950 px-4 py-3 font-bold text-white"
+                >
+                  Configura la sala
+                </Link>
+              )}
+            </div>
+          )}
+          {data.areas.length > 0 && (
+            <>
+              <nav
+                aria-label="Sale"
+                className="flex gap-2 overflow-x-auto pb-1"
+              >
+                {data.areas.map((area) => (
+                  <button
+                    key={area.id}
+                    onClick={() => {
+                      setSelectedAreaId(area.id);
+                      sessionStorage.setItem("nexus-sala-area", area.id);
+                    }}
+                    className={`min-h-11 shrink-0 rounded-full border px-5 font-bold ${selectedArea?.id === area.id ? "border-slate-950 bg-slate-950 text-white" : "bg-white"}`}
+                  >
+                    {area.name}
+                  </button>
+                ))}
+              </nav>
+              {selectedArea && (
+                <section>
+                  <h2 className="sr-only">{selectedArea.name}</h2>
+                  <div
+                    className="relative w-full overflow-hidden rounded-2xl border bg-slate-100"
+                    style={{
+                      aspectRatio: `${selectedArea.layoutWidth} / ${selectedArea.layoutHeight}`,
+                      backgroundImage: selectedArea.backgroundImage
+                        ? `linear-gradient(rgb(255 255 255 / ${1 - selectedArea.backgroundOpacity}), rgb(255 255 255 / ${1 - selectedArea.backgroundOpacity})), url(${selectedArea.backgroundImage})`
+                        : undefined,
+                      backgroundSize: "cover",
+                    }}
+                  >
+                    {selectedArea.tables.map((table) => {
+                      const active = data.orders.find((candidate) =>
+                        candidate.tableIds.includes(table.id),
+                      );
+                      const available = !active && table.status === "AVAILABLE";
+                      const uncertain = active?.lines.some(
+                          (line) => line.state === "UNCERTAIN",
+                        ),
+                        failed = active?.lines.some(
+                          (line) => line.state === "ERROR",
+                        ),
+                        sending = active?.lines.some(
+                          (line) => line.state === "SENDING",
+                        );
+                      const state = available
+                        ? "LIBERO"
+                        : !active
+                          ? table.status.replaceAll("_", " ")
+                          : uncertain || failed
+                            ? "ERRORE CUCINA"
+                            : active.unsentCount
+                              ? "DA INVIARE"
+                              : sending
+                                ? "IN INVIO"
+                                : active.lines.length
+                                  ? "INVIATO"
+                                  : "APERTO";
+                      return (
+                        <article
+                          key={table.id}
+                          className={`absolute min-h-11 min-w-11 rounded-xl border-2 p-1 shadow-sm ${available ? "border-emerald-500 bg-emerald-50" : !active ? "border-slate-500 bg-slate-200" : uncertain || failed ? "border-red-500 bg-red-50" : active.unsentCount ? "border-amber-500 bg-amber-50" : "border-blue-500 bg-blue-50"}`}
+                          style={{
+                            left: `${(table.positionX / selectedArea.layoutWidth) * 100}%`,
+                            top: `${(table.positionY / selectedArea.layoutHeight) * 100}%`,
+                            width: `${(table.width / selectedArea.layoutWidth) * 100}%`,
+                            height: `${(table.height / selectedArea.layoutHeight) * 100}%`,
+                            transform: `rotate(${table.rotation}deg)`,
+                            borderRadius:
+                              table.shape === "ROUND" ? "9999px" : undefined,
+                          }}
+                        >
                           <button
-                            disabled={pending || guestCount < 1}
-                            onClick={() => open(table.id)}
-                            className="min-h-11 flex-1 rounded-lg bg-slate-950 px-3 text-sm font-bold text-white disabled:opacity-50"
+                            disabled={!active && !available}
+                            aria-label={`${table.name || table.code}: ${state}`}
+                            className="flex h-full w-full flex-col items-center justify-center text-center disabled:cursor-not-allowed"
+                            onClick={() =>
+                              active
+                                ? setSelectedOrderId(active.id)
+                                : setOpeningTableId(table.id)
+                            }
                           >
-                            Apri tavolo
+                            <span className="font-black leading-tight">
+                              {table.name || table.code}
+                            </span>
+                            <span className="mt-0.5 text-[10px] font-bold tracking-wide">
+                              {state}
+                            </span>
+                            {active && (
+                              <span className="hidden text-xs sm:block">
+                                <span className="block">
+                                  {active.guestCount} coperti
+                                </span>
+                                <span className="block font-bold">
+                                  {money.format(active.total)}
+                                </span>
+                                <span className="block">
+                                  {active.unsentCount} righe da inviare
+                                </span>
+                              </span>
+                            )}
                           </button>
-                        </div>
-                      )}
-                    </article>
-                  );
-                })}
-              </div>
-            </section>
-          ))}
+                        </article>
+                      );
+                    })}
+                  </div>
+                  {openingTableId && (
+                    <div className="fixed inset-x-3 bottom-3 z-40 flex items-center gap-2 rounded-2xl border bg-white p-4 shadow-xl sm:left-auto sm:right-6 sm:w-72">
+                      <label className="text-sm font-semibold">
+                        Coperti{" "}
+                        <input
+                          aria-label="Numero coperti"
+                          className="ml-1 w-16 rounded border p-2"
+                          type="number"
+                          min="1"
+                          value={guestCount}
+                          onChange={(event) =>
+                            setGuestCount(Number(event.target.value))
+                          }
+                        />
+                      </label>
+                      <button
+                        disabled={pending || guestCount < 1}
+                        onClick={() => open(openingTableId)}
+                        className="min-h-11 flex-1 rounded-lg bg-slate-950 px-3 text-sm font-bold text-white disabled:opacity-50"
+                      >
+                        Apri tavolo
+                      </button>
+                    </div>
+                  )}
+                </section>
+              )}
+            </>
+          )}
         </div>
       )}
       {order && (

@@ -28,6 +28,14 @@ test("Sala touch: apertura, menu, comanda incrementale e invio incerto", async (
   if (!locationId) throw new Error("Sede E2E non disponibile.");
   const companyId = membership.companyId,
     suffix = Date.now().toString(36);
+  const maxPlu = (
+    await prisma.fusionCatalogMapping.aggregate({
+      where: { companyId, locationId },
+      _max: { plu: true },
+    })
+  )._max.plu ?? 1_000;
+  const tartarePlu = maxPlu + 1,
+    orataPlu = maxPlu + 2;
   const area = await prisma.restaurantArea.create({
     data: {
       companyId,
@@ -65,11 +73,21 @@ test("Sala touch: apertura, menu, comanda incrementale e invio incerto", async (
   const category = await prisma.itemCategory.create({
     data: { companyId, code: `CE${suffix}`, name: `Categoria E2E ${suffix}` },
   });
-  const menu = await prisma.restaurantMenu.create({
-    data: { companyId, locationId, code: "FRISA_BISTRO", name: "Frisà Bistrò" },
+  const existingMenu = await prisma.restaurantMenu.findFirst({
+    where: { companyId, locationId, code: "FRISA_BISTRO", deletedAt: null },
   });
+  const menu =
+    existingMenu ??
+    (await prisma.restaurantMenu.create({
+      data: {
+        companyId,
+        locationId,
+        code: "FRISA_BISTRO",
+        name: "Frisà Bistrò",
+      },
+    }));
   const section = await prisma.restaurantMenuSection.create({
-    data: { companyId, menuId: menu.id, name: "SECONDI" },
+    data: { companyId, menuId: menu.id, name: `SECONDI ${suffix}` },
   });
   const station = await prisma.kitchenStation.create({
     data: {
@@ -95,8 +113,8 @@ test("Sala touch: apertura, menu, comanda incrementale e invio incerto", async (
   let orderId = "";
   try {
     for (const fixture of [
-      { plu: 179, name: `TARTARE E2E ${suffix}`, price: 22 },
-      { plu: 142, name: `ORATA E2E ${suffix}`, price: 24 },
+      { plu: tartarePlu, name: `TARTARE E2E ${suffix}`, price: 22 },
+      { plu: orataPlu, name: `ORATA E2E ${suffix}`, price: 24 },
     ]) {
       const item = await prisma.item.create({
         data: {
@@ -167,6 +185,9 @@ test("Sala touch: apertura, menu, comanda incrementale e invio incerto", async (
       page.getByRole("heading", { name: "Sala", exact: true, level: 1 }),
     ).toBeVisible();
     await page
+      .getByRole("button", { name: `Sala E2E ${suffix}`, exact: true })
+      .click();
+    await page
       .getByRole("button", { name: new RegExp(`TAVOLO E2E ${suffix}`) })
       .click();
     await expect(page.getByLabel("Numero coperti")).toHaveValue("2");
@@ -182,7 +203,9 @@ test("Sala touch: apertura, menu, comanda incrementale e invio incerto", async (
         },
       })
     ).id;
-    await page.getByPlaceholder("Cerca nome o PLU…").fill("179");
+    await page
+      .getByPlaceholder("Cerca nome o PLU…")
+      .fill(String(tartarePlu));
     await expect(
       page.getByRole("button", { name: new RegExp(`TARTARE E2E ${suffix}`) }),
     ).toBeVisible();
@@ -213,7 +236,9 @@ test("Sala touch: apertura, menu, comanda incrementale e invio incerto", async (
     await expect(
       page.getByLabel(new RegExp(`Aumenta TARTARE E2E`)),
     ).toHaveCount(0);
-    await page.getByPlaceholder("Cerca nome o PLU…").fill("142");
+    await page
+      .getByPlaceholder("Cerca nome o PLU…")
+      .fill(String(orataPlu));
     await page
       .getByRole("button", { name: new RegExp(`ORATA E2E ${suffix}`) })
       .click();
@@ -313,7 +338,9 @@ test("Sala touch: apertura, menu, comanda incrementale e invio incerto", async (
     });
     await prisma.restaurantPrinter.delete({ where: { id: printer.id } });
     await prisma.kitchenStation.delete({ where: { id: station.id } });
-    await prisma.restaurantMenu.delete({ where: { id: menu.id } });
+    if (existingMenu)
+      await prisma.restaurantMenuSection.delete({ where: { id: section.id } });
+    else await prisma.restaurantMenu.delete({ where: { id: menu.id } });
     await prisma.fusionCatalogMapping.deleteMany({
       where: { companyId, itemId: { in: itemIds } },
     });

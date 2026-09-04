@@ -12,5 +12,12 @@ export default async function Page() {
     context.companyId,
     context.locationId,
   );
-  return <OperationalFloor data={data} />;
+  return (
+    <OperationalFloor
+      data={data}
+      canConfigure={context.roles.some((role) =>
+        ["SUPER_ADMIN", "ADMIN", "MANAGER"].includes(role),
+      )}
+    />
+  );
 }

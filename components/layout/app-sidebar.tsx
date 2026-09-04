@@ -162,10 +162,12 @@ export default async function AppSidebar() {
   }
 
   return (
-    <aside className="w-64 border-r bg-slate-900 text-white">
-      <div className="border-b border-slate-800 p-6">
-        <h1 className="text-xl font-bold">Nexus ERP</h1>
-        <p className="mt-1 text-sm text-slate-400">Business Platform</p>
+    <aside className="w-24 shrink-0 border-r bg-slate-900 text-white sm:w-64">
+      <div className="border-b border-slate-800 p-4 sm:p-6">
+        <h1 className="text-base font-bold sm:text-xl">Nexus ERP</h1>
+        <p className="mt-1 hidden text-sm text-slate-400 sm:block">
+          Business Platform
+        </p>
       </div>
 
       <SidebarNav items={items} />

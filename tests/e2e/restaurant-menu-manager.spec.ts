@@ -17,12 +17,15 @@ test("Menu Manager: gestione Nexus, campi FUSION ed esperienza responsive", asyn
   const locationId = membership.defaultLocationId ?? membership.authorizedLocations[0]?.locationId;
   if (!locationId) throw new Error("La fixture E2E richiede una sede autorizzata.");
   const suffix = Date.now().toString(36);
+  const maxPlu = (await prisma.fusionCatalogMapping.aggregate({ where: { companyId: membership.companyId, locationId }, _max: { plu: true } }))._max.plu ?? 1_000;
+  const primaryPlu = maxPlu + 1;
   const menu = await prisma.restaurantMenu.create({ data: { companyId: membership.companyId, locationId, code: `E2E_MENU_${suffix}`, name: "Frisà Bistrò" } });
   const sectionIds: string[] = [];
   const itemIds: string[] = [];
   try {
     for (const [sortOrder, name] of categories.entries()) sectionIds.push((await prisma.restaurantMenuSection.create({ data: { companyId: membership.companyId, menuId: menu.id, name, sortOrder } })).id);
-    const fixtures = [{ plu: 179, name: "TARTARE DI MANZO", price: 22 }, { plu: 142, name: "FILETTO DI ORATA", price: 24 }, { plu: 900, name: "PLU 900", price: 1 }, { plu: 901, name: "MENU", price: 12 }, { plu: 902, name: "ZERO", price: 0 }, { plu: 19, name: "TORRETTA", price: 4 }];
+    const fixtures = [{ plu: primaryPlu, name: "TARTARE DI MANZO", price: 22 }, { plu: maxPlu + 2, name: "FILETTO DI ORATA", price: 24 }, { plu: maxPlu + 3, name: `PLU ${maxPlu + 3}`, price: 1 }, { plu: maxPlu + 4, name: "MENU", price: 12 }, { plu: maxPlu + 5, name: "ZERO", price: 0 }];
+    if (!(await prisma.fusionCatalogMapping.findUnique({ where: { companyId_locationId_plu: { companyId: membership.companyId, locationId, plu: 19 } } }))) fixtures.push({ plu: 19, name: "TORRETTA", price: 4 });
     for (const [index, fixture] of fixtures.entries()) {
       const item = await prisma.item.create({ data: { companyId: membership.companyId, code: `E2E_FUSION_${suffix}_${fixture.plu}`, name: fixture.name, type: "PRODUCT", salePrice: fixture.price } });
       itemIds.push(item.id);
@@ -40,8 +43,8 @@ test("Menu Manager: gestione Nexus, campi FUSION ed esperienza responsive", asyn
     await expect(page.getByRole("heading", { name: "Frisà Bistrò" })).toBeVisible();
     await expect(page.getByText("2 prodotti attualmente configurati")).toBeVisible();
     await expect(page.getByText("Sincronizzato da FUSION").first()).toBeVisible();
-    await expect(page.getByText("PLU 179")).toBeVisible();
-    await page.getByPlaceholder("Cerca nome o PLU…").fill("179");
+    await expect(page.getByText(`PLU ${primaryPlu}`)).toBeVisible();
+    await page.getByPlaceholder("Cerca nome o PLU…").fill(String(primaryPlu));
     await expect(page.getByRole("heading", { name: "TARTARE DI MANZO" })).toBeVisible();
     await page.getByPlaceholder("Cerca nome o PLU…").fill("");
 
