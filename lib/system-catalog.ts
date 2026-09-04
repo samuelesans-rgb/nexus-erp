@@ -7,6 +7,7 @@ export const SYSTEM_ROLES = [
   ["SALES", "Sales operator"],
   ["ACCOUNTANT", "Accountant"],
   ["WAREHOUSE", "Warehouse operator"],
+  ["SALA", "Operatore sala"],
 ] as const;
 
 type ModuleMetadata = { name: string; mandatory?: boolean; status?: "AVAILABLE" | "PLANNED" | "FUTURE" };

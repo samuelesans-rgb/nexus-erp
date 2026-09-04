@@ -1352,6 +1352,7 @@ model Location {
   restaurantOrders             RestaurantOrder[]
   restaurantOrderTables        RestaurantOrderTable[]
   restaurantOrderLines         RestaurantOrderLine[]
+  restaurantModifiers          RestaurantModifier[]
   kitchenStations              KitchenStation[]
   kitchenTickets               KitchenTicket[]
   kitchenTicketLines           KitchenTicketLine[]
@@ -2513,15 +2514,20 @@ model RestaurantModifierGroup {
 
 model RestaurantModifier {
   id                  String                        @id @default(cuid())
-  companyId           String
+  companyId            String
+  locationId           String
   groupId             String
-  name                String
-  priceDelta          Decimal                       @default(0) @db.Decimal(15, 2)
+  name                 String
+  kitchenLabel         String
+  priceDelta           Decimal                       @default(0) @db.Decimal(15, 2)
+  fusionPluId          Int?
+  fusionPlateVariation Boolean                       @default(false)
   itemId              String?
   active              Boolean                       @default(true)
   sortOrder           Int                           @default(0)
   deletedAt           DateTime?
-  company             Company                       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company              Company                       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location             Location                      @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
   group               RestaurantModifierGroup       @relation(fields: [companyId, groupId], references: [companyId, id], onDelete: Cascade)
   item                Item?                         @relation("RestaurantModifierItem", fields: [companyId, itemId], references: [companyId, id], onDelete: Restrict)
   recipeImpacts       RestaurantRecipeImpact[]
@@ -2530,8 +2536,8 @@ model RestaurantModifier {
   updatedAt           DateTime                      @updatedAt
 
   @@unique([companyId, id])
-  @@unique([companyId, groupId, name])
-  @@index([companyId, groupId, active, deletedAt])
+  @@unique([companyId, locationId, groupId, name])
+  @@index([companyId, locationId, groupId, active, deletedAt])
 }
 
 model RestaurantRecipeImpact {
@@ -2661,7 +2667,11 @@ model RestaurantOrderLineModifier {
   itemId      String?
   groupName   String?
   name        String
-  priceDelta  Decimal             @default(0) @db.Decimal(15, 2)
+  kitchenLabel String
+  priceDelta           Decimal             @default(0) @db.Decimal(15, 2)
+  fusionPluId          Int?
+  fusionPlateVariation Boolean             @default(false)
+  sortOrder            Int                 @default(0)
   notes       String?
   company     Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
   orderLine   RestaurantOrderLine @relation(fields: [companyId, orderLineId], references: [companyId, id], onDelete: Cascade)

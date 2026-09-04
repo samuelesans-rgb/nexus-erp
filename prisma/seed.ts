@@ -206,7 +206,7 @@ async function main() {
     },
   });
 
-  for (const [code, name] of [["ADMIN", "Administrator"], ["MANAGER", "Manager"], ["SALES", "Sales operator"], ["ACCOUNTANT", "Accountant"], ["WAREHOUSE", "Warehouse operator"]] as const) {
+  for (const [code, name] of [["ADMIN", "Administrator"], ["MANAGER", "Manager"], ["SALES", "Sales operator"], ["ACCOUNTANT", "Accountant"], ["WAREHOUSE", "Warehouse operator"], ["SALA", "Operatore sala"]] as const) {
     await prisma.role.upsert({ where: { code }, update: { name }, create: { code, name } });
   }
 

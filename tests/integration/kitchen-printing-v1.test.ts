@@ -155,7 +155,13 @@ before(async () => {
         },
       }),
       modifier = await tx.restaurantModifier.create({
-        data: { companyId: company.id, groupId: group.id, name: "+ Burrata" },
+        data: {
+          companyId: company.id,
+          locationId: loc.id,
+          groupId: group.id,
+          name: "+ Burrata",
+          kitchenLabel: "+ Burrata",
+        },
       }),
       allergen = await tx.allergen.create({
         data: { companyId: company.id, code: "MILK", name: "Latte" },

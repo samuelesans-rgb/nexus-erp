@@ -116,7 +116,7 @@ export function renderKitchenTicket(
         ...wrap(
           cleanText((modifier as { name?: string }).name ?? modifier, 120),
           width,
-          "  ",
+          "    → ",
         ),
       );
     if (line.notes)
@@ -187,7 +187,12 @@ async function sendOrderToKitchenAttempt(
           tables: { include: { table: true } },
           lines: {
             where: { status: { not: "CANCELLED" } },
-            include: { item: true, modifiers: true },
+            include: {
+              item: true,
+              modifiers: {
+                orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+              },
+            },
           },
         },
       });
@@ -324,7 +329,7 @@ async function sendOrderToKitchenAttempt(
               variantName: row.line.variantName,
               modifiers: row.line.modifiers.map((m) => ({
                 groupName: m.groupName,
-                name: m.name,
+                name: m.kitchenLabel,
                 notes: m.notes,
               })),
               notes: row.line.kitchenNotes ?? row.line.notes,
@@ -427,6 +432,23 @@ export async function sendOrderToKitchen(
       );
     } catch (error) {
       if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2002"
+      ) {
+        const existing = await prisma.kitchenDispatch.findFirst({
+          where: { companyId, orderId, idempotencyKey },
+          include: { tickets: { include: { printJobs: true } } },
+        });
+        if (existing)
+          return {
+            ...existing,
+            duplicate: true,
+            printFailed: existing.tickets.some((ticket) =>
+              ticket.printJobs.some((job) => job.status === "FAILED"),
+            ),
+          };
+      }
+      if (
         !(error instanceof Prisma.PrismaClientKnownRequestError) ||
         error.code !== "P2034" ||
         attempt === 2
@@ -460,7 +482,9 @@ export async function changeOrderLineQuantity(
         },
         include: {
           order: { include: { tables: { include: { table: true } } } },
-          modifiers: true,
+          modifiers: {
+            orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+          },
           item: true,
         },
       });
@@ -1207,7 +1231,17 @@ export const getKitchen = (
         station: true,
         order: true,
         dispatch: true,
-        lines: { include: { orderLine: { include: { modifiers: true } } } },
+        lines: {
+          include: {
+            orderLine: {
+              include: {
+                modifiers: {
+                  orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+                },
+              },
+            },
+          },
+        },
         printJobs: { orderBy: { createdAt: "desc" }, take: 1 },
       },
       orderBy: { createdAt: "asc" },

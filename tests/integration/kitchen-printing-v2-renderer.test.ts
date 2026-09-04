@@ -102,6 +102,21 @@ test("Kitchen Printing V2 renderer", async (t) => {
       /2 x PITTULE/,
     ),
   );
+  await t.test("modifier restano figli sullo stesso ticket", () => {
+    const value = renderKitchenTicket({
+      ...ticket("ALLERGIA NOCI"),
+      lines: [
+        {
+          ...ticket("ALLERGIA NOCI").lines[0],
+          modifiers: [{ name: "SENZA CIPOLLA" }, { name: "SALSA A PARTE" }],
+        },
+      ],
+    });
+    assert.match(
+      value,
+      /1 x FILETTO DI ORATA[\s\S]*→ SENZA CIPOLLA[\s\S]*→ SALSA A PARTE[\s\S]*\*\*\* ALLERGIA NOCI \*\*\*/,
+    );
+  });
   await t.test("intestazione professionale", () =>
     assert.match(
       renderKitchenTicket(ticket()),

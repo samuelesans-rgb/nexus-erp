@@ -9,6 +9,7 @@ import {
 import { Prisma } from "@/generated/prisma/client";
 import { writeAuditLogTx } from "@/lib/audit";
 import { prisma } from "@/lib/prisma";
+import { buildFusionDispatchLines } from "@/lib/restaurant-fusion-dispatch";
 
 const digest = (value: string) =>
   createHash("sha256").update(value).digest("hex");
@@ -320,7 +321,17 @@ export async function claimConnectorJob(
         ticket: {
           include: {
             order: { include: { tables: true } },
-            lines: { include: { orderLine: { include: { modifiers: true } } } },
+            lines: {
+              include: {
+                orderLine: {
+                  include: {
+                    modifiers: {
+                      orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+                    },
+                  },
+                },
+              },
+            },
           },
         },
       },
@@ -345,14 +356,16 @@ export async function claimConnectorJob(
   const fusionOrder = job.ticket
     ? {
         tableIds: job.ticket.order.tables.map((row) => row.tableId),
-        lines: job.ticket.lines.map((line) => ({
-          lineId: line.id,
-          itemId: line.orderLine.itemId,
-          plu: pluByItem.get(line.orderLine.itemId),
-          quantity: Number(line.quantity),
-          hasModifiers: line.orderLine.modifiers.length > 0,
-          hasNotes: Boolean(line.notes),
-        })),
+        lines: buildFusionDispatchLines(
+          job.ticket.lines.map((line) => ({
+            id: line.id,
+            itemId: line.orderLine.itemId,
+            plu: pluByItem.get(line.orderLine.itemId),
+            quantity: Number(line.quantity),
+            hasNotes: Boolean(line.notes),
+            modifiers: line.orderLine.modifiers,
+          })),
+        ),
       }
     : undefined;
   return {
