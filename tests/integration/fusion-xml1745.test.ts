@@ -59,6 +59,14 @@ test("builder emits the byte-exact proven grammar and millesimal quantities", ()
   );
   assert.equal(quantityToMul(2), 2000);
   assert.equal(quantityToMul(0.5), 500);
+  assert.equal(
+    buildFusionOrder(199, [
+      { plu: 2, mul: 1000 },
+      { plu: 107, mul: 500 },
+    ]),
+    "<CE><ORDER><TABLE>199<PLU>2<MUL>1000</MUL></PLU><PLU>107<MUL>500</MUL></PLU></TABLE></ORDER></CE>",
+  );
+  assert.throws(() => buildFusionOrder(199, []));
   for (const value of [0, -1, NaN, Infinity])
     assert.throws(() => quantityToMul(value));
   for (const values of [
@@ -67,6 +75,35 @@ test("builder emits the byte-exact proven grammar and millesimal quantities", ()
     [199, 2, 0],
   ] as const)
     assert.throws(() => buildFusionOrder(values[0], values[1], values[2]));
+});
+
+test("multi-item transport preserves 2 -> 107 and classifies ACK, NACK and timeout once", async () => {
+  for (const response of ["<CE><ACK></ACK></CE>", "<CE><NACK>1</NACK></CE>", null]) {
+    let payload = "";
+    const fake = await server((socket, value) => {
+      payload = value;
+      if (response) socket.end(response);
+    });
+    try {
+      const order = buildFusionOrder(199, [
+        { plu: 2, mul: 1000 },
+        { plu: 107, mul: 2000 },
+      ]);
+      if (response === "<CE><ACK></ACK></CE>") await sendFusionOrder(base(fake.port), order);
+      else
+        await assert.rejects(
+          sendFusionOrder(base(fake.port, 50), order),
+          (error) =>
+            error instanceof FusionXml1745Error &&
+            error.outcome === (response ? "NACK" : "UNCERTAIN_DELIVERY"),
+        );
+      assert.equal(fake.count(), 1);
+      assert.equal(payload, order);
+      assert.ok(payload.indexOf("<PLU>2<") < payload.indexOf("<PLU>107<"));
+    } finally {
+      await close(fake.instance);
+    }
+  }
 });
 test("configuration and closed response parser fail closed", () => {
   for (const host of ["", "http://localhost", "x;touch /tmp/x"])
@@ -185,6 +222,51 @@ test("persistent mapping wins over JSON fallback and ledger suppresses duplicate
     assert.equal(fake.count(), 1);
     await ledger.mark("uncertain-job", "line", "UNCERTAIN");
     await adapter.print({ ...job, jobId: "uncertain-job" });
+    assert.equal(fake.count(), 1);
+  } finally {
+    await close(fake.instance);
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("adapter delivers a multi-line job atomically and never resends ACKed or uncertain orders", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "fusion-multi-ledger-"));
+  let payload = "";
+  const fake = await server((socket, value) => {
+    payload = value;
+    socket.end("<CE><ACK></ACK></CE>");
+  });
+  const lines = [
+    { lineId: "main", itemId: "main", plu: 2, quantity: 1, hasModifiers: false, hasNotes: false },
+    { lineId: "variant", itemId: "variant", plu: 107, quantity: 0.5, hasModifiers: false, hasNotes: false },
+  ];
+  try {
+    const ledger = new FusionDeliveryLedger(join(directory, "ledger.json")),
+      adapter = new FusionXml1745PrinterAdapter(base(fake.port), ledger, () => undefined),
+      job = {
+        jobId: "multi",
+        leaseToken: "lease",
+        leaseExpiresAt: new Date().toISOString(),
+        payload: "ignored <tag>",
+        printType: "KITCHEN_TICKET",
+        copies: 1,
+        paperWidth: 80,
+        printerType: "FUSION_XML_1745",
+        connectionType: "TCP",
+        fusionOrder: { tableIds: ["table"], lines },
+      };
+    await adapter.print(job);
+    await adapter.print(job);
+    assert.equal(fake.count(), 1);
+    assert.equal(
+      payload,
+      "<CE><ORDER><TABLE>199<PLU>2<MUL>1000</MUL></PLU><PLU>107<MUL>500</MUL></PLU></TABLE></ORDER></CE>",
+    );
+    assert.doesNotMatch(payload, /ignored|tag/);
+    assert.equal(await ledger.state("multi", "main"), "ACKED");
+    assert.equal(await ledger.state("multi", "variant"), "ACKED");
+    await ledger.markMany("uncertain", ["main", "variant"], "UNCERTAIN");
+    await adapter.print({ ...job, jobId: "uncertain" });
     assert.equal(fake.count(), 1);
   } finally {
     await close(fake.instance);

@@ -151,8 +151,33 @@ const positive = (name: string, value: number, max = 2_147_483_647) => {
     );
   return value;
 };
-export function buildFusionOrder(table: number, plu: number, mul: number) {
-  return `<CE><ORDER><TABLE>${positive("TABLE", table, 199)}<PLU>${positive("PLU", plu)}<MUL>${positive("MUL", mul)}</MUL></PLU></TABLE></ORDER></CE>`;
+export type FusionOrderItem = { plu: number; mul: number };
+export function buildFusionOrder(
+  table: number,
+  items: readonly FusionOrderItem[],
+): string;
+export function buildFusionOrder(table: number, plu: number, mul: number): string;
+export function buildFusionOrder(
+  table: number,
+  itemsOrPlu: readonly FusionOrderItem[] | number,
+  legacyMul?: number,
+) {
+  const items = Array.isArray(itemsOrPlu)
+    ? itemsOrPlu
+    : [{ plu: itemsOrPlu as number, mul: legacyMul as number }];
+  if (items.length === 0)
+    throw new FusionXml1745Error(
+      "FUSION_MAPPING_ERROR",
+      "ORDER senza PLU.",
+      "PRE_SEND_FAILURE",
+    );
+  const body = items
+    .map(
+      ({ plu, mul }) =>
+        `<PLU>${positive("PLU", plu)}<MUL>${positive("MUL", mul)}</MUL></PLU>`,
+    )
+    .join("");
+  return `<CE><ORDER><TABLE>${positive("TABLE", table, 199)}${body}</TABLE></ORDER></CE>`;
 }
 export function parseFusionOrderResponse(frame: string) {
   if (frame === FUSION_ACK) return { kind: "ACK" as const };
@@ -296,9 +321,18 @@ export class FusionDeliveryLedger {
     return (await this.load()).jobs[jobId]?.[lineId]?.state;
   }
   async mark(jobId: string, lineId: string, state: LedgerLine["state"]) {
+    await this.markMany(jobId, [lineId], state);
+  }
+  async markMany(
+    jobId: string,
+    lineIds: readonly string[],
+    state: LedgerLine["state"],
+  ) {
     const ledger = await this.load();
     ledger.jobs[jobId] ??= {};
-    ledger.jobs[jobId][lineId] = { state, updatedAt: new Date().toISOString() };
+    const updatedAt = new Date().toISOString();
+    for (const lineId of lineIds)
+      ledger.jobs[jobId][lineId] = { state, updatedAt };
     await this.save(ledger);
   }
 }
@@ -332,6 +366,7 @@ export class FusionXml1745PrinterAdapter implements PrinterAdapter {
         "Mapping tavolo FUSION mancante.",
         "PRE_SEND_FAILURE",
       );
+    const items: Array<FusionOrderItem & { lineId: string; itemId: string }> = [];
     for (const line of order.lines) {
       if (line.hasModifiers || line.quantity <= 0)
         throw new FusionXml1745Error(
@@ -339,8 +374,6 @@ export class FusionXml1745PrinterAdapter implements PrinterAdapter {
           "Modificatori e annulli non sono supportati in V1.",
           "PRE_SEND_FAILURE",
         );
-      const prior = await this.ledger.state(job.jobId, line.lineId);
-      if (prior === "ACKED" || prior === "UNCERTAIN") continue;
       const plu = line.plu ?? this.config.productMappings[line.itemId];
       if (!plu)
         throw new FusionXml1745Error(
@@ -348,48 +381,64 @@ export class FusionXml1745PrinterAdapter implements PrinterAdapter {
           `Mapping PLU mancante per ${line.itemId}.`,
           "PRE_SEND_FAILURE",
         );
-      const mul = quantityToMul(line.quantity, this.config.maxMul),
-        payload = buildFusionOrder(table, plu, mul);
+      items.push({
+        lineId: line.lineId,
+        itemId: line.itemId,
+        plu,
+        mul: quantityToMul(line.quantity, this.config.maxMul),
+      });
+    }
+    const lineIds = items.map(({ lineId }) => lineId),
+      prior = await Promise.all(
+        lineIds.map((lineId) => this.ledger.state(job.jobId, lineId)),
+      );
+    if (prior.every((state) => state === "ACKED")) return;
+    if (prior.some((state) => state === "UNCERTAIN")) return;
+    if (prior.some((state) => state === "ACKED"))
+      throw new FusionXml1745Error(
+        "FUSION_UNSUPPORTED",
+        "Ledger legacy parziale: invio multi-PLU bloccato.",
+        "PRE_SEND_FAILURE",
+      );
+    const payload = buildFusionOrder(table, items);
+    this.audit({
+      jobId: job.jobId,
+      adapter: "FUSION_XML_1745",
+      host: this.config.host,
+      port: this.config.port,
+      tableId: table,
+      items: items.map(({ plu, mul }) => ({ plu, mul })),
+      attempt: job.attempts ?? 0,
+      result: "SENDING",
+    });
+    try {
+      await sendFusionOrder(this.config, payload);
+      await this.ledger.markMany(job.jobId, lineIds, "ACKED");
       this.audit({
         jobId: job.jobId,
+        lineIds,
         adapter: "FUSION_XML_1745",
-        host: this.config.host,
-        port: this.config.port,
-        tableId: table,
-        pluId: plu,
-        mul,
-        attempt: job.attempts ?? 0,
-        result: "SENDING",
+        result: "ACK",
       });
-      try {
-        await sendFusionOrder(this.config, payload);
-        await this.ledger.mark(job.jobId, line.lineId, "ACKED");
-        this.audit({
-          jobId: job.jobId,
-          lineId: line.lineId,
-          adapter: "FUSION_XML_1745",
-          result: "ACK",
-        });
-      } catch (error) {
-        if (
+    } catch (error) {
+      if (
+        error instanceof FusionXml1745Error &&
+        error.outcome === "UNCERTAIN_DELIVERY"
+      )
+        await this.ledger.markMany(job.jobId, lineIds, "UNCERTAIN");
+      this.audit({
+        jobId: job.jobId,
+        lineIds,
+        adapter: "FUSION_XML_1745",
+        result:
+          error instanceof FusionXml1745Error
+            ? error.code
+            : "FUSION_CONNECTION_ERROR",
+        uncertainDelivery:
           error instanceof FusionXml1745Error &&
-          error.outcome === "UNCERTAIN_DELIVERY"
-        )
-          await this.ledger.mark(job.jobId, line.lineId, "UNCERTAIN");
-        this.audit({
-          jobId: job.jobId,
-          lineId: line.lineId,
-          adapter: "FUSION_XML_1745",
-          result:
-            error instanceof FusionXml1745Error
-              ? error.code
-              : "FUSION_CONNECTION_ERROR",
-          uncertainDelivery:
-            error instanceof FusionXml1745Error &&
-            error.outcome === "UNCERTAIN_DELIVERY",
-        });
-        throw error;
-      }
+          error.outcome === "UNCERTAIN_DELIVERY",
+      });
+      throw error;
     }
   }
   async diagnostics() {
