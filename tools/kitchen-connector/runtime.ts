@@ -253,12 +253,13 @@ export class KitchenConnectorClient {
       queueDepth: spool.activeFiles,
       failedJobs: spool.failedFiles,
       lastError,
-      connectorVersion: "1.1.0",
+      connectorVersion: "1.1.0+pos-network-diagnostic-v1",
       diagnostics: {
         spool,
         printer,
         runtime: process.version,
         platform: process.platform,
+        posNetworkDiagnostic: process.env.POS_NETWORK_DIAGNOSTIC_ENABLED === "true",
       },
     });
   }
@@ -268,6 +269,9 @@ export class KitchenConnectorClient {
       body: JSON.stringify(body),
       signal,
     });
+  }
+  async networkDiagnostic(body: unknown) {
+    return this.post("/network-diagnostic", body);
   }
   async recover() {
     for (const record of await this.spool.load()) {
