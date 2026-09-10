@@ -159,3 +159,16 @@ export const tableStatusInclude = {
     },
   },
 } as const;
+
+/**
+ * Maps a legacy status onto the physical column. Used while both columns are
+ * maintained: the derived states collapse to READY because they are recomputed
+ * from relations.
+ */
+export function toPhysicalStatus(
+  status: RestaurantTableStatus,
+): RestaurantTablePhysicalStatus {
+  if (status === "OUT_OF_SERVICE") return "OUT_OF_SERVICE";
+  if (status === "DIRTY") return "DIRTY";
+  return "READY";
+}

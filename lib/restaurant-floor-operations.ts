@@ -9,6 +9,10 @@ import { sendOrderToKitchen } from "@/lib/restaurant-kitchen";
 import { restaurantMenuEligibleItemWhere } from "@/lib/restaurant-menu-eligibility";
 import { menuExclusionReason } from "@/lib/restaurant-menu-manager";
 import { RestaurantDomainError } from "@/lib/restaurant";
+import {
+  deriveTableStatusFromRow,
+  tableStatusInclude,
+} from "@/lib/restaurant-table-status";
 import { lockRestaurantResources } from "@/lib/restaurant-locking";
 import { addOrderLine, assignOrderPartner, openOrder } from "@/lib/restaurant-orders";
 
@@ -41,6 +45,7 @@ export async function getOperationalRestaurantFloor(
         tables: {
           where: { active: true, visibleInFloor: true, deletedAt: null },
           orderBy: [{ sortOrder: "asc" }, { code: "asc" }],
+          include: tableStatusInclude,
         },
       },
       orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
@@ -117,6 +122,7 @@ export async function getOperationalRestaurantFloor(
       select: { itemId: true, plu: true },
     }),
   ]);
+  const now = new Date();
   const mappingByItem = new Map(
     mappings.map((mapping) => [mapping.itemId, mapping.plu]),
   );
@@ -226,7 +232,7 @@ export async function getOperationalRestaurantFloor(
         code: table.code,
         name: table.name,
         seats: table.seats,
-        status: table.status,
+        status: deriveTableStatusFromRow(table, now),
         shape: table.shape,
         positionX: Number(table.positionX),
         positionY: Number(table.positionY),
@@ -343,7 +349,7 @@ export async function releaseFloorTable(actor: Actor, tableId: string) {
         locationId: actor.locationId,
         status: "DIRTY",
       },
-      data: { status: "AVAILABLE" },
+      data: { status: "AVAILABLE", physicalStatus: "READY" },
     });
     if (!released.count)
       throw new RestaurantDomainError(

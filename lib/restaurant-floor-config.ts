@@ -3,6 +3,10 @@ import "server-only";
 import { Prisma } from "@/generated/prisma/client";
 import { writeAuditLogTx } from "@/lib/audit";
 import { prisma } from "@/lib/prisma";
+import {
+  deriveTableStatusFromRow,
+  tableStatusInclude,
+} from "@/lib/restaurant-table-status";
 
 export class FloorConfigError extends Error {}
 
@@ -25,7 +29,7 @@ const number = (value: number, min: number, max: number, name: string) => {
 export async function getFloorConfiguration(
   actor: Pick<Actor, "companyId" | "locationId">,
 ) {
-  return prisma.restaurantArea.findMany({
+  const areas = await prisma.restaurantArea.findMany({
     where: {
       companyId: actor.companyId,
       locationId: actor.locationId,
@@ -35,10 +39,21 @@ export async function getFloorConfiguration(
       tables: {
         where: { deletedAt: null },
         orderBy: [{ sortOrder: "asc" }, { code: "asc" }],
+        include: tableStatusInclude,
       },
     },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
   });
+  // One instant for the whole page, so two tables never derive against
+  // different clocks.
+  const now = new Date();
+  return areas.map((area) => ({
+    ...area,
+    tables: area.tables.map((table) => ({
+      ...table,
+      status: deriveTableStatusFromRow(table, now),
+    })),
+  }));
 }
 
 export async function getAreaCombinations(

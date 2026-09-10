@@ -5,7 +5,7 @@ import { prisma } from "../../lib/prisma";
 import { addFloorOrderItem, deleteUnsentFloorLine, dispatchFloorOrder, getOperationalRestaurantFloor, openFloorTable, releaseFloorTable, retrySafeFloorJob, updateFloorGuestCount, updateUnsentFloorLine } from "../../lib/restaurant-floor-operations";
 import { assignOrderPartner, closeRestaurantOrderAtomic, openOrder } from "../../lib/restaurant-orders";
 import { dissolveTableCombination, saveTableCombination } from "../../lib/restaurant-floor";
-import { FloorConfigError, getAreaCombinations, saveFloorArea, saveFloorLayout, saveFloorTable } from "../../lib/restaurant-floor-config";
+import { FloorConfigError, getFloorConfiguration, getAreaCombinations, saveFloorArea, saveFloorLayout, saveFloorTable } from "../../lib/restaurant-floor-config";
 import { newOrderCode, reassignOrderTables } from "../../lib/restaurant-orders";
 import { transitionReservation } from "../../lib/restaurant-booking";
 import { advanceKitchenLine } from "../../lib/restaurant-kitchen";
@@ -303,8 +303,8 @@ test("riassegnare una comanda propaga i tavoli alla prenotazione collegata", asy
 
 test("aperture concorrenti producono codici comanda univoci", async () => {
   // Deterministico: nello stesso millisecondo il solo timestamp collide.
-  const generated = new Set(Array.from({ length: 200 }, () => newOrderCode()));
-  assert.equal(generated.size, 200, "il codice comanda deve essere univoco anche a parità di millisecondo");
+  const generated = new Set(Array.from({ length: 2000 }, () => newOrderCode()));
+  assert.equal(generated.size, 2000, "il codice comanda deve essere univoco anche a parità di millisecondo");
   const codes = new Set<string>();
   const tables = [tableId, secondTableId, lifecycleTableId, walkInTableId, invoiceTableId];
   await prisma.restaurantOrder.updateMany({ where: { companyId, locationId, status: { notIn: ["CLOSED", "CANCELLED"] } }, data: { status: "CANCELLED" } });
@@ -312,4 +312,48 @@ test("aperture concorrenti producono codici comanda univoci", async () => {
   const results = await Promise.all(tables.map((table) => openOrder(companyId, locationId, userId, { tableId: table, guestCount: 2, serviceType: "DINE_IN" })));
   for (const row of results) codes.add((await prisma.restaurantOrder.findUniqueOrThrow({ where: { id: row.id }, select: { code: true } })).code);
   assert.equal(codes.size, tables.length, "ogni comanda deve avere un codice distinto");
+});
+
+test("presentazione: lo stato dei tavoli è derivato, non letto dalla colonna", async () => {
+  const conf = { companyId, locationId, userId };
+  const seen = async () => {
+    const floor = await getOperationalRestaurantFloor(companyId, locationId);
+    return new Map(floor.areas.flatMap((a) => a.tables).map((t) => [t.id, t.status]));
+  };
+  // Stato di partenza pulito su un tavolo dedicato.
+  await prisma.restaurantOrder.updateMany({ where: { companyId, locationId, status: { notIn: ["CLOSED", "CANCELLED"] } }, data: { status: "CANCELLED" } });
+  await prisma.restaurantTable.updateMany({ where: { companyId, locationId, id: secondTableId }, data: { physicalStatus: "READY" } });
+  assert.equal((await seen()).get(secondTableId), "AVAILABLE");
+
+  // Una comanda aperta rende OCCUPIED senza che nessuno scriva la colonna.
+  await prisma.restaurantTable.updateMany({ where: { id: secondTableId }, data: { status: "AVAILABLE" } });
+  const order = await openFloorTable(actor(), secondTableId, 2);
+  assert.equal((await seen()).get(secondTableId), "OCCUPIED");
+  const stored = await prisma.restaurantTable.findUniqueOrThrow({ where: { id: secondTableId } });
+  assert.equal(stored.physicalStatus, "READY", "la colonna fisica non cambia per una comanda");
+
+  // Una colonna legacy mentita non influenza più la Sala.
+  await prisma.restaurantTable.updateMany({ where: { id: secondTableId }, data: { status: "AVAILABLE" } });
+  assert.equal((await seen()).get(secondTableId), "OCCUPIED", "la colonna legacy non è più autorevole");
+
+  // Chiusa la comanda resta lo stato fisico DA RIASSETTARE.
+  await prisma.restaurantOrder.update({ where: { id: order.id }, data: { status: "CANCELLED" } });
+  await prisma.restaurantTable.updateMany({ where: { id: secondTableId }, data: { physicalStatus: "DIRTY" } });
+  assert.equal((await seen()).get(secondTableId), "DIRTY");
+  await prisma.restaurantTable.updateMany({ where: { id: secondTableId }, data: { physicalStatus: "OUT_OF_SERVICE" } });
+  assert.equal((await seen()).get(secondTableId), "OUT_OF_SERVICE", "il fuori servizio ha la precedenza");
+
+  // Una prenotazione imminente colora il tavolo; una lontana no.
+  await prisma.restaurantTable.updateMany({ where: { id: secondTableId }, data: { physicalStatus: "READY" } });
+  const soon = new Date(Date.now() + 20 * 60000);
+  const resv = await prisma.restaurantReservation.create({ data: { companyId, locationId, code: `RSV-${suffix}`, guestName: "Imminente", partySize: 2, reservationDate: soon, startTime: soon, endTime: new Date(soon.getTime() + 3600000), status: "CONFIRMED", tables: { create: [{ tableId: secondTableId }] } }, select: { id: true } });
+  assert.equal((await seen()).get(secondTableId), "RESERVED");
+  await prisma.restaurantReservation.update({ where: { id: resv.id }, data: { startTime: new Date(Date.now() + 6 * 3600000), endTime: new Date(Date.now() + 7 * 3600000) } });
+  assert.equal((await seen()).get(secondTableId), "AVAILABLE", "una prenotazione oltre la finestra non colora");
+
+  // Anche la configurazione Sala deriva.
+  const area = (await getFloorConfiguration(conf)).find((a) => a.tables.some((t) => t.id === secondTableId));
+  assert.equal(area?.tables.find((t) => t.id === secondTableId)?.status, "AVAILABLE");
+  await prisma.restaurantReservationTable.deleteMany({ where: { reservationId: resv.id } });
+  await prisma.restaurantReservation.delete({ where: { id: resv.id } });
 });

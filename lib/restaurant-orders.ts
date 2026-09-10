@@ -27,9 +27,10 @@ import { writeAuditLogTx } from "@/lib/audit";
 
 // Timestamp alone collides for concurrent opens inside the same millisecond,
 // and @@unique([companyId, locationId, code]) then raises a raw P2002 with no
-// retry on this path.
+// retry on this path. Eight hex characters, not four: at four the birthday
+// bound makes a collision likely well before a busy service is over.
 export const newOrderCode = () =>
-  `ORD-${Date.now().toString(36).toUpperCase()}-${randomUUID().slice(0, 4).toUpperCase()}`;
+  `ORD-${Date.now().toString(36).toUpperCase()}-${randomUUID().slice(0, 8).toUpperCase()}`;
 
 export async function openOrder(
   companyId: string,
@@ -855,7 +856,7 @@ export async function closeRestaurantOrderAtomic(
             locationId,
             id: { in: order.tables.map((row) => row.tableId) },
           },
-          data: { status: "DIRTY" },
+          data: { status: "DIRTY", physicalStatus: "DIRTY" },
         });
       if (paid)
         await emitRestaurantEventTx(
