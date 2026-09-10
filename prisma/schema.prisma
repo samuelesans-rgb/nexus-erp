@@ -211,6 +211,14 @@ enum RestaurantTableStatus {
   OUT_OF_SERVICE
 }
 
+/// Only the states that cannot be derived from orders or reservations.
+/// The effective status is computed in lib/restaurant-table-status.ts.
+enum RestaurantTablePhysicalStatus {
+  READY
+  DIRTY
+  OUT_OF_SERVICE
+}
+
 enum RestaurantReservationStatus {
   PENDING
   CONFIRMED
@@ -2197,6 +2205,7 @@ model RestaurantTable {
   visibleInFloor    Boolean                           @default(true)
   fusionTableNumber Int?
   status            RestaurantTableStatus             @default(AVAILABLE)
+  physicalStatus    RestaurantTablePhysicalStatus     @default(READY)
   combinable        Boolean                           @default(true)
   active            Boolean                           @default(true)
   deletedAt         DateTime?
@@ -2215,6 +2224,7 @@ model RestaurantTable {
   @@unique([companyId, id])
   @@unique([companyId, locationId, id])
   @@index([companyId, locationId, status, deletedAt])
+  @@index([companyId, locationId, physicalStatus, deletedAt])
 }
 
 model RestaurantReservation {
