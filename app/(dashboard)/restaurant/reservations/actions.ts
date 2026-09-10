@@ -5,7 +5,7 @@ import { cancelBookingWithNotifications } from "@/lib/booking-email";
 import { requireCurrentLocation } from "@/lib/location-access";
 import { MODULE_CODES } from "@/lib/module-catalog";
 import { requireRestaurantContext } from "@/lib/restaurant-access";
-import { assignTable, transitionReservation, unassignTable, updateReservation } from "@/lib/restaurant-booking";
+import { assignTable, assignTables, transitionReservation, unassignTable, updateReservation } from "@/lib/restaurant-booking";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
@@ -94,4 +94,29 @@ export async function updateBookingAction(formData: FormData) {
     redirect(failurePath(id, error));
   }
   complete(id, "Prenotazione aggiornata.");
+}
+
+export async function assignCombinedTablesAction(formData: FormData) {
+  const context = await requireRestaurantContext(
+    MODULE_CODES.RESTAURANT_FLOOR,
+    "operate",
+  );
+  const reservationId = text(formData, "reservationId");
+  try {
+    await assignTables(
+      context.companyId,
+      context.locationId,
+      reservationId,
+      formData.getAll("tableIds").map(String),
+      context.userId,
+    );
+  } catch (error) {
+    redirect(
+      `/restaurant/reservations/${reservationId}?error=${encodeURIComponent(error instanceof Error ? error.message : "Assegnazione non riuscita.")}`,
+    );
+  }
+  revalidatePath(`/restaurant/reservations/${reservationId}`);
+  redirect(
+    `/restaurant/reservations/${reservationId}?success=${encodeURIComponent("Tavoli assegnati")}`,
+  );
 }

@@ -5,12 +5,16 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   addFloorItemAction,
+  assignFloorPartnerAction,
   changeFloorGuestCountAction,
   changeFloorLineQuantityAction,
   deleteFloorLineAction,
   dispatchFloorOrderAction,
   type FloorActionResult,
+  type FloorPartnerOption,
   openFloorTableAction,
+  releaseFloorTableAction,
+  searchFloorPartnersAction,
   retryFloorJobAction,
   saveFloorLineNoteAction,
 } from "./operational-actions";
@@ -47,6 +51,9 @@ type Order = {
   id: string;
   code: string;
   guestCount: number;
+  partnerId: string | null;
+  partnerName: string | null;
+  billed: boolean;
   tableIds: string[];
   total: number;
   unsentCount: number;
@@ -107,6 +114,9 @@ export function OperationalFloor({
 }: Props & { canConfigure?: boolean }) {
   const router = useRouter(),
     [pending, startTransition] = useTransition();
+  const [partnerPickerOpen, setPartnerPickerOpen] = useState(false),
+    [partnerQuery, setPartnerQuery] = useState(""),
+    [partnerResults, setPartnerResults] = useState<FloorPartnerOption[]>([]);
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null),
     [openingTableId, setOpeningTableId] = useState<string | null>(null),
     [guestCount, setGuestCount] = useState(2),
@@ -179,6 +189,22 @@ export function OperationalFloor({
         if (result.orderId) setSelectedOrderId(result.orderId);
       },
     );
+  const release = (tableId: string) =>
+    execute(() => releaseFloorTableAction(tableId));
+  const searchPartners = (value: string) => {
+    setPartnerQuery(value);
+    startTransition(async () =>
+      setPartnerResults(
+        value.trim().length < 2 ? [] : await searchFloorPartnersAction(value),
+      ),
+    );
+  };
+  const assignPartner = (orderId: string, partnerId: string) =>
+    execute(() => assignFloorPartnerAction(orderId, partnerId), () => {
+      setPartnerPickerOpen(false);
+      setPartnerQuery("");
+      setPartnerResults([]);
+    });
   const chooseProduct = (product: Product) => {
     if (!order) return;
     if (!product.modifierGroups.length)
@@ -295,6 +321,7 @@ export function OperationalFloor({
                         candidate.tableIds.includes(table.id),
                       );
                       const available = !active && table.status === "AVAILABLE";
+                      const dirty = !active && table.status === "DIRTY";
                       const uncertain = active?.lines.some(
                           (line) => line.state === "UNCERTAIN",
                         ),
@@ -306,7 +333,9 @@ export function OperationalFloor({
                         );
                       const state = available
                         ? "LIBERO"
-                        : !active
+                        : dirty
+                          ? "DA RIASSETTARE"
+                          : !active
                           ? table.status.replaceAll("_", " ")
                           : uncertain || failed
                             ? "ERRORE CUCINA"
@@ -320,7 +349,7 @@ export function OperationalFloor({
                       return (
                         <article
                           key={table.id}
-                          className={`absolute min-h-11 min-w-11 rounded-xl border-2 p-1 shadow-sm ${available ? "border-emerald-500 bg-emerald-50" : !active ? "border-slate-500 bg-slate-200" : uncertain || failed ? "border-red-500 bg-red-50" : active.unsentCount ? "border-amber-500 bg-amber-50" : "border-blue-500 bg-blue-50"}`}
+                          className={`absolute min-h-11 min-w-11 rounded-xl border-2 p-1 shadow-sm ${available ? "border-emerald-500 bg-emerald-50" : dirty ? "border-sky-500 bg-sky-50" : !active ? "border-slate-500 bg-slate-200" : uncertain || failed ? "border-red-500 bg-red-50" : active.unsentCount ? "border-amber-500 bg-amber-50" : "border-blue-500 bg-blue-50"}`}
                           style={{
                             left: `${(table.positionX / selectedArea.layoutWidth) * 100}%`,
                             top: `${(table.positionY / selectedArea.layoutHeight) * 100}%`,
@@ -332,13 +361,18 @@ export function OperationalFloor({
                           }}
                         >
                           <button
-                            disabled={!active && !available}
-                            aria-label={`${table.name || table.code}: ${state}`}
+                            disabled={
+                              (!active && !available && !dirty) ||
+                              (dirty && pending)
+                            }
+                            aria-label={`${table.name || table.code}: ${state}${dirty ? ", tocca per liberare" : ""}`}
                             className="flex h-full w-full flex-col items-center justify-center text-center disabled:cursor-not-allowed"
                             onClick={() =>
                               active
                                 ? setSelectedOrderId(active.id)
-                                : setOpeningTableId(table.id)
+                                : dirty
+                                  ? release(table.id)
+                                  : setOpeningTableId(table.id)
                             }
                           >
                             <span className="font-black leading-tight">
@@ -477,6 +511,27 @@ export function OperationalFloor({
                     Comanda corrente
                   </p>
                   <h2 className="text-xl font-black">{order.code}</h2>
+                  <p className="mt-1 text-sm">
+                    <span className="text-slate-500">Cliente: </span>
+                    <span className="font-semibold">
+                      {order.partnerName ?? "non assegnato"}
+                    </span>
+                  </p>
+                  {order.billed ? (
+                    <p className="mt-1 text-xs text-slate-500">
+                      Conto emesso: cliente non più modificabile.
+                    </p>
+                  ) : (
+                    <button
+                      onClick={() => setPartnerPickerOpen((value) => !value)}
+                      aria-expanded={partnerPickerOpen}
+                      className="mt-1 min-h-11 rounded-lg border px-3 text-sm font-semibold"
+                    >
+                      {order.partnerId
+                        ? "Cambia cliente"
+                        : "Assegna cliente"}
+                    </button>
+                  )}
                 </div>
                 <label className="text-xs font-semibold">
                   Coperti
@@ -496,6 +551,50 @@ export function OperationalFloor({
                   />
                 </label>
               </div>
+              {partnerPickerOpen && !order.billed && (
+                <div className="mt-3 rounded-xl border bg-slate-50 p-3">
+                  <label
+                    className="block text-xs font-bold uppercase text-slate-500"
+                    htmlFor="floor-partner-search"
+                  >
+                    Cerca cliente per nome, P. IVA o codice fiscale
+                  </label>
+                  <input
+                    id="floor-partner-search"
+                    className="mt-1 min-h-11 w-full rounded border px-3"
+                    value={partnerQuery}
+                    onChange={(event) => searchPartners(event.target.value)}
+                    placeholder="Almeno 2 caratteri"
+                  />
+                  <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto">
+                    {partnerResults.map((partner) => (
+                      <li key={partner.id}>
+                        <button
+                          disabled={pending}
+                          onClick={() => assignPartner(order.id, partner.id)}
+                          className="min-h-11 w-full rounded-lg border bg-white px-3 text-left text-sm disabled:opacity-50"
+                        >
+                          <span className="font-semibold">
+                            {partner.displayName ?? partner.name}
+                          </span>
+                          {partner.vatNumber && (
+                            <span className="block text-xs text-slate-500">
+                              P. IVA {partner.vatNumber}
+                            </span>
+                          )}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  {partnerQuery.trim().length >= 2 &&
+                    !partnerResults.length &&
+                    !pending && (
+                      <p className="mt-2 text-sm text-slate-500">
+                        Nessun cliente trovato.
+                      </p>
+                    )}
+                </div>
+              )}
               <div className="mt-4 space-y-3">
                 {order.lines.map((line) => {
                   const editable =

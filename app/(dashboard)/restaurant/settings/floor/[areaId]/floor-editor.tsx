@@ -105,26 +105,40 @@ export function FloorEditor({ area }: { area: Area }) {
               ) / grid,
             ) * grid,
         });
-      else {
+      else if (
+        original.shape === "ROUND" ||
+        original.shape === "SQUARE"
+      ) {
+        // One side for locked shapes: clamping width and height against
+        // different bounds used to turn a circle into an ellipse near an edge.
+        const limit = Math.min(
+          area.layoutWidth - original.positionX,
+          area.layoutHeight - original.positionY,
+        );
         const side =
-          original.shape === "ROUND" || original.shape === "SQUARE"
-            ? Math.max(dx, dy)
-            : 0;
-        const width = clamp(
-            original.width + (side || dx),
-            60,
-            area.layoutWidth - original.positionX,
-          ),
-          height = clamp(
-            original.height + (side || dy),
-            60,
-            area.layoutHeight - original.positionY,
-          );
+          Math.round(
+            clamp(original.width + Math.max(dx, dy), 60, limit) / grid,
+          ) * grid;
+        update(table.id, { width: side, height: side });
+      } else
         update(table.id, {
-          width: Math.round(width / grid) * grid,
-          height: Math.round(height / grid) * grid,
+          width:
+            Math.round(
+              clamp(
+                original.width + dx,
+                60,
+                area.layoutWidth - original.positionX,
+              ) / grid,
+            ) * grid,
+          height:
+            Math.round(
+              clamp(
+                original.height + dy,
+                60,
+                area.layoutHeight - original.positionY,
+              ) / grid,
+            ) * grid,
         });
-      }
     };
     const up = () => {
       window.removeEventListener("pointermove", move);
@@ -345,11 +359,13 @@ export function FloorEditor({ area }: { area: Area }) {
                     onChange={(event) =>
                       update(selected.id, {
                         [key]:
-                          type === "number"
-                            ? event.target.value === ""
-                              ? null
-                              : Number(event.target.value)
-                            : event.target.value,
+                          type !== "number"
+                            ? event.target.value
+                            : event.target.value === ""
+                              ? key === "fusionTableNumber"
+                                ? null
+                                : 0
+                              : Number(event.target.value),
                       })
                     }
                   />

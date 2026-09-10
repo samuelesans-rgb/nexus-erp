@@ -1,4 +1,6 @@
 import "server-only";
+import { randomUUID } from "node:crypto";
+import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import {
   createDraftTx,
@@ -22,6 +24,12 @@ import {
   restaurantMenuPrice,
 } from "@/lib/restaurant-menu-eligibility";
 import { writeAuditLogTx } from "@/lib/audit";
+
+// Timestamp alone collides for concurrent opens inside the same millisecond,
+// and @@unique([companyId, locationId, code]) then raises a raw P2002 with no
+// retry on this path.
+export const newOrderCode = () =>
+  `ORD-${Date.now().toString(36).toUpperCase()}-${randomUUID().slice(0, 4).toUpperCase()}`;
 
 export async function openOrder(
   companyId: string,
@@ -130,7 +138,7 @@ export async function openOrder(
       data: {
         companyId,
         locationId,
-        code: `ORD-${Date.now().toString(36).toUpperCase()}`,
+        code: newOrderCode(),
         tableId: requested[0] ?? null,
         reservationId: reservation?.id ?? null,
         partnerId: input.partnerId ?? reservation?.partnerId ?? null,
@@ -459,6 +467,20 @@ export async function reassignOrderTables(
       where: { id: orderId },
       data: { tableId: requested[0] },
     });
+    // The reservation must follow the order, otherwise completing it later would
+    // free tables it no longer occupies — possibly held by another order.
+    if (order.reservationId) {
+      await tx.restaurantReservationTable.deleteMany({
+        where: { companyId, reservationId: order.reservationId },
+      });
+      await tx.restaurantReservationTable.createMany({
+        data: requested.map((tableId) => ({
+          companyId,
+          reservationId: order.reservationId!,
+          tableId,
+        })),
+      });
+    }
     const released = oldIds.filter((id) => !requested.includes(id));
     if (released.length)
       await tx.restaurantTable.updateMany({
@@ -480,6 +502,102 @@ export async function transferOrderTable(
 ) {
   return reassignOrderTables(companyId, locationId, orderId, [tableId]);
 }
+// A restaurant receipt is anonymous by nature, but BusinessDocument.partnerId is
+// non-nullable. One company-scoped system partner keeps the Document Engine
+// contract intact without inventing a throwaway customer per bill.
+export const RESTAURANT_WALK_IN_PARTNER_CODE = "RESTAURANT_WALK_IN";
+
+async function resolveWalkInPartnerTx(
+  tx: Prisma.TransactionClient,
+  companyId: string,
+  userId: string,
+) {
+  const partner = await tx.partner.upsert({
+    where: {
+      companyId_code: { companyId, code: RESTAURANT_WALK_IN_PARTNER_CODE },
+    },
+    // Reactivated on demand: the unique code prevents creating a replacement,
+    // so a disabled system partner would otherwise block every receipt.
+    update: { active: true, deletedAt: null, status: "ACTIVE" },
+    create: {
+      companyId,
+      code: RESTAURANT_WALK_IN_PARTNER_CODE,
+      name: "Cliente di passaggio",
+      type: "PERSON",
+      isCustomer: true,
+      createdById: userId,
+      updatedById: userId,
+    },
+    select: { id: true },
+  });
+  return partner.id;
+}
+
+// The customer is settable only at open time, but guests routinely ask for an
+// invoice at the end of the meal. Assignment stays open until the bill exists:
+// once a document is issued its partner is frozen, and changing the order would
+// desync it from the document and from the receipt movement.
+export async function assignOrderPartner(
+  companyId: string,
+  locationId: string,
+  userId: string,
+  orderId: string,
+  partnerId: string,
+) {
+  return prisma.$transaction(async (tx) => {
+    const order = await tx.restaurantOrder.findFirst({
+      where: {
+        id: orderId,
+        companyId,
+        locationId,
+        status: { notIn: ["CLOSED", "CANCELLED"] },
+      },
+      select: { id: true, partnerId: true, documentId: true },
+    });
+    if (!order) throw new RestaurantDomainError("Comanda non valida.");
+    if (order.documentId)
+      throw new RestaurantDomainError(
+        "Il conto è già stato emesso: il cliente non è più modificabile.",
+      );
+    const partner = await tx.partner.findFirst({
+      where: {
+        id: partnerId,
+        companyId,
+        isCustomer: true,
+        active: true,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+    if (!partner)
+      throw new RestaurantDomainError(
+        "Cliente non valido per la Company corrente.",
+      );
+    await tx.restaurantOrder.update({
+      where: { id: order.id },
+      data: { partnerId: partner.id, updatedById: userId },
+    });
+    await writeAuditLogTx(tx, {
+      companyId,
+      locationId,
+      userId,
+      action: "RESTAURANT_ORDER_PARTNER_ASSIGNED",
+      entityType: "RestaurantOrder",
+      entityId: order.id,
+      metadata: { previousPartnerId: order.partnerId, partnerId: partner.id },
+    });
+    await emitRestaurantEventTx(
+      tx,
+      companyId,
+      "RestaurantOrderPartnerAssigned",
+      "RestaurantOrder",
+      order.id,
+      { partnerId: partner.id },
+    );
+    return { id: order.id, partnerId: partner.id };
+  });
+}
+
 export type RestaurantPaymentInput = {
   financialAccountId: string;
   paymentMethod: "CASH" | "CARD" | "BANK" | "OTHER";
@@ -518,9 +636,9 @@ export async function closeRestaurantOrderAtomic(
           tables: true,
         },
       });
-      if (!order || !order.partnerId || !order.lines.length)
+      if (!order || !order.lines.length)
         throw new RestaurantDomainError(
-          "Cliente e righe sono necessari per chiudere il conto.",
+          "Sono necessarie righe servite per chiudere il conto.",
         );
       if (order.status === "CLOSED")
         return {
@@ -535,6 +653,20 @@ export async function closeRestaurantOrderAtomic(
         throw new RestaurantDomainError(
           "Tutte le righe devono essere servite.",
         );
+      // An invoice needs a real customer; a receipt falls back to the system
+      // walk-in partner, which is then persisted so the order stays consistent.
+      let billingPartnerId = order.partnerId;
+      if (!billingPartnerId) {
+        if (input.invoice)
+          throw new RestaurantDomainError(
+            "La fattura richiede un cliente anagrafico sulla comanda.",
+          );
+        billingPartnerId = await resolveWalkInPartnerTx(tx, companyId, userId);
+        await tx.restaurantOrder.update({
+          where: { id: order.id },
+          data: { partnerId: billingPartnerId, updatedById: userId },
+        });
+      }
       let documentId = order.documentId;
       let total = Number(order.document?.total ?? 0);
       if (!documentId) {
@@ -555,7 +687,7 @@ export async function closeRestaurantOrderAtomic(
           );
         const doc = await createDraftTx(tx, companyId, userId, {
           seriesId: series.id,
-          partnerId: order.partnerId,
+          partnerId: billingPartnerId,
           documentDate: new Date(),
           currency: "EUR",
           locationId: order.locationId,
@@ -660,7 +792,7 @@ export async function closeRestaurantOrderAtomic(
           {
             locationId: order.locationId,
             financialAccountId: payment.financialAccountId,
-            partnerId: order.partnerId,
+            partnerId: billingPartnerId,
             documentId,
             amount: payment.amount,
             occurredAt: new Date(),
@@ -745,6 +877,16 @@ export async function closeRestaurantOrderAtomic(
     },
     { aggregateType: "RestaurantOrder", aggregateId: orderId, timeout: 30000 },
   );
+  // Deliberately outside the idempotent transaction, and deliberately NOT made
+  // idempotent. A retry after a failure here would call transmit() twice, and a
+  // crash between commit and this line would skip it entirely — both would be
+  // real defects if Nexus ever emitted fiscal documents. It never will: the
+  // fiscal path is owned end-to-end by the POS, cabled to the registratore
+  // telematico, and direct access to the KUBE is forbidden by design (see
+  // docs/kitchen/PT15_KUBE_KITCHEN_NOTES_ANALYSIS.md). The adapter is therefore
+  // a permanent Noop and this call has no observable effect. If that ever
+  // changes, transmit() must become idempotent per documentId and move inside
+  // the transaction boundary before any real adapter is wired in.
   if (result.documentId)
     await restaurantFiscalAdapter.transmit({
       orderId,

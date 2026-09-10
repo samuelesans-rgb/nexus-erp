@@ -41,6 +41,28 @@ export async function getFloorConfiguration(
   });
 }
 
+export async function getAreaCombinations(
+  actor: Pick<Actor, "companyId" | "locationId">,
+  areaId: string,
+) {
+  return prisma.restaurantTableCombination.findMany({
+    where: {
+      companyId: actor.companyId,
+      locationId: actor.locationId,
+      areaId,
+      active: true,
+    },
+    include: {
+      tables: {
+        include: {
+          table: { select: { id: true, code: true, name: true, seats: true } },
+        },
+      },
+    },
+    orderBy: { name: "asc" },
+  });
+}
+
 export async function saveFloorArea(
   actor: Actor,
   input: {
@@ -72,9 +94,52 @@ export async function saveFloorArea(
     if (input.id) {
       const current = await tx.restaurantArea.findFirst({
         where: { id: input.id, ...scope, deletedAt: null },
-        select: { id: true, active: true },
+        select: {
+          id: true,
+          active: true,
+          layoutWidth: true,
+          layoutHeight: true,
+        },
       });
       if (!current) throw new FloorConfigError("Sala non trovata.");
+      if (
+        await tx.restaurantArea.count({
+          where: { ...scope, code, id: { not: current.id }, deletedAt: null },
+        })
+      )
+        throw new FloorConfigError(
+          "Il codice sala è già utilizzato in questa sede.",
+        );
+      // Shrinking without this check strands tables outside the canvas, and a
+      // single stranded row then rejects every later layout save.
+      if (
+        layoutWidth < current.layoutWidth ||
+        layoutHeight < current.layoutHeight
+      ) {
+        const stranded = (
+          await tx.restaurantTable.findMany({
+            where: { ...scope, areaId: current.id, deletedAt: null },
+            select: {
+              code: true,
+              positionX: true,
+              positionY: true,
+              width: true,
+              height: true,
+            },
+          })
+        ).filter(
+          (table) =>
+            Number(table.positionX) + Number(table.width) > layoutWidth ||
+            Number(table.positionY) + Number(table.height) > layoutHeight,
+        );
+        if (stranded.length)
+          throw new FloorConfigError(
+            `Riduzione non possibile: ${stranded.length} tavoli resterebbero fuori dalla pianta (${stranded
+              .slice(0, 5)
+              .map((table) => table.code)
+              .join(", ")}). Riposizionali prima di ridurre la sala.`,
+          );
+      }
       if (current.active && !input.active) {
         const occupied = await tx.restaurantOrder.count({
           where: {
@@ -163,18 +228,32 @@ function validGeometry(
 ) {
   if (!input.code.trim() || input.seats < 1 || !Number.isInteger(input.seats))
     throw new FloorConfigError("Codice e capacità tavolo non validi.");
+  // Batch saves report which table is wrong: one stale row would otherwise
+  // reject the whole layout with no way to tell which.
+  const at = ` (tavolo ${input.code.trim().toUpperCase()})`;
   if (!shapes.has(input.shape) || !rotations.has(input.rotation))
-    throw new FloorConfigError("Forma o rotazione non valida.");
-  number(input.width, 60, area.layoutWidth, "Larghezza tavolo");
-  number(input.height, 60, area.layoutHeight, "Altezza tavolo");
-  number(input.positionX, 0, area.layoutWidth - input.width, "Posizione X");
-  number(input.positionY, 0, area.layoutHeight - input.height, "Posizione Y");
+    throw new FloorConfigError(`Forma o rotazione non valida${at}.`);
+  if (
+    !Number.isInteger(input.sortOrder) ||
+    input.sortOrder < 0 ||
+    input.sortOrder > 9999
+  )
+    throw new FloorConfigError(`Ordine non valido${at}.`);
+  number(input.width, 60, area.layoutWidth, `Larghezza tavolo${at}`);
+  number(input.height, 60, area.layoutHeight, `Altezza tavolo${at}`);
+  number(input.positionX, 0, area.layoutWidth - input.width, `Posizione X${at}`);
+  number(
+    input.positionY,
+    0,
+    area.layoutHeight - input.height,
+    `Posizione Y${at}`,
+  );
   if (
     (input.shape === "ROUND" || input.shape === "SQUARE") &&
     input.width !== input.height
   )
     throw new FloorConfigError(
-      "Tavoli quadrati e rotondi devono avere lati uguali.",
+      `Tavoli quadrati e rotondi devono avere lati uguali${at}.`,
     );
   if (
     input.fusionTableNumber != null &&
@@ -194,10 +273,27 @@ export async function saveFloorTable(actor: Actor, input: TableInput) {
     });
     if (!area) throw new FloorConfigError("Sala non valida.");
     validGeometry(input, area);
+    // Pre-checked so a duplicate surfaces as a domain error instead of a raw
+    // Prisma P2002 rendered verbatim in the properties panel.
+    const code = input.code.trim().toUpperCase();
+    const clash = { ...scope, deletedAt: null, id: { not: input.id ?? "" } };
+    if (await tx.restaurantTable.count({ where: { ...clash, code } }))
+      throw new FloorConfigError(
+        "Il codice tavolo è già utilizzato in questa sede.",
+      );
+    if (
+      input.fusionTableNumber != null &&
+      (await tx.restaurantTable.count({
+        where: { ...clash, fusionTableNumber: input.fusionTableNumber },
+      }))
+    )
+      throw new FloorConfigError(
+        "Il numero tavolo FUSION è già assegnato in questa sede.",
+      );
     const data = {
       areaId: area.id,
       locationId: actor.locationId,
-      code: input.code.trim().toUpperCase(),
+      code,
       name: input.name.trim(),
       seats: input.seats,
       shape: input.shape,
@@ -298,7 +394,11 @@ export async function saveFloorLayout(
         .filter((id): id is string => Boolean(id));
       if (new Set(ids).size !== ids.length)
         throw new FloorConfigError("Tavoli duplicati nel salvataggio.");
-      const owned = await tx.restaurantTable.count({
+      if (ids.length !== tables.length)
+        throw new FloorConfigError("Tavolo senza identificativo.");
+      // The real shape must come from the database: forcing RECTANGLE here used
+      // to let a ROUND table be saved with width !== height.
+      const owned = await tx.restaurantTable.findMany({
         where: {
           id: { in: ids },
           companyId: actor.companyId,
@@ -306,24 +406,30 @@ export async function saveFloorLayout(
           areaId,
           deletedAt: null,
         },
+        select: { id: true, code: true, shape: true },
       });
-      if (owned !== ids.length)
+      if (owned.length !== ids.length)
         throw new FloorConfigError("Tavolo non appartenente alla sala.");
-      for (const table of tables)
+      const ownedById = new Map(owned.map((row) => [row.id, row]));
+      for (const table of tables) {
+        const current = ownedById.get(table.id!);
+        if (!current)
+          throw new FloorConfigError("Tavolo non appartenente alla sala.");
         validGeometry(
           {
             ...table,
             areaId,
-            code: "LAYOUT",
+            code: current.code,
             name: "",
             seats: 1,
-            shape: "RECTANGLE",
+            shape: current.shape,
             sortOrder: 0,
             active: true,
             visibleInFloor: true,
           },
           area,
         );
+      }
       const claimed = await tx.restaurantArea.updateMany({
         where: {
           id: areaId,

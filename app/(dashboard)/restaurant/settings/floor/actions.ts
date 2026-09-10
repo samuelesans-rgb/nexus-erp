@@ -9,6 +9,26 @@ import {
   saveFloorLayout,
   saveFloorTable,
 } from "@/lib/restaurant-floor-config";
+import {
+  RestaurantFloorError,
+  dissolveTableCombination,
+  saveTableCombination,
+} from "@/lib/restaurant-floor";
+import { FloorConfigError } from "@/lib/restaurant-floor-config";
+
+// Only domain errors are safe to echo back: a raw Prisma failure would leak
+// constraint and table names into the UI.
+function safeMessage(error: unknown, fallback = "Operazione non riuscita") {
+  if (error instanceof FloorConfigError || error instanceof RestaurantFloorError)
+    return error.message;
+  console.error(
+    JSON.stringify({
+      scope: "restaurant-floor-config",
+      error: error instanceof Error ? error.name : "Unknown",
+    }),
+  );
+  return fallback;
+}
 
 const text = (data: FormData, key: string) =>
   String(data.get(key) ?? "").trim();
@@ -34,7 +54,7 @@ export async function saveAreaConfigAction(data: FormData) {
     });
   } catch (error) {
     redirect(
-      `/restaurant/settings/floor?error=${encodeURIComponent(error instanceof Error ? error.message : "Operazione non riuscita")}`,
+      `/restaurant/settings/floor?error=${encodeURIComponent(safeMessage(error))}`,
     );
   }
   revalidatePath("/restaurant/settings/floor");
@@ -51,11 +71,7 @@ export async function saveTableConfigAction(
     revalidatePath("/restaurant/floor");
     return { ok: true, message: "Tavolo salvato", id: result.id };
   } catch (error) {
-    return {
-      ok: false,
-      message:
-        error instanceof Error ? error.message : "Operazione non riuscita",
-    };
+    return { ok: false, message: safeMessage(error) };
   }
 }
 
@@ -75,10 +91,49 @@ export async function saveLayoutConfigAction(
     revalidatePath("/restaurant/floor");
     return { ok: true, message: "Pianta salvata" };
   } catch (error) {
-    return {
-      ok: false,
-      message:
-        error instanceof Error ? error.message : "Operazione non riuscita",
-    };
+    return { ok: false, message: safeMessage(error) };
   }
+}
+
+export async function saveCombinationConfigAction(data: FormData) {
+  const context = await actor();
+  const areaId = text(data, "areaId");
+  try {
+    await saveTableCombination(context.companyId, context.locationId, {
+      id: text(data, "id") || undefined,
+      name: text(data, "name"),
+      tableIds: data.getAll("tableIds").map(String),
+      active: true,
+    });
+  } catch (error) {
+    redirect(
+      `/restaurant/settings/floor/${areaId}?error=${encodeURIComponent(safeMessage(error, "Combinazione non salvata"))}`,
+    );
+  }
+  revalidatePath(`/restaurant/settings/floor/${areaId}`);
+  revalidatePath("/restaurant/floor");
+  redirect(
+    `/restaurant/settings/floor/${areaId}?success=${encodeURIComponent("Combinazione salvata")}`,
+  );
+}
+
+export async function dissolveCombinationConfigAction(data: FormData) {
+  const context = await actor();
+  const areaId = text(data, "areaId");
+  try {
+    await dissolveTableCombination(
+      context.companyId,
+      context.locationId,
+      text(data, "id"),
+    );
+  } catch (error) {
+    redirect(
+      `/restaurant/settings/floor/${areaId}?error=${encodeURIComponent(safeMessage(error, "Combinazione non sciolta"))}`,
+    );
+  }
+  revalidatePath(`/restaurant/settings/floor/${areaId}`);
+  revalidatePath("/restaurant/floor");
+  redirect(
+    `/restaurant/settings/floor/${areaId}?success=${encodeURIComponent("Combinazione sciolta")}`,
+  );
 }

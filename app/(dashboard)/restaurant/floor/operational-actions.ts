@@ -5,9 +5,12 @@ import { MODULE_CODES } from "@/lib/module-catalog";
 import { requireRestaurantContext } from "@/lib/restaurant-access";
 import {
   addFloorOrderItem,
+  assignFloorOrderPartner,
   deleteUnsentFloorLine,
   dispatchFloorOrder,
   openFloorTable,
+  releaseFloorTable,
+  searchFloorPartners,
   retrySafeFloorJob,
   updateFloorGuestCount,
   updateUnsentFloorLine,
@@ -50,6 +53,39 @@ export async function openFloorTableAction(
   return run(
     (actor) => openFloorTable(actor, tableId, guestCount),
     "Tavolo aperto",
+  );
+}
+export type FloorPartnerOption = {
+  id: string;
+  name: string;
+  displayName: string | null;
+  vatNumber: string | null;
+};
+
+export async function searchFloorPartnersAction(
+  query: string,
+): Promise<FloorPartnerOption[]> {
+  const actor = await requireRestaurantContext(
+    MODULE_CODES.RESTAURANT_FLOOR,
+    "floor",
+  );
+  return searchFloorPartners(actor, query);
+}
+
+export async function assignFloorPartnerAction(
+  orderId: string,
+  partnerId: string,
+) {
+  return run(
+    (actor) => assignFloorOrderPartner(actor, orderId, partnerId),
+    "Cliente assegnato",
+  );
+}
+
+export async function releaseFloorTableAction(tableId: string) {
+  return run(
+    (actor) => releaseFloorTable(actor, tableId),
+    "Tavolo liberato",
   );
 }
 export async function addFloorItemAction(

@@ -5,8 +5,7 @@ import { requireRestaurantContext } from "@/lib/restaurant-access";
 import { getAssignableTables, getReservationHistory, getStaffReservation, shouldSuggestNoShow } from "@/lib/restaurant-booking";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { assignBookingTableAction, transitionBookingAction, unassignBookingTableAction, updateBookingAction } from "../actions";
-import { assignCombinedTablesAction } from "../../floor/actions";
+import { assignBookingTableAction, assignCombinedTablesAction, transitionBookingAction, unassignBookingTableAction, updateBookingAction } from "../actions";
 
 const allowed: Partial<Record<RestaurantReservationStatus, RestaurantReservationStatus[]>> = {
   WAITLIST: ["PENDING", "CONFIRMED", "CANCELLED"],

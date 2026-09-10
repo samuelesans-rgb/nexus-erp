@@ -6,11 +6,29 @@ import { writeAuditLogTx } from "@/lib/audit";
 import { retryConnectorJob } from "@/lib/kitchen-connector";
 import { prisma } from "@/lib/prisma";
 import { sendOrderToKitchen } from "@/lib/restaurant-kitchen";
+import { restaurantMenuEligibleItemWhere } from "@/lib/restaurant-menu-eligibility";
 import { menuExclusionReason } from "@/lib/restaurant-menu-manager";
 import { RestaurantDomainError } from "@/lib/restaurant";
-import { addOrderLine, openOrder } from "@/lib/restaurant-orders";
+import { lockRestaurantResources } from "@/lib/restaurant-locking";
+import { addOrderLine, assignOrderPartner, openOrder } from "@/lib/restaurant-orders";
 
 type Actor = { companyId: string; locationId: string; userId: string };
+
+// Use the same operational eligibility for display and add-item requests.
+// Unresolved catalog imports remain available to Menu Manager, not Sala.
+function floorMenuItemWhere(companyId: string): Prisma.RestaurantMenuItemWhereInput {
+  return {
+    companyId,
+    visible: true,
+    available: true,
+    item: {
+      companyId,
+      ...restaurantMenuEligibleItemWhere,
+      category: { companyId, active: true, deletedAt: null },
+      vatRate: { companyId, active: true, deletedAt: null },
+    },
+  };
+}
 
 export async function getOperationalRestaurantFloor(
   companyId: string,
@@ -36,6 +54,7 @@ export async function getOperationalRestaurantFloor(
       },
       include: {
         tables: true,
+        partner: { select: { id: true, name: true, displayName: true } },
         lines: {
           where: { status: { not: "CANCELLED" } },
           orderBy: { createdAt: "asc" },
@@ -67,11 +86,7 @@ export async function getOperationalRestaurantFloor(
           orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
           include: {
             items: {
-              where: {
-                visible: true,
-                available: true,
-                item: { active: true, sellable: true, deletedAt: null },
-              },
+              where: floorMenuItemWhere(companyId),
               orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
               include: {
                 item: {
@@ -143,6 +158,11 @@ export async function getOperationalRestaurantFloor(
     id: order.id,
     code: order.code,
     guestCount: order.guestCount,
+    partnerId: order.partnerId,
+    partnerName: order.partner
+      ? (order.partner.displayName ?? order.partner.name)
+      : null,
+    billed: Boolean(order.documentId),
     tableIds: [
       ...new Set([
         ...order.tables.map(({ tableId }) => tableId),
@@ -248,6 +268,98 @@ export async function openFloorTable(
   });
 }
 
+export async function searchFloorPartners(actor: Actor, rawQuery: string) {
+  const query = rawQuery.trim();
+  if (query.length < 2) return [];
+  return prisma.partner.findMany({
+    where: {
+      companyId: actor.companyId,
+      isCustomer: true,
+      active: true,
+      deletedAt: null,
+      OR: [
+        { name: { contains: query, mode: "insensitive" } },
+        { displayName: { contains: query, mode: "insensitive" } },
+        { vatNumber: { contains: query, mode: "insensitive" } },
+        { taxCode: { contains: query, mode: "insensitive" } },
+      ],
+    },
+    select: { id: true, name: true, displayName: true, vatNumber: true },
+    orderBy: { name: "asc" },
+    take: 20,
+  });
+}
+
+export async function assignFloorOrderPartner(
+  actor: Actor,
+  orderId: string,
+  partnerId: string,
+) {
+  return assignOrderPartner(
+    actor.companyId,
+    actor.locationId,
+    actor.userId,
+    orderId,
+    partnerId,
+  );
+}
+
+// Closing a bill leaves the table DIRTY. Without this transition the table can
+// never be reopened from Sala, because both openOrder and the floor UI require
+// AVAILABLE for a walk-in.
+export async function releaseFloorTable(actor: Actor, tableId: string) {
+  return prisma.$transaction(async (tx) => {
+    await lockRestaurantResources(tx, actor.companyId, ["table:" + tableId]);
+    const table = await tx.restaurantTable.findFirst({
+      where: {
+        id: tableId,
+        companyId: actor.companyId,
+        locationId: actor.locationId,
+        active: true,
+        visibleInFloor: true,
+        deletedAt: null,
+        area: { active: true, deletedAt: null },
+      },
+      select: { id: true, status: true },
+    });
+    if (!table) throw new RestaurantDomainError("Tavolo non disponibile in Sala.");
+    const busy = await tx.restaurantOrderTable.findFirst({
+      where: {
+        companyId: actor.companyId,
+        locationId: actor.locationId,
+        tableId: table.id,
+        order: { status: { notIn: ["CLOSED", "CANCELLED"] } },
+      },
+      select: { orderId: true },
+    });
+    if (busy)
+      throw new RestaurantDomainError(
+        "Il tavolo ha una comanda aperta e non può essere liberato.",
+      );
+    const released = await tx.restaurantTable.updateMany({
+      where: {
+        id: table.id,
+        companyId: actor.companyId,
+        locationId: actor.locationId,
+        status: "DIRTY",
+      },
+      data: { status: "AVAILABLE" },
+    });
+    if (!released.count)
+      throw new RestaurantDomainError(
+        "Solo un tavolo da riassettare può essere liberato.",
+      );
+    await writeAuditLogTx(tx, {
+      ...actor,
+      action: "RESTAURANT_TABLE_RELEASED",
+      entityType: "RestaurantTable",
+      entityId: table.id,
+      metadata: { previousStatus: table.status },
+    });
+    return { id: table.id };
+  });
+}
+
 async function editableLine(
   tx: Prisma.TransactionClient,
   actor: Actor,
@@ -272,12 +384,120 @@ async function editableLine(
   return line;
 }
 
+// The +1 must be computed by the database. Two rapid taps on the same product
+// used to read the same quantity and both write back the same absolute value,
+// silently losing one unit.
+async function incrementUnsentFloorLine(
+  actor: Actor,
+  orderId: string,
+  lineId: string,
+  expectedModifierIds: readonly string[],
+) {
+  return prisma.$transaction(async (tx) => {
+    const line = await tx.restaurantOrderLine.findFirst({
+      where: {
+        id: lineId,
+        companyId: actor.companyId,
+        locationId: actor.locationId,
+        orderId,
+        status: "NEW",
+        sentQuantity: 0,
+      },
+      include: { order: { select: { status: true } }, modifiers: true },
+    });
+    if (!line || !["OPEN", "SENT", "IN_PROGRESS"].includes(line.order.status))
+      throw new RestaurantDomainError(
+        "Una riga già inviata non può essere modificata.",
+      );
+    const actual = line.modifiers.map(({ modifierId }) => modifierId);
+    if (
+      actual.length !== expectedModifierIds.length ||
+      actual.some(
+        (modifierId) => !modifierId || !expectedModifierIds.includes(modifierId),
+      )
+    )
+      throw new RestaurantDomainError(
+        "I modificatori della riga sono cambiati. Ricarica la Sala.",
+      );
+    const bumped = await tx.restaurantOrderLine.updateMany({
+      where: {
+        id: line.id,
+        companyId: actor.companyId,
+        locationId: actor.locationId,
+        orderId,
+        status: "NEW",
+        sentQuantity: 0,
+      },
+      data: { quantity: { increment: 1 } },
+    });
+    if (!bumped.count)
+      throw new RestaurantDomainError(
+        "Una riga già inviata non può essere modificata.",
+      );
+    const fresh = await tx.restaurantOrderLine.findUniqueOrThrow({
+      where: { id: line.id },
+      select: { quantity: true, unitPrice: true },
+    });
+    const quantity = Number(fresh.quantity);
+    if (quantity > 999) throw new RestaurantDomainError("Quantità non valida.");
+    await tx.restaurantOrderLine.update({
+      where: { id: line.id },
+      data: {
+        lineTotal:
+          Math.round(
+            (quantity * Number(fresh.unitPrice) + Number.EPSILON) * 100,
+          ) / 100,
+      },
+    });
+    await writeAuditLogTx(tx, {
+      ...actor,
+      action: "RESTAURANT_ORDER_LINE_UPDATED",
+      entityType: "RestaurantOrderLine",
+      entityId: line.id,
+      metadata: {
+        orderId,
+        previous: { quantity: Number(line.quantity) },
+        next: { quantity },
+      },
+    });
+    return { id: line.id };
+  });
+}
+
 export async function addFloorOrderItem(
   actor: Actor,
   orderId: string,
   itemId: string,
   modifierIds: string[] = [],
 ) {
+  // Revalidate stale clients too, including the existing-unsent-line path.
+  const menuItem = await prisma.restaurantMenuItem.findFirst({
+    where: {
+      ...floorMenuItemWhere(actor.companyId),
+      itemId,
+      section: {
+        companyId: actor.companyId,
+        active: true,
+        menu: {
+          companyId: actor.companyId,
+          locationId: actor.locationId,
+          code: "FRISA_BISTRO",
+          active: true,
+          deletedAt: null,
+        },
+      },
+    },
+    select: { item: { select: { name: true, salePrice: true } } },
+  });
+  const mapping = await prisma.fusionCatalogMapping.findFirst({
+    where: { companyId: actor.companyId, locationId: actor.locationId, itemId, missingFromFusion: false },
+    select: { plu: true },
+  });
+  if (!menuItem || !mapping || menuExclusionReason({
+    plu: mapping.plu,
+    name: menuItem.item.name,
+    price: menuItem.item.salePrice?.toNumber() ?? null,
+  })) throw new RestaurantDomainError("Prodotto non disponibile in Sala.");
   const normalizedModifiers = [...new Set(modifierIds)];
   const existing = await prisma.restaurantOrderLine.findFirst({
     where: {
@@ -306,9 +526,12 @@ export async function addFloorOrderItem(
       quantity: 1,
     });
   if (existing)
-    return updateUnsentFloorLine(actor, orderId, existing.id, {
-      quantity: Number(existing.quantity) + 1,
-    });
+    return incrementUnsentFloorLine(
+      actor,
+      orderId,
+      existing.id,
+      normalizedModifiers,
+    );
   const line = await addOrderLine(actor.companyId, actor.locationId, orderId, {
     itemId,
     modifierIds: normalizedModifiers,

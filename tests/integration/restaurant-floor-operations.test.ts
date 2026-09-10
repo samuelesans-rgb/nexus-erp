@@ -2,21 +2,40 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import { prisma } from "../../lib/prisma";
-import { addFloorOrderItem, deleteUnsentFloorLine, dispatchFloorOrder, getOperationalRestaurantFloor, openFloorTable, retrySafeFloorJob, updateFloorGuestCount, updateUnsentFloorLine } from "../../lib/restaurant-floor-operations";
+import { addFloorOrderItem, deleteUnsentFloorLine, dispatchFloorOrder, getOperationalRestaurantFloor, openFloorTable, releaseFloorTable, retrySafeFloorJob, updateFloorGuestCount, updateUnsentFloorLine } from "../../lib/restaurant-floor-operations";
+import { assignOrderPartner, closeRestaurantOrderAtomic, openOrder } from "../../lib/restaurant-orders";
+import { dissolveTableCombination, saveTableCombination } from "../../lib/restaurant-floor";
+import { FloorConfigError, getAreaCombinations, saveFloorArea, saveFloorLayout, saveFloorTable } from "../../lib/restaurant-floor-config";
+import { newOrderCode, reassignOrderTables } from "../../lib/restaurant-orders";
+import { transitionReservation } from "../../lib/restaurant-booking";
+import { advanceKitchenLine } from "../../lib/restaurant-kitchen";
 
 const databaseName = new URL(process.env.DATABASE_URL ?? "postgresql://invalid/invalid").pathname.slice(1);
 if (!databaseName.endsWith("_test")) throw new Error("Restaurant Floor Operations tests require a database ending in _test.");
 const suffix = randomUUID().slice(0, 8);
 let companyId = "", locationId = "", userId = "", tableId = "", secondTableId = "", itemId = "", secondItemId = "", orderId = "";
+let areaId = "", comboTableA = "", comboTableB = "", lifecycleTableId = "", walkInTableId = "", invoiceTableId = "", supplierOnlyPartnerId = "", partnerId = "", seriesId = "", accountId = "", invoiceSeriesId = "";
 const actor = () => ({ companyId, locationId, userId });
 
 before(async () => {
   companyId = (await prisma.company.create({ data: { name: `Floor ${suffix}`, vatNumber: `FL${suffix}` } })).id;
   locationId = (await prisma.location.create({ data: { companyId, code: `FL-${suffix}`, slug: `floor-${suffix}`, name: "Frisà Bistrò" } })).id;
   userId = (await prisma.user.create({ data: { email: `floor-${suffix}@example.test`, firstName: "Sala", lastName: "Test", password: "unused" } })).id;
+  await prisma.membership.create({ data: { companyId, userId, active: true, isDefault: true } });
   const area = await prisma.restaurantArea.create({ data: { companyId, locationId, code: "SALA", name: "Sala" } });
   tableId = (await prisma.restaurantTable.create({ data: { companyId, locationId, areaId: area.id, code: "T1", name: "TAVOLO 1", seats: 4 } })).id;
   secondTableId = (await prisma.restaurantTable.create({ data: { companyId, locationId, areaId: area.id, code: "T2", name: "TAVOLO 2", seats: 4 } })).id;
+  lifecycleTableId = (await prisma.restaurantTable.create({ data: { companyId, locationId, areaId: area.id, code: "T3", name: "TAVOLO 3", seats: 4 } })).id;
+  areaId = area.id;
+  comboTableA = (await prisma.restaurantTable.create({ data: { companyId, locationId, areaId: area.id, code: "T6", name: "TAVOLO 6", seats: 2 } })).id;
+  comboTableB = (await prisma.restaurantTable.create({ data: { companyId, locationId, areaId: area.id, code: "T7", name: "TAVOLO 7", seats: 2 } })).id;
+  invoiceTableId = (await prisma.restaurantTable.create({ data: { companyId, locationId, areaId: area.id, code: "T5", name: "TAVOLO 5", seats: 2 } })).id;
+  walkInTableId = (await prisma.restaurantTable.create({ data: { companyId, locationId, areaId: area.id, code: "T4", name: "TAVOLO 4", seats: 2 } })).id;
+  partnerId = (await prisma.partner.create({ data: { companyId, code: `P-${suffix}`, name: "Cliente Sala", isCustomer: true } })).id;
+  supplierOnlyPartnerId = (await prisma.partner.create({ data: { companyId, code: `S-${suffix}`, name: "Solo Fornitore", isSupplier: true } })).id;
+  seriesId = (await prisma.documentSeries.create({ data: { companyId, locationId, code: `RS-${suffix}`, name: "Conto Restaurant", documentType: "SALES_RECEIPT" } })).id;
+  accountId = (await prisma.financialAccount.create({ data: { companyId, locationId, code: `CA-${suffix}`, name: "Cassa Sala", type: "CASH", allowOverdraft: true, createdById: userId, updatedById: userId } })).id;
+  invoiceSeriesId = (await prisma.documentSeries.create({ data: { companyId, locationId, code: `FT-${suffix}`, name: "Fattura Restaurant", documentType: "SALES_INVOICE" } })).id;
   const uom = await prisma.unitOfMeasure.create({ data: { companyId, code: "PZ", name: "Pezzo", symbol: "pz" } });
   const vat = await prisma.vatRate.create({ data: { companyId, code: "IVA10", name: "IVA 10", percentage: 10 } });
   const category = await prisma.itemCategory.create({ data: { companyId, code: "FOOD", name: "Food" } });
@@ -46,10 +65,17 @@ before(async () => {
 after(async () => {
   await prisma.auditLog.deleteMany({ where: { companyId } }); await prisma.domainEvent.deleteMany({ where: { companyId } });
   await prisma.kitchenPrintJob.deleteMany({ where: { companyId } }); await prisma.kitchenTicketLine.deleteMany({ where: { companyId } }); await prisma.kitchenTicket.deleteMany({ where: { companyId } }); await prisma.kitchenDispatch.deleteMany({ where: { companyId } });
+  await prisma.recipeConsumption.deleteMany({ where: { companyId } });
   await prisma.restaurantOrderLineModifier.deleteMany({ where: { companyId } }); await prisma.restaurantOrderLine.deleteMany({ where: { companyId } }); await prisma.restaurantOrderTable.deleteMany({ where: { companyId } }); await prisma.restaurantOrder.deleteMany({ where: { companyId } });
+  await prisma.financialAllocation.deleteMany({ where: { companyId } }); await prisma.financialMovement.deleteMany({ where: { companyId } }); await prisma.paymentSchedule.deleteMany({ where: { companyId } });
+  await prisma.documentEvent.deleteMany({ where: { companyId } }); await prisma.documentLink.deleteMany({ where: { companyId } }); await prisma.businessDocumentLine.deleteMany({ where: { companyId } }); await prisma.businessDocument.deleteMany({ where: { companyId } });
+  await prisma.documentSeries.deleteMany({ where: { companyId } }); await prisma.financialAccount.deleteMany({ where: { companyId } }); await prisma.partner.deleteMany({ where: { companyId } }); await prisma.idempotencyRecord.deleteMany({ where: { companyId } });
   await prisma.kitchenStationAssignment.deleteMany({ where: { companyId } }); await prisma.restaurantPrinter.deleteMany({ where: { companyId } }); await prisma.kitchenStation.deleteMany({ where: { companyId } });
   await prisma.restaurantMenuItem.deleteMany({ where: { companyId } }); await prisma.restaurantMenuSection.deleteMany({ where: { companyId } }); await prisma.restaurantMenu.deleteMany({ where: { companyId } }); await prisma.fusionCatalogMapping.deleteMany({ where: { companyId } });
   await prisma.item.deleteMany({ where: { companyId } }); await prisma.itemCategory.deleteMany({ where: { companyId } }); await prisma.vatRate.deleteMany({ where: { companyId } }); await prisma.unitOfMeasure.deleteMany({ where: { companyId } });
+  await prisma.restaurantReservationTable.deleteMany({ where: { companyId } }); await prisma.restaurantReservation.deleteMany({ where: { companyId } });
+  await prisma.restaurantTableCombinationTable.deleteMany({ where: { companyId } }); await prisma.restaurantTableCombination.deleteMany({ where: { companyId } });
+  await prisma.membership.deleteMany({ where: { companyId } });
   await prisma.restaurantTable.deleteMany({ where: { companyId } }); await prisma.restaurantArea.deleteMany({ where: { companyId } }); await prisma.location.deleteMany({ where: { companyId } }); await prisma.company.delete({ where: { id: companyId } }); await prisma.user.delete({ where: { id: userId } }); await prisma.$disconnect();
 });
 
@@ -83,4 +109,207 @@ test("operational floor lifecycle is incremental, tenant-safe and non-fiscal", a
   assert.equal(await prisma.businessDocument.count({ where: { companyId } }), initialDocuments); assert.equal(await prisma.financialMovement.count({ where: { companyId } }), initialMovements);
   assert.ok((await prisma.auditLog.count({ where: { companyId } })) >= 5);
   await assert.rejects(openFloorTable(actor(), secondTableId, 0), /coperti/);
+});
+
+test("tavolo chiuso torna riutilizzabile in Sala senza reset manuale dello stato", async () => {
+  const table = () => prisma.restaurantTable.findUniqueOrThrow({ where: { id: lifecycleTableId } });
+  // APRI
+  const opened = await openOrder(companyId, locationId, userId, { tableId: lifecycleTableId, partnerId, guestCount: 2, serviceType: "DINE_IN" });
+  assert.equal((await table()).status, "OCCUPIED");
+  // INVIA
+  const line = await addFloorOrderItem(actor(), opened.id, itemId);
+  await dispatchFloorOrder(actor(), opened.id, `lifecycle-${suffix}`);
+  await advanceKitchenLine(companyId, locationId, userId, line.id, "IN_PREPARATION");
+  await advanceKitchenLine(companyId, locationId, userId, line.id, "READY");
+  await advanceKitchenLine(companyId, locationId, userId, line.id, "SERVED");
+  // CHIUDI
+  const billed = await closeRestaurantOrderAtomic(companyId, locationId, userId, opened.id, randomUUID(), { seriesId, invoice: false, payments: [] });
+  const total = Number((await prisma.businessDocument.findUniqueOrThrow({ where: { id: billed.documentId } })).total);
+  const closed = await closeRestaurantOrderAtomic(companyId, locationId, userId, opened.id, randomUUID(), { seriesId, invoice: false, payments: [{ financialAccountId: accountId, paymentMethod: "CASH", amount: total }] });
+  assert.equal(closed.paymentStatus, "PAID");
+  assert.equal((await prisma.restaurantOrder.findUniqueOrThrow({ where: { id: opened.id } })).status, "CLOSED");
+  // Il tavolo resta DA RIASSETTARE e non è riapribile finché non viene liberato.
+  assert.equal((await table()).status, "DIRTY");
+  await assert.rejects(openFloorTable(actor(), lifecycleTableId, 2), /non disponibile/);
+  // LIBERA — nessuna scrittura diretta su restaurantTable in questo test.
+  await releaseFloorTable(actor(), lifecycleTableId);
+  assert.equal((await table()).status, "AVAILABLE");
+  // RIAPRI
+  const reopened = await openFloorTable(actor(), lifecycleTableId, 3);
+  assert.notEqual(reopened.id, opened.id);
+  assert.equal((await table()).status, "OCCUPIED");
+  assert.equal((await prisma.restaurantOrder.findUniqueOrThrow({ where: { id: reopened.id } })).guestCount, 3);
+  // Un tavolo con comanda aperta non può essere liberato.
+  await assert.rejects(releaseFloorTable(actor(), lifecycleTableId), /comanda aperta/);
+});
+
+test("tap ravvicinati sullo stesso prodotto non perdono quantità", async () => {
+  const order = await openOrder(companyId, locationId, userId, { tableId: secondTableId, guestCount: 2, serviceType: "DINE_IN" });
+  const first = await addFloorOrderItem(actor(), order.id, itemId);
+  const results = await Promise.allSettled(Array.from({ length: 4 }, () => addFloorOrderItem(actor(), order.id, itemId)));
+  assert.equal(results.filter((row) => row.status === "fulfilled").length, 4);
+  const lines = await prisma.restaurantOrderLine.findMany({ where: { orderId: order.id, status: "NEW" } });
+  const total = lines.reduce((sum, row) => sum + Number(row.quantity), 0);
+  assert.equal(total, 5);
+  const target = lines.find((row) => row.id === first.id)!;
+  assert.equal(Number(target.lineTotal), Math.round(Number(target.quantity) * Number(target.unitPrice) * 100) / 100);
+});
+
+test("comanda aperta da Sala senza cliente è chiudibile a scontrino, non a fattura", async () => {
+  const opened = await openFloorTable(actor(), walkInTableId, 2);
+  assert.equal((await prisma.restaurantOrder.findUniqueOrThrow({ where: { id: opened.id } })).partnerId, null);
+  const line = await addFloorOrderItem(actor(), opened.id, secondItemId);
+  await dispatchFloorOrder(actor(), opened.id, `walkin-${suffix}`);
+  await advanceKitchenLine(companyId, locationId, userId, line.id, "IN_PREPARATION");
+  await advanceKitchenLine(companyId, locationId, userId, line.id, "READY");
+  await advanceKitchenLine(companyId, locationId, userId, line.id, "SERVED");
+  // La fattura continua a richiedere un cliente anagrafico esplicito.
+  await assert.rejects(
+    closeRestaurantOrderAtomic(companyId, locationId, userId, opened.id, randomUUID(), { seriesId: invoiceSeriesId, invoice: true, payments: [] }),
+    /cliente anagrafico/,
+  );
+  // Lo scontrino si chiude usando il cliente di passaggio di sistema.
+  const billed = await closeRestaurantOrderAtomic(companyId, locationId, userId, opened.id, randomUUID(), { seriesId, invoice: false, payments: [] });
+  const walkIn = await prisma.partner.findFirstOrThrow({ where: { companyId, code: "RESTAURANT_WALK_IN" } });
+  assert.equal(walkIn.isCustomer, true);
+  const stored = await prisma.restaurantOrder.findUniqueOrThrow({ where: { id: opened.id } });
+  assert.equal(stored.partnerId, walkIn.id, "il cliente risolto va persistito sulla comanda");
+  const document = await prisma.businessDocument.findUniqueOrThrow({ where: { id: billed.documentId } });
+  assert.equal(document.partnerId, walkIn.id);
+  const total = Number(document.total);
+  const closed = await closeRestaurantOrderAtomic(companyId, locationId, userId, opened.id, randomUUID(), { seriesId, invoice: false, payments: [{ financialAccountId: accountId, paymentMethod: "CASH", amount: total }] });
+  assert.equal(closed.paymentStatus, "PAID");
+  const movement = await prisma.financialMovement.findFirstOrThrow({ where: { id: { in: closed.movementIds } } });
+  assert.equal(movement.partnerId, walkIn.id, "l'incasso deve puntare allo stesso cliente del documento");
+  // Il cliente di sistema è unico e riusato dalla comanda successiva.
+  await releaseFloorTable(actor(), walkInTableId);
+  assert.equal(await prisma.partner.count({ where: { companyId, code: "RESTAURANT_WALK_IN" } }), 1);
+});
+
+test("il cliente è assegnabile a comanda aperta e congelato dopo l'emissione del conto", async () => {
+  const opened = await openFloorTable(actor(), invoiceTableId, 2);
+  assert.equal((await prisma.restaurantOrder.findUniqueOrThrow({ where: { id: opened.id } })).partnerId, null);
+  // Solo clienti della Company corrente.
+  await assert.rejects(assignOrderPartner(companyId, locationId, userId, opened.id, supplierOnlyPartnerId), /Cliente non valido/);
+  await assert.rejects(assignOrderPartner(companyId, locationId, userId, opened.id, randomUUID()), /Cliente non valido/);
+  // Assegnazione a comanda aperta.
+  const assigned = await assignOrderPartner(companyId, locationId, userId, opened.id, partnerId);
+  assert.equal(assigned.partnerId, partnerId);
+  assert.equal((await prisma.restaurantOrder.findUniqueOrThrow({ where: { id: opened.id } })).partnerId, partnerId);
+  // Con il cliente assegnato la fattura ora passa.
+  const line = await addFloorOrderItem(actor(), opened.id, itemId);
+  await dispatchFloorOrder(actor(), opened.id, `invoice-${suffix}`);
+  await advanceKitchenLine(companyId, locationId, userId, line.id, "IN_PREPARATION");
+  await advanceKitchenLine(companyId, locationId, userId, line.id, "READY");
+  await advanceKitchenLine(companyId, locationId, userId, line.id, "SERVED");
+  const billed = await closeRestaurantOrderAtomic(companyId, locationId, userId, opened.id, randomUUID(), { seriesId: invoiceSeriesId, invoice: true, payments: [] });
+  const document = await prisma.businessDocument.findUniqueOrThrow({ where: { id: billed.documentId } });
+  assert.equal(document.partnerId, partnerId);
+  assert.equal(document.documentType, "SALES_INVOICE");
+  // Emesso il conto, il cliente è congelato.
+  await assert.rejects(assignOrderPartner(companyId, locationId, userId, opened.id, supplierOnlyPartnerId), /già stato emesso/);
+  const walkIn = await prisma.partner.findFirstOrThrow({ where: { companyId, code: "RESTAURANT_WALK_IN" } });
+  await assert.rejects(assignOrderPartner(companyId, locationId, userId, opened.id, walkIn.id), /già stato emesso/);
+  assert.equal((await prisma.restaurantOrder.findUniqueOrThrow({ where: { id: opened.id } })).partnerId, partnerId);
+  // Chiusa la comanda, l'assegnazione non è più possibile.
+  const total = Number(document.total);
+  await closeRestaurantOrderAtomic(companyId, locationId, userId, opened.id, randomUUID(), { seriesId: invoiceSeriesId, invoice: true, payments: [{ financialAccountId: accountId, paymentMethod: "CARD", amount: total }] });
+  await assert.rejects(assignOrderPartner(companyId, locationId, userId, opened.id, partnerId), /Comanda non valida/);
+  await releaseFloorTable(actor(), invoiceTableId);
+});
+
+test("la combinazione configurata abilita la comanda multi-tavolo", async () => {
+  const pair = [comboTableA, comboTableB];
+  // Senza combinazione la comanda multi-tavolo è rifiutata.
+  await assert.rejects(
+    openOrder(companyId, locationId, userId, { tableIds: pair, guestCount: 4, serviceType: "DINE_IN" }),
+    /Combinazione tavoli non consentita/,
+  );
+  assert.equal((await getAreaCombinations({ companyId, locationId }, areaId)).length, 0);
+  // Creata dalla configurazione Sala, la combinazione compare ed è utilizzabile.
+  const combination = await saveTableCombination(companyId, locationId, { name: `Tavolata ${suffix}`, tableIds: pair, active: true });
+  const listed = await getAreaCombinations({ companyId, locationId }, areaId);
+  assert.equal(listed.length, 1);
+  assert.equal(listed[0].id, combination.id);
+  assert.deepEqual(new Set(listed[0].tables.map(({ table }) => table.id)), new Set(pair));
+  const order = await openOrder(companyId, locationId, userId, { tableIds: pair, guestCount: 4, serviceType: "DINE_IN" });
+  assert.equal(await prisma.restaurantOrderTable.count({ where: { orderId: order.id } }), 2);
+  // Una combinazione in uso non è scioglibile.
+  await assert.rejects(dissolveTableCombination(companyId, locationId, combination.id), /comanda o prenotazione attiva/);
+  await prisma.restaurantOrder.update({ where: { id: order.id }, data: { status: "CANCELLED" } });
+  await dissolveTableCombination(companyId, locationId, combination.id);
+  assert.equal((await getAreaCombinations({ companyId, locationId }, areaId)).length, 0);
+});
+
+test("geometria: tondi e quadrati restano a lati uguali anche nel salvataggio pianta", async () => {
+  const conf = { companyId, locationId, userId };
+  const geoArea = await saveFloorArea(conf, { code: `GEO${suffix.slice(0, 4)}`, name: "Geometria", active: true, sortOrder: 0, layoutWidth: 1200, layoutHeight: 800, backgroundOpacity: 0.1 });
+  const base = { areaId: geoArea.id, name: "Tondo", seats: 4, sortOrder: 0, active: true, visibleInFloor: true, fusionTableNumber: null };
+  const round = await saveFloorTable(conf, { ...base, code: `R${suffix.slice(0, 4)}`, shape: "ROUND", positionX: 40, positionY: 40, width: 100, height: 100, rotation: 0 });
+  const area = await prisma.restaurantArea.findUniqueOrThrow({ where: { id: geoArea.id }, select: { updatedAt: true } });
+  // Larghezza != altezza su un tavolo ROUND deve essere respinta anche in batch.
+  await assert.rejects(
+    saveFloorLayout(conf, geoArea.id, area.updatedAt, [{ id: round.id, positionX: 40, positionY: 40, width: 160, height: 100, rotation: 0 }]),
+    (error: unknown) => error instanceof FloorConfigError && /lati uguali/.test((error as Error).message),
+  );
+  // Il messaggio identifica il tavolo colpevole.
+  await assert.rejects(
+    saveFloorLayout(conf, geoArea.id, area.updatedAt, [{ id: round.id, positionX: 40, positionY: 40, width: 5000, height: 5000, rotation: 0 }]),
+    new RegExp(`R${suffix.slice(0, 4)}`, "i"),
+  );
+  // Lati uguali passa.
+  await saveFloorLayout(conf, geoArea.id, area.updatedAt, [{ id: round.id, positionX: 600, positionY: 400, width: 140, height: 140, rotation: 0 }]);
+  const saved = await prisma.restaurantTable.findUniqueOrThrow({ where: { id: round.id } });
+  assert.equal(Number(saved.width), 140);
+  assert.equal(Number(saved.height), 140);
+  // sortOrder non intero respinto come errore di dominio.
+  await assert.rejects(
+    saveFloorTable(conf, { ...base, id: round.id, code: `R${suffix.slice(0, 4)}`, shape: "ROUND", positionX: 600, positionY: 400, width: 140, height: 140, rotation: 0, sortOrder: Number.NaN }),
+    (error: unknown) => error instanceof FloorConfigError && /Ordine non valido/.test((error as Error).message),
+  );
+  // Codice tavolo duplicato: errore di dominio, non P2002 grezzo.
+  await assert.rejects(
+    saveFloorTable(conf, { ...base, code: `R${suffix.slice(0, 4)}`, shape: "SQUARE", positionX: 400, positionY: 400, width: 80, height: 80, rotation: 0 }),
+    (error: unknown) => error instanceof FloorConfigError && /codice tavolo è già utilizzato/i.test((error as Error).message),
+  );
+  // Restringere la sala lasciando tavoli fuori pianta è bloccato.
+  await assert.rejects(
+    saveFloorArea(conf, { id: geoArea.id, code: `GEO${suffix.slice(0, 4)}`, name: "Geometria", active: true, sortOrder: 0, layoutWidth: 320, layoutHeight: 240, backgroundOpacity: 0.1 }),
+    (error: unknown) => error instanceof FloorConfigError && /resterebbero fuori dalla pianta/.test((error as Error).message),
+  );
+  // Allargare resta possibile.
+  await saveFloorArea(conf, { id: geoArea.id, code: `GEO${suffix.slice(0, 4)}`, name: "Geometria", active: true, sortOrder: 0, layoutWidth: 1600, layoutHeight: 1000, backgroundOpacity: 0.1 });
+});
+
+test("riassegnare una comanda propaga i tavoli alla prenotazione collegata", async () => {
+  const start = new Date(Date.now() + 3600000);
+  const reservation = await prisma.restaurantReservation.create({
+    data: { companyId, locationId, code: `RES-${suffix}`, guestName: "Propagazione", partySize: 2, reservationDate: start, startTime: start, endTime: new Date(start.getTime() + 3600000), durationMinutes: 60, status: "CONFIRMED", tables: { create: [{ tableId: comboTableA }] } },
+    select: { id: true },
+  });
+  const order = await openOrder(companyId, locationId, userId, { reservationId: reservation.id, guestCount: 2, serviceType: "DINE_IN" });
+  await reassignOrderTables(companyId, locationId, order.id, [comboTableB]);
+  const linked = await prisma.restaurantReservationTable.findMany({ where: { reservationId: reservation.id }, select: { tableId: true } });
+  assert.deepEqual(linked.map(({ tableId }) => tableId), [comboTableB], "la prenotazione deve seguire la comanda");
+  // Il tavolo liberato può essere ripreso da un walk-in...
+  const walkIn = await openOrder(companyId, locationId, userId, { tableId: comboTableA, guestCount: 2, serviceType: "DINE_IN" });
+  // ...e chiudere la prenotazione non deve più liberarglielo sotto.
+  await transitionReservation(companyId, locationId, reservation.id, "SEATED");
+  await transitionReservation(companyId, locationId, reservation.id, "COMPLETED");
+  assert.equal((await prisma.restaurantTable.findUniqueOrThrow({ where: { id: comboTableA } })).status, "OCCUPIED", "il tavolo del walk-in non va liberato");
+  for (const id of [order.id, walkIn.id]) await prisma.restaurantOrder.update({ where: { id }, data: { status: "CANCELLED" } });
+  await prisma.restaurantTable.updateMany({ where: { id: { in: [comboTableA, comboTableB] } }, data: { status: "AVAILABLE" } });
+});
+
+test("aperture concorrenti producono codici comanda univoci", async () => {
+  // Deterministico: nello stesso millisecondo il solo timestamp collide.
+  const generated = new Set(Array.from({ length: 200 }, () => newOrderCode()));
+  assert.equal(generated.size, 200, "il codice comanda deve essere univoco anche a parità di millisecondo");
+  const codes = new Set<string>();
+  const tables = [tableId, secondTableId, lifecycleTableId, walkInTableId, invoiceTableId];
+  await prisma.restaurantOrder.updateMany({ where: { companyId, locationId, status: { notIn: ["CLOSED", "CANCELLED"] } }, data: { status: "CANCELLED" } });
+  await prisma.restaurantTable.updateMany({ where: { companyId, locationId, id: { in: tables } }, data: { status: "AVAILABLE" } });
+  const results = await Promise.all(tables.map((table) => openOrder(companyId, locationId, userId, { tableId: table, guestCount: 2, serviceType: "DINE_IN" })));
+  for (const row of results) codes.add((await prisma.restaurantOrder.findUniqueOrThrow({ where: { id: row.id }, select: { code: true } })).code);
+  assert.equal(codes.size, tables.length, "ogni comanda deve avere un codice distinto");
 });
