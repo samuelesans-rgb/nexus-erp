@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import { checkAvailability } from "../../lib/restaurant-availability";
-import { createReservation, transitionReservation } from "../../lib/restaurant-booking";
+import { createReservation, createStaffReservation, RestaurantBookingError, transitionReservation } from "../../lib/restaurant-booking";
 import { openOrder, reassignOrderTables } from "../../lib/restaurant-orders";
 import { saveCalendarException, saveRestaurantBookingSettings, saveServiceWindow } from "../../lib/restaurant-booking-settings";
 import { RestaurantFloorError, saveTableCombination } from "../../lib/restaurant-floor";
@@ -45,3 +45,30 @@ test("Floor V2: prenotazione senza tavoli non apre una comanda",async()=>{const 
 test("Floor V2: comanda libera non usa tavoli sporchi o riservati",async()=>{for(const status of ["DIRTY","RESERVED"] as const){await prisma.restaurantTable.update({where:{id:table1},data:{status}});await assert.rejects(openOrder(companyId,locationA,userId,{tableId:table1,guestCount:2,serviceType:"DINE_IN"}),/non disponibile/)}await prisma.restaurantTable.update({where:{id:table1},data:{status:"AVAILABLE"}})});
 test("Floor V2: ordine singolo contro combinazione concorrente ha un solo vincitore",async()=>{const results=await Promise.allSettled([openOrder(companyId,locationA,userId,{tableId:table1,guestCount:2,serviceType:"DINE_IN"}),openOrder(companyId,locationA,userId,{tableIds:[table1,table2],guestCount:4,serviceType:"DINE_IN"})]);const won=results.filter(x=>x.status==="fulfilled");assert.equal(won.length,1);for(const x of won)if(x.status==="fulfilled"){orderIds.push(x.value.id);await prisma.restaurantOrder.update({where:{id:x.value.id},data:{status:"CLOSED"}});}await prisma.restaurantTable.updateMany({where:{id:{in:[table1,table2]}},data:{status:"AVAILABLE"}})});
 test("Floor V2: due prenotazioni concorrenti sullo stesso tavolo hanno un solo vincitore",async()=>{const start=future(49,12),results=await Promise.allSettled(["A","B"].map(name=>createReservation(companyId,null,randomUUID(),{locationId:locationA,guestName:"Same "+name,partySize:2,startTime:start,tableId:table1})));const won=results.filter(x=>x.status==="fulfilled");assert.equal(won.length,1);for(const x of won)if(x.status==="fulfilled")reservationIds.push(x.value.reservationId)});
+
+test("Floor V2: prenotazione staff su tavoli espliciti, con override e senza duplicazione di servizio",async()=>{
+  const start=future(70,19),end=new Date(start.getTime()+3600000);
+  const base={guestName:"Staff Diretta",partySize:2,startTime:start,endTime:end,source:"PHONE" as const,tableIds:[table1]};
+  // Tavolo di un'altra sede rifiutato.
+  await assert.rejects(createStaffReservation(companyId,locationA,userId,{...base,tableIds:[tableB]}),RestaurantBookingError);
+  // Capienza insufficiente rifiutata.
+  await assert.rejects(createStaffReservation(companyId,locationA,userId,{...base,partySize:99}),RestaurantBookingError);
+  // Creazione diretta con stato forzato, senza passare dal motore di disponibilità.
+  const created=await createStaffReservation(companyId,locationA,userId,{...base,status:"CONFIRMED"});
+  reservationIds.push(created.id);
+  const row=await prisma.restaurantReservation.findUniqueOrThrow({where:{id:created.id},include:{tables:true}});
+  assert.equal(row.status,"CONFIRMED");
+  assert.equal(row.source,"PHONE");
+  assert.deepEqual(row.tables.map(t=>t.tableId),[table1]);
+  assert.equal(row.durationMinutes,60);
+  assert.match(row.code,/^RES-[0-9A-F]{12}$/,"il codice usa entropia, non il timestamp");
+  // Sovrapposizione sullo stesso tavolo rifiutata...
+  await assert.rejects(createStaffReservation(companyId,locationA,userId,base),RestaurantBookingError);
+  // ...ma l'override amministrativo la consente.
+  const forced=await createStaffReservation(companyId,locationA,userId,{...base,adminOverride:true});
+  reservationIds.push(forced.id);
+  assert.notEqual(forced.code,created.code);
+  // L'evento di dominio è emesso nella stessa transazione.
+  assert.equal(await prisma.domainEvent.count({where:{companyId,aggregateId:created.id,eventType:"RestaurantReservationCreated"}}),1);
+  for(const id of [created.id,forced.id]) await prisma.restaurantReservationTable.deleteMany({where:{reservationId:id}});
+});

@@ -143,6 +143,132 @@ export async function createReservation(companyId: string, userId: string | null
   }, { aggregateType: "RestaurantReservation" });
 }
 
+// Staff counterpart of createReservation: the operator picks the tables and may
+// override availability, so this path deliberately skips checkAvailability. It
+// was a separate service (lib/restaurant-reservations.ts) that duplicated the
+// reservation domain; consolidated here so both paths share locking, the code
+// generator and the error type.
+export type StaffReservationInput = {
+  partnerId?: string | null;
+  guestName: string;
+  phone?: string | null;
+  email?: string | null;
+  notes?: string | null;
+  partySize: number;
+  startTime: Date;
+  endTime?: Date | null;
+  source: RestaurantReservationSource;
+  status?: RestaurantReservationStatus;
+  tableIds?: string[];
+  adminOverride?: boolean;
+};
+
+export async function createStaffReservation(
+  companyId: string,
+  locationId: string,
+  userId: string,
+  input: StaffReservationInput,
+) {
+  if (!input.guestName.trim() || input.partySize < 1)
+    throw new RestaurantBookingError("Ospite e numero coperti sono obbligatori.");
+  const tableIds = [...new Set(input.tableIds ?? [])];
+  const endTime =
+    input.endTime ?? new Date(input.startTime.getTime() + 2 * 60 * 60 * 1000);
+  if (endTime <= input.startTime)
+    throw new RestaurantBookingError("La fine deve seguire l'inizio.");
+  return prisma.$transaction(async (tx) => {
+    // The legacy service held no lock: two operators could book the same table
+    // concurrently and both pass the overlap check.
+    await lockRestaurantResources(
+      tx,
+      companyId,
+      tableIds.map((id) => "table:" + id),
+    );
+    const tables = tableIds.length
+      ? await tx.restaurantTable.findMany({
+          where: {
+            companyId,
+            locationId,
+            id: { in: tableIds },
+            active: true,
+            deletedAt: null,
+          },
+          select: { id: true, seats: true, maxSeats: true, status: true },
+        })
+      : [];
+    if (
+      tables.length !== tableIds.length ||
+      tables.some((table) => table.status === "OUT_OF_SERVICE")
+    )
+      throw new RestaurantBookingError("Uno o più tavoli non sono assegnabili.");
+    if (
+      tables.length &&
+      tables.reduce((sum, table) => sum + (table.maxSeats ?? table.seats), 0) <
+        input.partySize
+    )
+      throw new RestaurantBookingError("Capienza tavoli insufficiente.");
+    if (input.partnerId &&
+      !(await tx.partner.findFirst({
+        where: { id: input.partnerId, companyId, active: true, deletedAt: null },
+        select: { id: true },
+      })))
+      throw new RestaurantBookingError("Cliente non valido.");
+    if (!input.adminOverride && tables.length) {
+      const conflict = await tx.restaurantReservationTable.findFirst({
+        where: {
+          companyId,
+          tableId: { in: tableIds },
+          reservation: {
+            locationId,
+            deletedAt: null,
+            status: { notIn: ["CANCELLED", "COMPLETED", "NO_SHOW"] },
+            startTime: { lt: endTime },
+            endTime: { gt: input.startTime },
+          },
+        },
+        select: { tableId: true },
+      });
+      if (conflict)
+        throw new RestaurantBookingError(
+          "Sovrapposizione con una prenotazione esistente.",
+        );
+    }
+    const reservation = await tx.restaurantReservation.create({
+      data: {
+        companyId,
+        locationId,
+        code: `RES-${randomBytes(6).toString("hex").toUpperCase()}`,
+        partnerId: input.partnerId || null,
+        guestName: input.guestName.trim(),
+        phone: input.phone?.trim() || null,
+        email: input.email?.trim().toLowerCase() || null,
+        notes: input.notes?.trim() || null,
+        reservationDate: input.startTime,
+        startTime: input.startTime,
+        endTime,
+        durationMinutes: Math.max(
+          1,
+          Math.round((endTime.getTime() - input.startTime.getTime()) / 60000),
+        ),
+        partySize: input.partySize,
+        source: input.source,
+        status: input.status ?? "PENDING",
+        createdById: userId,
+        updatedById: userId,
+        tables: { create: tables.map((table) => ({ tableId: table.id })) },
+      },
+      select: { id: true, code: true },
+    });
+    await event(tx, companyId, reservation.id, "RestaurantReservationCreated", {
+      code: reservation.code,
+      source: input.source,
+      tableIds,
+      adminOverride: Boolean(input.adminOverride),
+    });
+    return reservation;
+  });
+}
+
 export async function transitionReservation(companyId: string, locationId: string, id: string, nextStatus: RestaurantReservationStatus, userId?: string | null) {
   const current = await byId(companyId, locationId, id);
   if (!transitions[current.status]?.includes(nextStatus)) throw new RestaurantBookingError(`Transizione ${current.status} → ${nextStatus} non consentita.`);
