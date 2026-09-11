@@ -357,3 +357,44 @@ test("presentazione: lo stato dei tavoli è derivato, non letto dalla colonna", 
   await prisma.restaurantReservationTable.deleteMany({ where: { reservationId: resv.id } });
   await prisma.restaurantReservation.delete({ where: { id: resv.id } });
 });
+
+test("apertura comanda: decide lo stato reale, non la colonna legacy", async () => {
+  const reset = async (physicalStatus: "READY" | "DIRTY" | "OUT_OF_SERVICE", status: string) => {
+    await prisma.restaurantOrder.updateMany({ where: { companyId, locationId, status: { notIn: ["CLOSED", "CANCELLED"] } }, data: { status: "CANCELLED" } });
+    await prisma.restaurantTable.updateMany({ where: { id: comboTableA }, data: { physicalStatus, status: status as never } });
+  };
+
+  // Colonna legacy che mente "OCCUPIED" senza comanda: il tavolo si apre lo stesso.
+  await reset("READY", "OCCUPIED");
+  const opened = await openFloorTable(actor(), comboTableA, 2);
+  assert.ok(opened.id, "una colonna legacy stantia non deve più bloccare l'apertura");
+
+  // Con una comanda davvero aperta il tavolo è rifiutato (controllo relazionale).
+  await assert.rejects(openFloorTable(actor(), comboTableA, 2), /già occupati|non disponibile/);
+
+  // Colonna legacy che mente "AVAILABLE" mentre una comanda è aperta: comunque rifiutato.
+  await prisma.restaurantTable.updateMany({ where: { id: comboTableA }, data: { status: "AVAILABLE" } });
+  await assert.rejects(openFloorTable(actor(), comboTableA, 2), /già occupati/);
+
+  // Stato fisico DA RIASSETTARE: rifiutato anche con colonna legacy "AVAILABLE".
+  await reset("DIRTY", "AVAILABLE");
+  await assert.rejects(openFloorTable(actor(), comboTableA, 2), /non disponibile/);
+
+  // Fuori servizio: rifiutato.
+  await reset("OUT_OF_SERVICE", "AVAILABLE");
+  await assert.rejects(openFloorTable(actor(), comboTableA, 2), /non appartengono|non disponibile/);
+
+  // Una prenotazione imminente colora il tavolo ma NON impedisce il walk-in.
+  await reset("READY", "AVAILABLE");
+  const soon = new Date(Date.now() + 20 * 60000);
+  const resv = await prisma.restaurantReservation.create({ data: { companyId, locationId, code: `WLK-${suffix}`, guestName: "Imminente", partySize: 2, reservationDate: soon, startTime: soon, endTime: new Date(soon.getTime() + 3600000), status: "CONFIRMED", tables: { create: [{ tableId: comboTableA }] } }, select: { id: true } });
+  const floor = await getOperationalRestaurantFloor(companyId, locationId);
+  assert.equal(floor.areas.flatMap((a) => a.tables).find((t) => t.id === comboTableA)?.status, "RESERVED");
+  const walkIn = await openFloorTable(actor(), comboTableA, 2);
+  assert.ok(walkIn.id, "una prenotazione imminente non deve bloccare un walk-in");
+
+  await prisma.restaurantOrder.updateMany({ where: { companyId, locationId, status: { notIn: ["CLOSED", "CANCELLED"] } }, data: { status: "CANCELLED" } });
+  await prisma.restaurantReservationTable.deleteMany({ where: { reservationId: resv.id } });
+  await prisma.restaurantReservation.delete({ where: { id: resv.id } });
+  await prisma.restaurantTable.updateMany({ where: { id: comboTableA }, data: { physicalStatus: "READY", status: "AVAILABLE" } });
+});

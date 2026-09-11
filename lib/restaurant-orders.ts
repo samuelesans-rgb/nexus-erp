@@ -93,9 +93,9 @@ export async function openOrder(
             id: { in: requested },
             active: true,
             deletedAt: null,
-            status: { not: "OUT_OF_SERVICE" },
+            physicalStatus: { not: "OUT_OF_SERVICE" },
           },
-          select: { id: true, status: true },
+          select: { id: true, physicalStatus: true },
         })
       : [];
     if (tables.length !== requested.length)
@@ -133,7 +133,11 @@ export async function openOrder(
       throw new RestaurantDomainError(
         "Uno o più tavoli sono già occupati da una comanda.",
       );
-    if (!reservation && tables.some((table) => table.status !== "AVAILABLE"))
+    // Occupancy is already covered by the conflict check above, which reads the
+    // order relation rather than a stored flag. What is left to reject here is
+    // the physical state: a table waiting to be cleared. An imminent booking
+    // deliberately does not block a walk-in.
+    if (!reservation && tables.some((table) => table.physicalStatus !== "READY"))
       throw new RestaurantDomainError("Tavolo non disponibile.");
     const created = await tx.restaurantOrder.create({
       data: {
@@ -420,7 +424,7 @@ export async function reassignOrderTables(
         id: { in: requested },
         active: true,
         deletedAt: null,
-        status: { not: "OUT_OF_SERVICE" },
+        physicalStatus: { not: "OUT_OF_SERVICE" },
       },
       select: { id: true },
     });
