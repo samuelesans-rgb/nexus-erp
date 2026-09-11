@@ -6,6 +6,11 @@ import { executeIdempotent } from "@/lib/idempotency";
 import { prisma } from "@/lib/prisma";
 import { lockRestaurantResources } from "@/lib/restaurant-locking";
 import { checkAvailability, getBookingSettings, RestaurantAvailabilityError } from "@/lib/restaurant-availability";
+import {
+  deriveTableStatusFromRow,
+  tableHasOpenOrderWhere,
+  tableStatusInclude,
+} from "@/lib/restaurant-table-status";
 
 export class RestaurantBookingError extends Error {
   constructor(message: string) {
@@ -118,11 +123,16 @@ export async function getReservationHistory(companyId: string, reservationId: st
 }
 
 export async function getAssignableTables(companyId: string, locationId: string) {
-  return prisma.restaurantTable.findMany({
-    where: { companyId, locationId, active: true, deletedAt: null, status: { not: "OUT_OF_SERVICE" } },
-    select: { id: true, code: true, name: true, seats: true, maxSeats: true, status: true },
+  const tables = await prisma.restaurantTable.findMany({
+    where: { companyId, locationId, active: true, deletedAt: null, physicalStatus: { not: "OUT_OF_SERVICE" } },
+    select: { id: true, code: true, name: true, seats: true, maxSeats: true, physicalStatus: true, ...tableStatusInclude },
     orderBy: [{ code: "asc" }],
   });
+  const now = new Date();
+  return tables.map(({ orderTables, reservations, physicalStatus, ...table }) => ({
+    ...table,
+    status: deriveTableStatusFromRow({ physicalStatus, orderTables, reservations }, now),
+  }));
 }
 
 export async function createReservation(companyId: string, userId: string | null, idempotencyKey: string, input: ReservationInput) {
@@ -193,12 +203,12 @@ export async function createStaffReservation(
             active: true,
             deletedAt: null,
           },
-          select: { id: true, seats: true, maxSeats: true, status: true },
+          select: { id: true, seats: true, maxSeats: true, physicalStatus: true },
         })
       : [];
     if (
       tables.length !== tableIds.length ||
-      tables.some((table) => table.status === "OUT_OF_SERVICE")
+      tables.some((table) => table.physicalStatus === "OUT_OF_SERVICE")
     )
       throw new RestaurantBookingError("Uno o più tavoli non sono assegnabili.");
     if (
@@ -328,7 +338,11 @@ export async function assignTable(companyId: string, locationId: string, id: str
   if (!availability.available || availability.tableId !== tableId) throw new RestaurantBookingError("Tavolo non disponibile o capienza insufficiente.");
   await prisma.$transaction(async (tx) => {
     await lockRestaurantResources(tx, companyId, ["table:" + tableId]);
-    const table = await tx.restaurantTable.findFirst({ where: { id: tableId, companyId, locationId, active: true, deletedAt: null, status: { notIn: ["OUT_OF_SERVICE", "OCCUPIED"] } }, select: { id: true } });
+    // Occupancy comes from the order relation, not from a stored flag. Behaviour
+    // is preserved: a table busy right now still refuses assignment. Whether
+    // that should hold for a booking in the future is the same question
+    // checkAvailability answers, and is addressed with it.
+    const table = await tx.restaurantTable.findFirst({ where: { id: tableId, companyId, locationId, active: true, deletedAt: null, physicalStatus: { not: "OUT_OF_SERVICE" }, NOT: tableHasOpenOrderWhere() }, select: { id: true } });
     if (!table) throw new RestaurantBookingError("Tavolo non appartenente alla sede corrente.");
     const conflict = await tx.restaurantReservationTable.findFirst({ where: { companyId, tableId, reservationId: { not: id }, reservation: { locationId, deletedAt: null, status: { in: ["PENDING", "CONFIRMED", "SEATED"] }, startTime: { lt: availability.endTime }, endTime: { gt: availability.startTime } } }, select: { tableId: true } });
     if (conflict) throw new RestaurantBookingError("Sovrapposizione con una prenotazione esistente.");

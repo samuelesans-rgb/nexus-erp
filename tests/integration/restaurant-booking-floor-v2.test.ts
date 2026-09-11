@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import { checkAvailability } from "../../lib/restaurant-availability";
-import { createReservation, createStaffReservation, RestaurantBookingError, transitionReservation } from "../../lib/restaurant-booking";
+import { assignTable, createReservation, createStaffReservation, getAssignableTables, RestaurantBookingError, transitionReservation } from "../../lib/restaurant-booking";
 import { openOrder, reassignOrderTables } from "../../lib/restaurant-orders";
 import { saveCalendarException, saveRestaurantBookingSettings, saveServiceWindow } from "../../lib/restaurant-booking-settings";
 import { RestaurantFloorError, saveTableCombination } from "../../lib/restaurant-floor";
@@ -83,4 +83,24 @@ test("Floor V2: prenotazione staff su tavoli espliciti, con override e senza dup
   // L'evento di dominio è emesso nella stessa transazione.
   assert.equal(await prisma.domainEvent.count({where:{companyId,aggregateId:created.id,eventType:"RestaurantReservationCreated"}}),1);
   for(const id of [created.id,forced.id]) await prisma.restaurantReservationTable.deleteMany({where:{reservationId:id}});
+});
+
+test("Floor V2: assegnazione tavolo usa lo stato fisico e deriva quello esposto",async()=>{
+  const start=future(80,20),end=new Date(start.getTime()+3600000);
+  const resv=await createStaffReservation(companyId,locationA,userId,{guestName:"Assegnazione",partySize:2,startTime:start,endTime:end,source:"PHONE"});
+  reservationIds.push(resv.id);
+  await assignTable(companyId,locationA,resv.id,table1,userId);
+  assert.deepEqual((await prisma.restaurantReservationTable.findMany({where:{reservationId:resv.id},select:{tableId:true}})).map(r=>r.tableId),[table1]);
+  // Fuori servizio letto dalla colonna fisica: rifiutato anche se la colonna
+  // legacy dice AVAILABLE (prima era quest'ultima a decidere).
+  await prisma.restaurantTable.update({where:{id:table2},data:{physicalStatus:"OUT_OF_SERVICE",status:"AVAILABLE"}});
+  await assert.rejects(assignTable(companyId,locationA,resv.id,table2,userId),RestaurantBookingError);
+  const assignable=await getAssignableTables(companyId,locationA);
+  assert.equal(assignable.some(t=>t.id===table2),false,"un tavolo fuori servizio non è assegnabile");
+  // Lo stato esposto è derivato: colonna legacy mentita, ma nessuna comanda aperta.
+  await prisma.restaurantTable.update({where:{id:table1},data:{physicalStatus:"READY",status:"OCCUPIED"}});
+  assert.equal((await getAssignableTables(companyId,locationA)).find(t=>t.id===table1)?.status,"AVAILABLE");
+  await prisma.restaurantTable.update({where:{id:table2},data:{physicalStatus:"READY",status:"AVAILABLE"}});
+  await prisma.restaurantTable.update({where:{id:table1},data:{status:"AVAILABLE"}});
+  await prisma.restaurantReservationTable.deleteMany({where:{reservationId:resv.id}});
 });
