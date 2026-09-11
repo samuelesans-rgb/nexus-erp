@@ -104,3 +104,24 @@ test("Floor V2: assegnazione tavolo usa lo stato fisico e deriva quello esposto"
   await prisma.restaurantTable.update({where:{id:table1},data:{status:"AVAILABLE"}});
   await prisma.restaurantReservationTable.deleteMany({where:{reservationId:resv.id}});
 });
+
+test("Floor V2: un tavolo occupato adesso non blocca una prenotazione futura",async()=>{
+  // Tavolo fisicamente pronto ma con una comanda aperta adesso.
+  await prisma.restaurantTable.update({where:{id:table1},data:{physicalStatus:"READY",status:"AVAILABLE"}});
+  const order=await openOrder(companyId,locationA,userId,{tableId:table1,guestCount:2,serviceType:"DINE_IN"});
+  orderIds.push(order.id);
+  // Finestra futura: il tavolo deve restare disponibile.
+  const tomorrow=future(1,20);
+  const futureCheck=await checkAvailability(companyId,locationA,{startTime:tomorrow,partySize:2,tableId:table1,ignoreAdvance:true});
+  assert.equal(futureCheck.available,true,"una comanda aperta adesso non deve bloccare domani");
+  // Finestra che contiene l'adesso: il tavolo non è disponibile.
+  const nowCheck=await checkAvailability(companyId,locationA,{startTime:new Date(),partySize:2,tableId:table1,ignoreAdvance:true});
+  assert.equal(nowCheck.available,false,"per l'adesso una comanda aperta rende il tavolo indisponibile");
+  // Chiusa la comanda, torna disponibile anche adesso.
+  await prisma.restaurantOrder.update({where:{id:order.id},data:{status:"CANCELLED"}});
+  assert.equal((await checkAvailability(companyId,locationA,{startTime:new Date(),partySize:2,tableId:table1,ignoreAdvance:true})).available,true);
+  // La colonna legacy non ha più voce in capitolo.
+  await prisma.restaurantTable.update({where:{id:table1},data:{status:"OCCUPIED"}});
+  assert.equal((await checkAvailability(companyId,locationA,{startTime:new Date(),partySize:2,tableId:table1,ignoreAdvance:true})).available,true,"la colonna legacy non decide più la disponibilità");
+  await prisma.restaurantTable.update({where:{id:table1},data:{status:"AVAILABLE"}});
+});
