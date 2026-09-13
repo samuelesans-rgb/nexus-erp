@@ -20,6 +20,12 @@ type Actor = { companyId: string; locationId: string; userId: string };
 
 // Use the same operational eligibility for display and add-item requests.
 // Unresolved catalog imports remain available to Menu Manager, not Sala.
+//
+// Deliberately does NOT require an active category or VAT rate. That stricter
+// filter belongs to the in-progress FUSION Sala eligibility work, whose tests
+// are not part of this branch; it reached production by mistake and hid 192 of
+// 193 sellable products, because almost no Item carries a categoryId yet.
+// Restored here to the behaviour of 555ca38. Reintroduce it with that feature.
 function floorMenuItemWhere(companyId: string): Prisma.RestaurantMenuItemWhereInput {
   return {
     companyId,
@@ -28,8 +34,6 @@ function floorMenuItemWhere(companyId: string): Prisma.RestaurantMenuItemWhereIn
     item: {
       companyId,
       ...restaurantMenuEligibleItemWhere,
-      category: { companyId, active: true, deletedAt: null },
-      vatRate: { companyId, active: true, deletedAt: null },
     },
   };
 }
@@ -476,34 +480,11 @@ export async function addFloorOrderItem(
   itemId: string,
   modifierIds: string[] = [],
 ) {
-  // Revalidate stale clients too, including the existing-unsent-line path.
-  const menuItem = await prisma.restaurantMenuItem.findFirst({
-    where: {
-      ...floorMenuItemWhere(actor.companyId),
-      itemId,
-      section: {
-        companyId: actor.companyId,
-        active: true,
-        menu: {
-          companyId: actor.companyId,
-          locationId: actor.locationId,
-          code: "FRISA_BISTRO",
-          active: true,
-          deletedAt: null,
-        },
-      },
-    },
-    select: { item: { select: { name: true, salePrice: true } } },
-  });
-  const mapping = await prisma.fusionCatalogMapping.findFirst({
-    where: { companyId: actor.companyId, locationId: actor.locationId, itemId, missingFromFusion: false },
-    select: { plu: true },
-  });
-  if (!menuItem || !mapping || menuExclusionReason({
-    plu: mapping.plu,
-    name: menuItem.item.name,
-    price: menuItem.item.salePrice?.toNumber() ?? null,
-  })) throw new RestaurantDomainError("Prodotto non disponibile in Sala.");
+  // No server-side revalidation here, matching 555ca38. The check that lived at
+  // this point belonged to the in-progress FUSION Sala eligibility feature and
+  // reached production by mistake without its tests; it rejected every add while
+  // no PLU mapping was usable. addOrderLine still validates item, menu presence,
+  // variant and modifiers before a line is created.
   const normalizedModifiers = [...new Set(modifierIds)];
   const existing = await prisma.restaurantOrderLine.findFirst({
     where: {
