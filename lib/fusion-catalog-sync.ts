@@ -7,7 +7,20 @@ import { ConnectorError } from "@/lib/kitchen-connector";
 import { prisma } from "@/lib/prisma";
 
 export type CatalogSyncItemInput={plu:number;name:string;priceCents:number|null;fingerprint:string};
-export type CatalogSyncInput={runId?:string;idempotencyKey:string;requestVersion:number;totalCount:number;unchangedCount:number;placeholdersSkipped?:number;emptySlotsSkipped?:number;items:CatalogSyncItemInput[];missingPlus:number[]};
+export type CatalogSyncInput={runId?:string;idempotencyKey:string;requestVersion:number;totalCount:number;unchangedCount:number;placeholdersSkipped?:number;emptySlotsSkipped?:number;items:CatalogSyncItemInput[];missingPlus:number[];seenPlus?:number[]};
+
+// Imported products must be orderable on arrival. addOrderLine requires an
+// active category and an active VAT rate, and the 1745 protocol carries neither
+// (DATA_SEND is PLU, DESC, PRICE only), so the import assigns defaults.
+// Resolved by code and failing loudly when absent, like the PZ unit above: the
+// sync must not silently create master data.
+const FUSION_DEFAULT_CATEGORY_CODE="FUSION";
+const FUSION_DEFAULT_VAT_CODE="IVA10";
+
+// A partial catalogue read makes every unseen PLU look missing. On 2026-09-05 a
+// single run flagged all 275 mappings and the Sala went empty for eight days.
+// Refuse a run that would flag an implausible share of the catalogue.
+const MISSING_GUARD_FLOOR=20,MISSING_GUARD_RATIO=0.3;
 const isPlaceholder=(item:{plu:number;name:string})=>item.name===`PLU${item.plu}`;
 const validItem=(item:CatalogSyncItemInput)=>Number.isInteger(item.plu)&&item.plu>0&&item.plu<=2_147_483_647&&item.name.length>0&&item.name.length<=200&&(item.priceCents===null||Number.isSafeInteger(item.priceCents)&&item.priceCents>=0)&&/^[a-f0-9]{64}$/.test(item.fingerprint);
 const validRunId=(value:string)=>/^[A-Za-z0-9._:-]{8,120}$/.test(value);
@@ -45,7 +58,7 @@ export async function failFusionCatalogSync(device:Device,runId:string|undefined
 
 export async function syncFusionCatalog(device:Device,input:CatalogSyncInput){
   const itemPlus=input.items.map(item=>item.plu),uniquePlus=new Set(itemPlus);
-  if(!/^[A-Za-z0-9._:-]{8,120}$/.test(input.idempotencyKey)||!Number.isInteger(input.requestVersion)||input.requestVersion<0||!Number.isInteger(input.totalCount)||input.totalCount<0||!Number.isInteger(input.unchangedCount)||input.unchangedCount<0||!Number.isInteger(input.placeholdersSkipped??0)||(input.placeholdersSkipped??0)<0||!Number.isInteger(input.emptySlotsSkipped??0)||(input.emptySlotsSkipped??0)<0||input.items.length>500||input.missingPlus.length>10_000||input.items.some(item=>!validItem(item))||input.missingPlus.some(plu=>!Number.isInteger(plu)||plu<=0)||uniquePlus.size!==itemPlus.length)throw new ConnectorError("Payload catalogo non valido.",400);
+  if(!/^[A-Za-z0-9._:-]{8,120}$/.test(input.idempotencyKey)||!Number.isInteger(input.requestVersion)||input.requestVersion<0||!Number.isInteger(input.totalCount)||input.totalCount<0||!Number.isInteger(input.unchangedCount)||input.unchangedCount<0||!Number.isInteger(input.placeholdersSkipped??0)||(input.placeholdersSkipped??0)<0||!Number.isInteger(input.emptySlotsSkipped??0)||(input.emptySlotsSkipped??0)<0||input.items.length>500||input.missingPlus.length>10_000||input.items.some(item=>!validItem(item))||input.missingPlus.some(plu=>!Number.isInteger(plu)||plu<=0)||(input.seenPlus?.length??0)>100_000||(input.seenPlus??[]).some(plu=>!Number.isInteger(plu)||plu<=0)||uniquePlus.size!==itemPlus.length)throw new ConnectorError("Payload catalogo non valido.",400);
   const importableItems=input.items.filter(item=>!isPlaceholder(item)),placeholdersSkipped=(input.placeholdersSkipped??0)+(input.items.length-importableItems.length);
   return prisma.$transaction(async tx=>{
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${device.companyId}:${device.locationId}:fusion-catalog-run`}))`;
@@ -55,6 +68,18 @@ export async function syncFusionCatalog(device:Device,input:CatalogSyncInput){
     const replayed=previous?.status==="SUCCEEDED",idempotency=replayed?null:await tx.idempotencyRecord.create({data:{companyId:device.companyId,commandType:"FUSION_CATALOG_SYNC",idempotencyKey:input.idempotencyKey}});
     const uom=await tx.unitOfMeasure.findFirst({where:{companyId:device.companyId,code:"PZ",active:true,deletedAt:null},select:{id:true}});
     if(!replayed&&!uom&&importableItems.length)throw new ConnectorError("Unità di misura PZ non configurata.",422);
+    if(!replayed&&input.missingPlus.length){
+      const known=await tx.fusionCatalogMapping.count({where:{companyId:device.companyId,locationId:device.locationId}});
+      const guard=Math.max(MISSING_GUARD_FLOOR,Math.floor(known*MISSING_GUARD_RATIO));
+      if(known>0&&input.missingPlus.length>guard)throw new ConnectorError(`Lettura catalogo sospetta: ${input.missingPlus.length} PLU risultano mancanti su ${known} mappati (soglia ${guard}). Run rifiutato senza modifiche.`,422);
+    }
+    const defaults=await Promise.all([
+      tx.itemCategory.findFirst({where:{companyId:device.companyId,code:FUSION_DEFAULT_CATEGORY_CODE,active:true,deletedAt:null},select:{id:true}}),
+      tx.vatRate.findFirst({where:{companyId:device.companyId,code:FUSION_DEFAULT_VAT_CODE,active:true,deletedAt:null},select:{id:true}}),
+    ]);
+    const [defaultCategory,defaultVat]=defaults;
+    if(!replayed&&importableItems.length&&!defaultCategory)throw new ConnectorError(`Categoria di default ${FUSION_DEFAULT_CATEGORY_CODE} non configurata.`,422);
+    if(!replayed&&importableItems.length&&!defaultVat)throw new ConnectorError(`Aliquota IVA di default ${FUSION_DEFAULT_VAT_CODE} non configurata.`,422);
     let created=0,updated=0;
     for(const incoming of replayed?[]:importableItems){
       const mapping=await tx.fusionCatalogMapping.findUnique({where:{companyId_locationId_plu:{companyId:device.companyId,locationId:device.locationId,plu:incoming.plu}}});
@@ -65,10 +90,16 @@ export async function syncFusionCatalog(device:Device,input:CatalogSyncInput){
         await tx.fusionCatalogMapping.update({where:{id:mapping.id},data:{synchronizedName:incoming.name,priceCents:incoming.priceCents,fingerprint:incoming.fingerprint,missingFromFusion:false,lastSeenAt:new Date(),lastChangedAt:new Date()}});updated++;
       }else{
         const code=`FUSION_${incoming.plu}`;if(await tx.item.findFirst({where:{companyId:device.companyId,code}}))throw new ConnectorError(`Codice ${code} già esistente senza mapping.`,409);
-        const item=await tx.item.create({data:{companyId:device.companyId,code,type:"PRODUCT",status:"ACTIVE",name:incoming.name,unitOfMeasureId:uom!.id,salePrice,currency:"EUR",sellable:true,purchasable:false,stockManaged:false}});
+        const item=await tx.item.create({data:{companyId:device.companyId,code,type:"PRODUCT",status:"ACTIVE",name:incoming.name,unitOfMeasureId:uom!.id,categoryId:defaultCategory!.id,vatRateId:defaultVat!.id,salePrice,currency:"EUR",sellable:true,purchasable:false,stockManaged:false}});
         await tx.fusionCatalogMapping.create({data:{companyId:device.companyId,locationId:device.locationId,itemId:item.id,plu:incoming.plu,synchronizedName:incoming.name,priceCents:incoming.priceCents,fingerprint:incoming.fingerprint,needsReview:true}});created++;
       }
     }
+    // Symmetry: the flag was only ever cleared as a side effect of processing a
+    // CHANGED record, so a PLU wrongly flagged that reappeared unchanged stayed
+    // flagged forever. When the connector reports the PLUs it actually saw, clear
+    // those too. Absent the field the behaviour is unchanged, so this is safe to
+    // ship before the connector is updated.
+    if(!replayed&&input.seenPlus?.length)await tx.fusionCatalogMapping.updateMany({where:{companyId:device.companyId,locationId:device.locationId,plu:{in:input.seenPlus},missingFromFusion:true},data:{missingFromFusion:false}});
     if(!replayed&&input.missingPlus.length)await tx.fusionCatalogMapping.updateMany({where:{companyId:device.companyId,locationId:device.locationId,plu:{in:input.missingPlus}},data:{missingFromFusion:true}});
     const result={created,updated,unchanged:input.unchangedCount,missing:input.missingPlus.length,placeholdersSkipped,emptySlotsSkipped:input.emptySlotsSkipped??0};
     const completedAt=new Date();await tx.fusionCatalogSyncState.upsert({where:{connectorId:device.id},create:{companyId:device.companyId,locationId:device.locationId,connectorId:device.id,status:"READY",consumedRequestVersion:input.requestVersion,lastSyncAt:completedAt,totalCount:input.totalCount,createdCount:created,updatedCount:updated,unchangedCount:input.unchangedCount,missingCount:input.missingPlus.length,emptySlotsSkipped:input.emptySlotsSkipped??0},update:{status:"READY",syncStartedAt:null,consumedRequestVersion:input.requestVersion,lastSyncAt:completedAt,lastError:null,totalCount:input.totalCount,createdCount:created,updatedCount:updated,unchangedCount:input.unchangedCount,missingCount:input.missingPlus.length,emptySlotsSkipped:input.emptySlotsSkipped??0}});
