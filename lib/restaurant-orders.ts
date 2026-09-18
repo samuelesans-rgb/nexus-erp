@@ -645,11 +645,14 @@ export async function closeRestaurantOrderAtomic(
         throw new RestaurantDomainError(
           "Sono necessarie righe servite per chiudere il conto.",
         );
+      // documentId is genuinely nullable here: an order settled at the POS
+      // closes without ever producing a document. The caller already guards the
+      // fiscal call with `if (result.documentId)`.
       if (order.status === "CLOSED")
         return {
           aggregateId: order.id,
           orderId: order.id,
-          documentId: order.documentId!,
+          documentId: order.documentId,
           movementIds: [],
           paymentStatus: "PAID",
           total: Number(order.document?.total ?? 0),

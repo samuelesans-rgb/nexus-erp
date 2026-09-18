@@ -15,6 +15,7 @@ import {
   openFloorTableAction,
   releaseFloorTableAction,
   searchFloorPartnersAction,
+  settleFloorOrderAction,
   retryFloorJobAction,
   saveFloorLineNoteAction,
 } from "./operational-actions";
@@ -191,6 +192,8 @@ export function OperationalFloor({
     );
   const release = (tableId: string) =>
     execute(() => releaseFloorTableAction(tableId));
+  const settle = (orderId: string) =>
+    execute(() => settleFloorOrderAction(orderId), () => setSelectedOrderId(null));
   const searchPartners = (value: string) => {
     setPartnerQuery(value);
     startTransition(async () =>
@@ -735,6 +738,18 @@ export function OperationalFloor({
                 >
                   {pending ? "INVIO…" : "INVIA IN CUCINA"}
                 </button>
+                <button
+                  disabled={pending}
+                  onClick={() => settle(order.id)}
+                  className="mt-2 min-h-14 w-full rounded-xl bg-emerald-700 px-4 font-black text-white disabled:bg-slate-300"
+                >
+                  {pending ? "CHIUSURA…" : "INCASSATO IN CASSA"}
+                </button>
+                <p className="mt-2 text-xs text-slate-500">
+                  Il conto si emette in cassa. “Incassato in cassa” chiude la
+                  comanda in Nexus e libera subito il tavolo, senza emettere
+                  alcun documento.
+                </p>
                 <p className="mt-2 text-xs text-slate-500">
                   Invia esclusivamente le righe contrassegnate “DA INVIARE”. Le
                   note e i modificatori locali restano nel ticket Nexus; i

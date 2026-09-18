@@ -8,7 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { sendOrderToKitchen } from "@/lib/restaurant-kitchen";
 import { restaurantMenuEligibleItemWhere } from "@/lib/restaurant-menu-eligibility";
 import { menuExclusionReason } from "@/lib/restaurant-menu-manager";
-import { RestaurantDomainError } from "@/lib/restaurant";
+import { emitRestaurantEventTx, RestaurantDomainError } from "@/lib/restaurant";
 import {
   deriveTableStatusFromRow,
   tableStatusInclude,
@@ -317,6 +317,119 @@ export async function assignFloorOrderPartner(
 // Closing a bill leaves the table DIRTY. Without this transition the table can
 // never be reopened from Sala, because both openOrder and the floor UI require
 // AVAILABLE for a walk-in.
+/**
+ * Settles an order that was paid at the POS.
+ *
+ * Nexus never issues the bill: the till owns the commercial and fiscal side by
+ * design, so closeRestaurantOrderAtomic is unreachable here — it needs a
+ * document series and a financial account this deployment will never have.
+ * Without a way to close, the table stayed occupied forever, the same dead end
+ * releaseFloorTable fixed from the other side.
+ *
+ * The order therefore closes with no document. The table is freed in one gesture
+ * rather than passing through DIRTY: on a busy floor speed was judged to matter
+ * more than tracking who cleared what. releaseFloorTable keeps the DIRTY step for
+ * the documentary path.
+ */
+export async function settleFloorOrder(actor: Actor, orderId: string) {
+  return prisma.$transaction(async (tx) => {
+    const order = await tx.restaurantOrder.findFirst({
+      where: {
+        id: orderId,
+        companyId: actor.companyId,
+        locationId: actor.locationId,
+        status: { notIn: ["CLOSED", "CANCELLED"] },
+      },
+      include: { tables: true, lines: { select: { id: true, status: true } } },
+    });
+    if (!order) throw new RestaurantDomainError("Comanda non valida.");
+    if (order.documentId)
+      throw new RestaurantDomainError(
+        "La comanda ha già un conto emesso: usa la chiusura documentale.",
+      );
+    const tableIds = order.tables.map(({ tableId }) => tableId);
+    await lockRestaurantResources(
+      tx,
+      actor.companyId,
+      tableIds.map((id) => "table:" + id),
+    );
+    // The guest consumed them, so they are served, not cancelled: cancelling
+    // would drop them from the only statistics Nexus still keeps. Lines never
+    // sent to the kitchen are included deliberately.
+    const served = await tx.restaurantOrderLine.updateMany({
+      where: {
+        companyId: actor.companyId,
+        locationId: actor.locationId,
+        orderId: order.id,
+        status: { notIn: ["SERVED", "CANCELLED"] },
+      },
+      data: { status: "SERVED", servedAt: new Date() },
+    });
+    // Without this an open ticket would linger in the Kitchen Display forever.
+    await tx.kitchenTicketLine.updateMany({
+      where: {
+        companyId: actor.companyId,
+        ticket: { orderId: order.id },
+        status: { not: "CANCELLED" },
+      },
+      data: { status: "CANCELLED" },
+    });
+    const tickets = await tx.kitchenTicket.updateMany({
+      where: {
+        companyId: actor.companyId,
+        orderId: order.id,
+        status: { notIn: ["COMPLETED", "CANCELLED"] },
+      },
+      data: { status: "CANCELLED" },
+    });
+    const closed = await tx.restaurantOrder.updateMany({
+      where: {
+        id: order.id,
+        companyId: actor.companyId,
+        locationId: actor.locationId,
+        status: { notIn: ["CLOSED", "CANCELLED"] },
+      },
+      data: { status: "CLOSED", closedAt: new Date(), updatedById: actor.userId },
+    });
+    if (!closed.count)
+      throw new RestaurantDomainError(
+        "La comanda è stata modificata da un altro operatore.",
+      );
+    // The derived status frees the tables as soon as the order closes; the
+    // legacy column is only realigned so the two never disagree.
+    if (tableIds.length)
+      await tx.restaurantTable.updateMany({
+        where: {
+          companyId: actor.companyId,
+          locationId: actor.locationId,
+          id: { in: tableIds },
+          physicalStatus: "READY",
+        },
+        data: { status: "AVAILABLE" },
+      });
+    await writeAuditLogTx(tx, {
+      ...actor,
+      action: "RESTAURANT_ORDER_SETTLED_AT_POS",
+      entityType: "RestaurantOrder",
+      entityId: order.id,
+      metadata: {
+        tableIds,
+        linesForcedToServed: served.count,
+        kitchenTicketsCancelled: tickets.count,
+      },
+    });
+    await emitRestaurantEventTx(
+      tx,
+      actor.companyId,
+      "RestaurantOrderSettledAtPos",
+      "RestaurantOrder",
+      order.id,
+      { tableIds, linesForcedToServed: served.count },
+    );
+    return { id: order.id, tableIds };
+  });
+}
+
 export async function releaseFloorTable(actor: Actor, tableId: string) {
   return prisma.$transaction(async (tx) => {
     await lockRestaurantResources(tx, actor.companyId, ["table:" + tableId]);

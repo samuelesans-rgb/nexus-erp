@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import { prisma } from "../../lib/prisma";
-import { addFloorOrderItem, deleteUnsentFloorLine, dispatchFloorOrder, getOperationalRestaurantFloor, openFloorTable, releaseFloorTable, retrySafeFloorJob, updateFloorGuestCount, updateUnsentFloorLine } from "../../lib/restaurant-floor-operations";
+import { addFloorOrderItem, settleFloorOrder, deleteUnsentFloorLine, dispatchFloorOrder, getOperationalRestaurantFloor, openFloorTable, releaseFloorTable, retrySafeFloorJob, updateFloorGuestCount, updateUnsentFloorLine } from "../../lib/restaurant-floor-operations";
 import { assignOrderPartner, closeRestaurantOrderAtomic, openOrder } from "../../lib/restaurant-orders";
 import { dissolveTableCombination, saveTableCombination } from "../../lib/restaurant-floor";
 import { FloorConfigError, getFloorConfiguration, getAreaCombinations, saveFloorArea, saveFloorLayout, saveFloorTable } from "../../lib/restaurant-floor-config";
@@ -124,7 +124,7 @@ test("tavolo chiuso torna riutilizzabile in Sala senza reset manuale dello stato
   await advanceKitchenLine(companyId, locationId, userId, line.id, "SERVED");
   // CHIUDI
   const billed = await closeRestaurantOrderAtomic(companyId, locationId, userId, opened.id, randomUUID(), { seriesId, invoice: false, payments: [] });
-  const total = Number((await prisma.businessDocument.findUniqueOrThrow({ where: { id: billed.documentId } })).total);
+  const total = Number((await prisma.businessDocument.findUniqueOrThrow({ where: { id: billed.documentId! } })).total);
   const closed = await closeRestaurantOrderAtomic(companyId, locationId, userId, opened.id, randomUUID(), { seriesId, invoice: false, payments: [{ financialAccountId: accountId, paymentMethod: "CASH", amount: total }] });
   assert.equal(closed.paymentStatus, "PAID");
   assert.equal((await prisma.restaurantOrder.findUniqueOrThrow({ where: { id: opened.id } })).status, "CLOSED");
@@ -174,7 +174,7 @@ test("comanda aperta da Sala senza cliente è chiudibile a scontrino, non a fatt
   assert.equal(walkIn.isCustomer, true);
   const stored = await prisma.restaurantOrder.findUniqueOrThrow({ where: { id: opened.id } });
   assert.equal(stored.partnerId, walkIn.id, "il cliente risolto va persistito sulla comanda");
-  const document = await prisma.businessDocument.findUniqueOrThrow({ where: { id: billed.documentId } });
+  const document = await prisma.businessDocument.findUniqueOrThrow({ where: { id: billed.documentId! } });
   assert.equal(document.partnerId, walkIn.id);
   const total = Number(document.total);
   const closed = await closeRestaurantOrderAtomic(companyId, locationId, userId, opened.id, randomUUID(), { seriesId, invoice: false, payments: [{ financialAccountId: accountId, paymentMethod: "CASH", amount: total }] });
@@ -203,7 +203,7 @@ test("il cliente è assegnabile a comanda aperta e congelato dopo l'emissione de
   await advanceKitchenLine(companyId, locationId, userId, line.id, "READY");
   await advanceKitchenLine(companyId, locationId, userId, line.id, "SERVED");
   const billed = await closeRestaurantOrderAtomic(companyId, locationId, userId, opened.id, randomUUID(), { seriesId: invoiceSeriesId, invoice: true, payments: [] });
-  const document = await prisma.businessDocument.findUniqueOrThrow({ where: { id: billed.documentId } });
+  const document = await prisma.businessDocument.findUniqueOrThrow({ where: { id: billed.documentId! } });
   assert.equal(document.partnerId, partnerId);
   assert.equal(document.documentType, "SALES_INVOICE");
   // Emesso il conto, il cliente è congelato.
@@ -397,4 +397,66 @@ test("apertura comanda: decide lo stato reale, non la colonna legacy", async () 
   await prisma.restaurantReservationTable.deleteMany({ where: { reservationId: resv.id } });
   await prisma.restaurantReservation.delete({ where: { id: resv.id } });
   await prisma.restaurantTable.updateMany({ where: { id: comboTableA }, data: { physicalStatus: "READY", status: "AVAILABLE" } });
+});
+
+test("incassato in cassa: chiude senza documento e libera subito il tavolo", async () => {
+  const table = () => prisma.restaurantTable.findUniqueOrThrow({ where: { id: comboTableB } });
+  await prisma.restaurantTable.updateMany({ where: { id: comboTableB }, data: { physicalStatus: "READY", status: "AVAILABLE" } });
+  const docsBefore = await prisma.businessDocument.count({ where: { companyId } });
+  const movesBefore = await prisma.financialMovement.count({ where: { companyId } });
+  const opened = await openFloorTable(actor(), comboTableB, 2);
+  const sent = await addFloorOrderItem(actor(), opened.id, itemId);
+  await dispatchFloorOrder(actor(), opened.id, `settle-${suffix}`);
+  const neverSent = await addFloorOrderItem(actor(), opened.id, secondItemId);
+  assert.equal((await prisma.restaurantOrderLine.findUniqueOrThrow({ where: { id: neverSent.id } })).status, "NEW");
+  assert.equal((await table()).status, "OCCUPIED");
+  assert.ok(await prisma.kitchenTicket.count({ where: { orderId: opened.id, status: { notIn: ["COMPLETED", "CANCELLED"] } } }) > 0, "l'invio deve aver creato un ticket aperto");
+
+  await settleFloorOrder(actor(), opened.id);
+
+  const order = await prisma.restaurantOrder.findUniqueOrThrow({ where: { id: opened.id } });
+  assert.equal(order.status, "CLOSED");
+  assert.equal(order.documentId, null, "nessun documento emesso");
+  assert.ok(order.closedAt, "closedAt valorizzato");
+  // Nulla di documentale o finanziario viene creato dalla chiusura da cassa.
+  assert.equal(await prisma.businessDocument.count({ where: { companyId } }), docsBefore);
+  assert.equal(await prisma.financialMovement.count({ where: { companyId } }), movesBefore);
+  // Righe: anche quella mai inviata risulta servita, per scelta.
+  const lines = await prisma.restaurantOrderLine.findMany({ where: { orderId: opened.id } });
+  assert.deepEqual(new Set(lines.map((l) => l.status)), new Set(["SERVED"]));
+  assert.ok(lines.find((l) => l.id === neverSent.id)?.servedAt, "anche la riga NEW ha servedAt");
+  assert.ok(lines.find((l) => l.id === sent.id)?.servedAt);
+  // Nessun ticket fantasma nel Kitchen Display.
+  assert.equal(await prisma.kitchenTicket.count({ where: { orderId: opened.id, status: { notIn: ["COMPLETED", "CANCELLED"] } } }), 0);
+  assert.equal(await prisma.kitchenTicketLine.count({ where: { ticket: { orderId: opened.id }, status: { not: "CANCELLED" } } }), 0);
+  // Il tavolo torna libero in un solo gesto: niente DA RIASSETTARE.
+  assert.equal((await table()).physicalStatus, "READY", "non passa per DIRTY");
+  const floor = await getOperationalRestaurantFloor(companyId, locationId);
+  assert.equal(floor.areas.flatMap((a) => a.tables).find((t) => t.id === comboTableB)?.status, "AVAILABLE");
+  // Ed e' immediatamente riapribile, senza rilascio esplicito.
+  const reopened = await openFloorTable(actor(), comboTableB, 2);
+  assert.notEqual(reopened.id, opened.id);
+  await prisma.restaurantOrder.update({ where: { id: reopened.id }, data: { status: "CANCELLED" } });
+  await prisma.restaurantTable.updateMany({ where: { id: comboTableB }, data: { status: "AVAILABLE" } });
+});
+
+test("incassato in cassa: rifiutata su comanda inesistente, gia chiusa o gia fatturata", async () => {
+  await assert.rejects(settleFloorOrder(actor(), randomUUID()), /Comanda non valida/);
+  await prisma.restaurantTable.updateMany({ where: { id: comboTableA }, data: { physicalStatus: "READY", status: "AVAILABLE" } });
+  const opened = await openFloorTable(actor(), comboTableA, 2);
+  await addFloorOrderItem(actor(), opened.id, itemId);
+  await settleFloorOrder(actor(), opened.id);
+  await assert.rejects(settleFloorOrder(actor(), opened.id), /Comanda non valida/, "una comanda chiusa non si richiude");
+
+  // Comanda con conto gia emesso: deve rimandare alla chiusura documentale.
+  const holder = await prisma.restaurantOrder.findFirstOrThrow({ where: { companyId, documentId: { not: null } }, select: { id: true, documentId: true } });
+  await prisma.restaurantTable.updateMany({ where: { id: comboTableA }, data: { status: "AVAILABLE" } });
+  const billed = await openFloorTable(actor(), comboTableA, 2);
+  await prisma.restaurantOrder.update({ where: { id: holder.id }, data: { documentId: null } });
+  await prisma.restaurantOrder.update({ where: { id: billed.id }, data: { documentId: holder.documentId } });
+  await assert.rejects(settleFloorOrder(actor(), billed.id), /conto emesso/);
+  // ripristino dell'associazione originale
+  await prisma.restaurantOrder.update({ where: { id: billed.id }, data: { documentId: null, status: "CANCELLED" } });
+  await prisma.restaurantOrder.update({ where: { id: holder.id }, data: { documentId: holder.documentId } });
+  await prisma.restaurantTable.updateMany({ where: { id: comboTableA }, data: { status: "AVAILABLE" } });
 });

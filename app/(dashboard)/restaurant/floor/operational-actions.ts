@@ -10,6 +10,7 @@ import {
   dispatchFloorOrder,
   openFloorTable,
   releaseFloorTable,
+  settleFloorOrder,
   searchFloorPartners,
   retrySafeFloorJob,
   updateFloorGuestCount,
@@ -79,6 +80,13 @@ export async function assignFloorPartnerAction(
   return run(
     (actor) => assignFloorOrderPartner(actor, orderId, partnerId),
     "Cliente assegnato",
+  );
+}
+
+export async function settleFloorOrderAction(orderId: string) {
+  return run(
+    (actor) => settleFloorOrder(actor, orderId),
+    "Comanda chiusa, tavolo libero",
   );
 }
 

@@ -137,13 +137,13 @@ test("Restaurant close: parziale, multiplo, replay e rollback Treasury", async (
   const order = await createServedOrder();
   const partial = await closeRestaurantOrderAtomic(fixture.company.id, fixture.location.id, fixture.user.id, order.id, randomUUID(), { seriesId: fixture.series.id, invoice: false, payments: [{ financialAccountId: fixture.account.id, paymentMethod: "CASH", amount: 5 }] });
   assert.equal(partial.paymentStatus, "PARTIALLY_PAID");
-  const document = await prisma.businessDocument.findUniqueOrThrow({ where: { id: partial.documentId } });
+  const document = await prisma.businessDocument.findUniqueOrThrow({ where: { id: partial.documentId! } });
   const residual = Number(document.total) - 5;
   const key = randomUUID();
   const closed = await closeRestaurantOrderAtomic(fixture.company.id, fixture.location.id, fixture.user.id, order.id, key, { seriesId: fixture.series.id, invoice: false, payments: [{ financialAccountId: fixture.account.id, paymentMethod: "CARD", amount: 3 }, { financialAccountId: fixture.account.id, paymentMethod: "CASH", amount: residual - 3 }] });
   assert.equal(closed.paymentStatus, "PAID");
   assert.deepEqual(await closeRestaurantOrderAtomic(fixture.company.id, fixture.location.id, fixture.user.id, order.id, key, { seriesId: fixture.series.id, invoice: false, payments: [] }), closed);
-  assert.equal(await prisma.businessDocument.count({ where: { id: closed.documentId } }), 1);
+  assert.equal(await prisma.businessDocument.count({ where: { id: closed.documentId! } }), 1);
   assert.equal(await prisma.financialMovement.count({ where: { companyId: fixture.company.id, documentId: closed.documentId, movementType: "CUSTOMER_RECEIPT" } }), 3);
 
   const failed = await createServedOrder();
