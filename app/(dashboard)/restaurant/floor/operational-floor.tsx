@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { buildSettleConfirmation } from "@/lib/restaurant-floor-settle-copy";
 import {
   addFloorItemAction,
   assignFloorPartnerAction,
@@ -118,6 +119,7 @@ export function OperationalFloor({
   const [partnerPickerOpen, setPartnerPickerOpen] = useState(false),
     [partnerQuery, setPartnerQuery] = useState(""),
     [partnerResults, setPartnerResults] = useState<FloorPartnerOption[]>([]);
+  const [settleConfirmId, setSettleConfirmId] = useState<string | null>(null);
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null),
     [openingTableId, setOpeningTableId] = useState<string | null>(null),
     [guestCount, setGuestCount] = useState(2),
@@ -131,6 +133,17 @@ export function OperationalFloor({
   const [selectedAreaId, setSelectedAreaId] = useState(data.areas[0]?.id ?? "");
   const dispatchKeys = useRef(new Map<string, string>());
   const order = data.orders.find((row) => row.id === selectedOrderId) ?? null;
+  const settleConfirming = order !== null && settleConfirmId === order.id;
+  const settleCopy = order
+    ? buildSettleConfirmation({
+        tableNames: data.areas
+          .flatMap((area) => area.tables)
+          .filter((table) => order.tableIds.includes(table.id))
+          .map((table) => table.code),
+        lineCount: order.lines.length,
+        unsentCount: order.unsentCount,
+      })
+    : null;
   const selectedArea =
     data.areas.find(({ id }) => id === selectedAreaId) ?? data.areas[0];
   const hasVisibleTables = data.areas.some((area) => area.tables.length > 0);
@@ -193,7 +206,10 @@ export function OperationalFloor({
   const release = (tableId: string) =>
     execute(() => releaseFloorTableAction(tableId));
   const settle = (orderId: string) =>
-    execute(() => settleFloorOrderAction(orderId), () => setSelectedOrderId(null));
+    execute(() => settleFloorOrderAction(orderId), () => {
+      setSettleConfirmId(null);
+      setSelectedOrderId(null);
+    });
   const searchPartners = (value: string) => {
     setPartnerQuery(value);
     startTransition(async () =>
@@ -738,18 +754,64 @@ export function OperationalFloor({
                 >
                   {pending ? "INVIO…" : "INVIA IN CUCINA"}
                 </button>
-                <button
-                  disabled={pending}
-                  onClick={() => settle(order.id)}
-                  className="mt-2 min-h-14 w-full rounded-xl bg-emerald-700 px-4 font-black text-white disabled:bg-slate-300"
-                >
-                  {pending ? "CHIUSURA…" : "INCASSATO IN CASSA"}
-                </button>
-                <p className="mt-2 text-xs text-slate-500">
-                  Il conto si emette in cassa. “Incassato in cassa” chiude la
-                  comanda in Nexus e libera subito il tavolo, senza emettere
-                  alcun documento.
-                </p>
+                {settleConfirming && settleCopy ? (
+                  <section
+                    aria-label="Conferma chiusura comanda"
+                    className="mt-2 rounded-xl border-2 border-emerald-700 bg-emerald-50 p-4"
+                  >
+                    <h3 className="text-lg font-black text-emerald-900">
+                      {settleCopy.title}
+                    </h3>
+                    <ul className="mt-2 space-y-1 text-sm font-semibold text-emerald-900">
+                      {settleCopy.points.map((point) => (
+                        <li key={point}>• {point}</li>
+                      ))}
+                    </ul>
+                    <div className="mt-3 flex justify-between border-t border-emerald-200 pt-2 text-sm font-black text-emerald-900">
+                      <span>Totale comanda</span>
+                      <span>{money.format(order.total)}</span>
+                    </div>
+                    {settleCopy.warning && (
+                      <p className="mt-3 rounded-lg bg-amber-100 p-2 text-sm font-bold text-amber-900">
+                        ⚠ {settleCopy.warning}
+                      </p>
+                    )}
+                    {/* Annulla a sinistra e conferma a destra: il bersaglio non
+                        ricade dove stava "INCASSATO IN CASSA", così un doppio
+                        tocco non chiude il tavolo per inerzia. */}
+                    <div className="mt-4 grid grid-cols-2 gap-3">
+                      <button
+                        disabled={pending}
+                        onClick={() => setSettleConfirmId(null)}
+                        className="min-h-14 rounded-xl border-2 border-slate-400 px-4 font-black text-slate-700 disabled:opacity-50"
+                      >
+                        ANNULLA
+                      </button>
+                      <button
+                        disabled={pending}
+                        onClick={() => settle(order.id)}
+                        className="min-h-14 rounded-xl bg-emerald-700 px-4 font-black text-white disabled:bg-slate-300"
+                      >
+                        {pending ? "CHIUSURA…" : "SÌ, INCASSATO"}
+                      </button>
+                    </div>
+                  </section>
+                ) : (
+                  <>
+                    <button
+                      disabled={pending}
+                      onClick={() => setSettleConfirmId(order.id)}
+                      className="mt-2 min-h-14 w-full rounded-xl bg-emerald-700 px-4 font-black text-white disabled:bg-slate-300"
+                    >
+                      INCASSATO IN CASSA
+                    </button>
+                    <p className="mt-2 text-xs text-slate-500">
+                      Il conto si emette in cassa. “Incassato in cassa” chiude la
+                      comanda in Nexus e libera subito il tavolo, senza emettere
+                      alcun documento.
+                    </p>
+                  </>
+                )}
                 <p className="mt-2 text-xs text-slate-500">
                   Invia esclusivamente le righe contrassegnate “DA INVIARE”. Le
                   note e i modificatori locali restano nel ticket Nexus; i
