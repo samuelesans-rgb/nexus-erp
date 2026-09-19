@@ -9,6 +9,7 @@ import {
   createPairingToken,
   failConnectorJob,
   fetchConnectorJobs,
+  PRINT_JOB_MAX_AGE_MINUTES,
   heartbeatConnector,
   pairConnector,
   retryConnectorJob,
@@ -213,4 +214,34 @@ test("Kitchen Connector V1 integration and simulator lifecycle", async () => {
     audit.some((row) => row.action === "KITCHEN_CONNECTOR_CREDENTIAL_ROTATED"),
   );
   assert.ok(audit.some((row) => row.action === "KITCHEN_CONNECTOR_REVOKED"));
+});
+
+test("un job piu' vecchio della finestra non viene consegnato e diventa non consegnato", async () => {
+  const pairToken = await createPairingToken(
+    fixture.company.id,
+    fixture.location.id,
+    fixture.printer.id,
+    fixture.user.id,
+    5,
+  );
+  const paired = await pairConnector(pairToken.pairingToken, { name: `age-${randomUUID().slice(0, 6)}` });
+  const device = await authenticateConnector(paired.credential);
+  const fresh = await createConnectorTestPrint(fixture.company.id, fixture.location.id, fixture.printer.id, fixture.user.id);
+  const stale = await createConnectorTestPrint(fixture.company.id, fixture.location.id, fixture.printer.id, fixture.user.id);
+  await prisma.kitchenPrintJob.update({
+    where: { id: stale.id },
+    data: { createdAt: new Date(Date.now() - (PRINT_JOB_MAX_AGE_MINUTES + 1) * 60_000) },
+  });
+
+  const offered = await fetchConnectorJobs(device);
+  assert.equal(offered.some((row) => row.id === fresh.id), true, "un job recente resta consegnabile");
+  assert.equal(offered.some((row) => row.id === stale.id), false, "un job scaduto non viene piu' offerto");
+
+  // Non marcisce in silenzio: diventa non consegnato, con una ragione leggibile.
+  const after = await prisma.kitchenPrintJob.findUniqueOrThrow({ where: { id: stale.id } });
+  assert.equal(after.status, "FAILED");
+  assert.match(after.lastError ?? "", /scaduto/i);
+  await assert.rejects(claimConnectorJob(device, stale.id), /non disponibile/i);
+
+  await revokeConnector(fixture.company.id, fixture.location.id, device.id, fixture.user.id);
 });

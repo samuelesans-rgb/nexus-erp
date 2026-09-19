@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import { prisma } from "../../lib/prisma";
+import { claimConnectorJob, fetchConnectorJobs } from "../../lib/kitchen-connector";
 import { addFloorOrderItem, settleFloorOrder, deleteUnsentFloorLine, dispatchFloorOrder, getOperationalRestaurantFloor, openFloorTable, releaseFloorTable, retrySafeFloorJob, updateFloorGuestCount, updateUnsentFloorLine } from "../../lib/restaurant-floor-operations";
 import { assignOrderPartner, closeRestaurantOrderAtomic, openOrder } from "../../lib/restaurant-orders";
 import { dissolveTableCombination, saveTableCombination } from "../../lib/restaurant-floor";
@@ -458,5 +459,60 @@ test("incassato in cassa: rifiutata su comanda inesistente, gia chiusa o gia fat
   // ripristino dell'associazione originale
   await prisma.restaurantOrder.update({ where: { id: billed.id }, data: { documentId: null, status: "CANCELLED" } });
   await prisma.restaurantOrder.update({ where: { id: holder.id }, data: { documentId: holder.documentId } });
+  await prisma.restaurantTable.updateMany({ where: { id: comboTableA }, data: { status: "AVAILABLE" } });
+});
+
+test("incassato in cassa: annulla le comande ancora in coda verso il POS", async () => {
+  await prisma.restaurantTable.updateMany({ where: { id: comboTableB }, data: { physicalStatus: "READY", status: "AVAILABLE" } });
+  const opened = await openFloorTable(actor(), comboTableB, 2);
+  await addFloorOrderItem(actor(), opened.id, itemId);
+  await dispatchFloorOrder(actor(), opened.id, `queued-${suffix}`);
+  const queued = await prisma.kitchenPrintJob.findMany({ where: { companyId, ticket: { orderId: opened.id } } });
+  assert.ok(queued.length, "l'invio deve aver accodato almeno un job di stampa");
+  assert.deepEqual(new Set(queued.map((j) => j.status)), new Set(["PENDING"]));
+
+  // Un secondo job gia' in consegna: il connector tiene il lease e puo' avere
+  // gia' scritto sul socket, quindi non va toccato.
+  const inFlight = await prisma.kitchenPrintJob.create({
+    data: { ...({ companyId, locationId, stationId: queued[0].stationId, ticketId: queued[0].ticketId, printerId: queued[0].printerId, payload: queued[0].payload, payloadHash: queued[0].payloadHash, requestedById: queued[0].requestedById, idempotencyKey: `${companyId}:inflight:${suffix}`, status: "PROCESSING" }) },
+  });
+
+  await settleFloorOrder(actor(), opened.id);
+
+  const after = await prisma.kitchenPrintJob.findMany({ where: { companyId, ticket: { orderId: opened.id } } });
+  for (const job of after.filter((j) => j.id !== inFlight.id)) {
+    assert.equal(job.status, "CANCELLED", "nessun job resta consegnabile dopo la chiusura");
+    assert.match(job.lastError ?? "", /incassata in cassa/i);
+  }
+  assert.equal(
+    (await prisma.kitchenPrintJob.findUniqueOrThrow({ where: { id: inFlight.id } })).status,
+    "PROCESSING",
+    "un job gia' in consegna non viene annullato: il frame puo' essere gia' partito",
+  );
+  await prisma.kitchenPrintJob.deleteMany({ where: { id: inFlight.id } });
+  await prisma.restaurantTable.updateMany({ where: { id: comboTableB }, data: { status: "AVAILABLE" } });
+});
+test("un job la cui comanda e' stata annullata non viene piu' consegnato", async () => {
+  await prisma.restaurantTable.updateMany({ where: { id: comboTableA }, data: { physicalStatus: "READY", status: "AVAILABLE" } });
+  const opened = await openFloorTable(actor(), comboTableA, 2);
+  await addFloorOrderItem(actor(), opened.id, itemId);
+  await dispatchFloorOrder(actor(), opened.id, `guard-${suffix}`);
+  const job = await prisma.kitchenPrintJob.findFirstOrThrow({ where: { companyId, ticket: { orderId: opened.id }, status: "PENDING" } });
+  const device = await prisma.kitchenConnectorDevice.create({
+    data: { companyId, locationId, printerId: job.printerId, name: `guard-${suffix}`, credentialHash: `hash-${suffix}`, credentialPrefix: "gu", leaseSeconds: 60 },
+  });
+  const poll = { id: device.id, companyId, locationId, printerId: job.printerId, leaseSeconds: 60 };
+  assert.ok((await fetchConnectorJobs(poll)).some((row) => row.id === job.id), "finche' il ticket e' vivo il job e' consegnabile");
+
+  // Il ticket viene annullato dopo l'accodamento: e' cio' che fa la chiusura da
+  // cassa, ed e' cio' che faceva finire una comanda vecchia sul POS.
+  await prisma.kitchenTicket.updateMany({ where: { companyId, orderId: opened.id }, data: { status: "CANCELLED" } });
+
+  assert.equal((await fetchConnectorJobs(poll)).some((row) => row.id === job.id), false, "il connector non deve piu' vederlo");
+  await assert.rejects(claimConnectorJob(poll, job.id), /non disponibile/i, "e non deve poterlo acquisire nemmeno con una lista stantia");
+  assert.equal((await prisma.kitchenPrintJob.findUniqueOrThrow({ where: { id: job.id } })).status, "PENDING", "il job resta invariato: la guardia non lo consuma");
+
+  await prisma.kitchenConnectorDevice.deleteMany({ where: { id: device.id } });
+  await prisma.restaurantOrder.update({ where: { id: opened.id }, data: { status: "CANCELLED" } });
   await prisma.restaurantTable.updateMany({ where: { id: comboTableA }, data: { status: "AVAILABLE" } });
 });

@@ -209,6 +209,17 @@ export async function heartbeatConnector(
   });
 }
 
+/**
+ * How long a queued job stays deliverable.
+ *
+ * Normal latency from creation to printed is a handful of seconds. The window
+ * has to be wide enough that a connector restart during service still delivers
+ * the comande queued meanwhile — the guests are still seated and still waiting
+ * for that food — and narrow enough that a connector stopped overnight never
+ * resurfaces yesterday's orders on today's tables.
+ */
+export const PRINT_JOB_MAX_AGE_MINUTES = 120;
+
 export async function fetchConnectorJobs(
   device: {
     id: string;
@@ -232,12 +243,34 @@ export async function fetchConnectorJobs(
       leaseExpiresAt: null,
     },
   });
+  // A job older than the window is not silently dropped: it is failed with a
+  // legible reason, so it shows up as non consegnata and an operator can decide
+  // to send it again, instead of rotting as PENDING and surfacing hours later.
+  await prisma.kitchenPrintJob.updateMany({
+    where: {
+      companyId: device.companyId,
+      locationId: device.locationId,
+      printerId: device.printerId,
+      status: "PENDING",
+      createdAt: {
+        lt: new Date(Date.now() - PRINT_JOB_MAX_AGE_MINUTES * 60_000),
+      },
+    },
+    data: {
+      status: "FAILED",
+      lastError: `Job scaduto: non consegnato al POS entro ${PRINT_JOB_MAX_AGE_MINUTES} minuti.`,
+    },
+  });
   return prisma.kitchenPrintJob.findMany({
     where: {
       companyId: device.companyId,
       locationId: device.locationId,
       printerId: device.printerId,
       status: "PENDING",
+      // The ticket may have been cancelled after the job was queued, by an
+      // order settled at the POS or cancelled outright. Delivering it now would
+      // put an already-closed table back on the POS.
+      NOT: { ticket: { status: "CANCELLED" } },
     },
     orderBy: { createdAt: "asc" },
     take: Math.min(Math.max(take, 1), 50),
@@ -296,6 +329,12 @@ export async function claimConnectorJob(
         locationId: device.locationId,
         printerId: device.printerId,
         status: "PENDING",
+        // Same two guards as the listing: a connector holding a stale list must
+        // not be able to claim a job the listing would no longer hand out.
+        createdAt: {
+          gte: new Date(Date.now() - PRINT_JOB_MAX_AGE_MINUTES * 60_000),
+        },
+        NOT: { ticket: { status: "CANCELLED" } },
       },
       data: {
         status: "PROCESSING",

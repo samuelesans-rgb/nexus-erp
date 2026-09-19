@@ -382,6 +382,25 @@ export async function settleFloorOrder(actor: Actor, orderId: string) {
       },
       data: { status: "CANCELLED" },
     });
+    // Cancelling the ticket is not enough: the print job is a separate row and
+    // the connector claims it without ever looking at the ticket. A job left
+    // queued here is delivered whenever the connector comes back — an ORDER
+    // frame for a table that is already closed, which the POS reads as a new
+    // comanda and loads back onto the table. PROCESSING is deliberately left
+    // alone: the connector holds the lease and may already have written to the
+    // socket, so cancelling it in Nexus would only record a lie.
+    const jobs = await tx.kitchenPrintJob.updateMany({
+      where: {
+        companyId: actor.companyId,
+        locationId: actor.locationId,
+        ticket: { orderId: order.id },
+        status: { in: ["PENDING", "BLOCKED"] },
+      },
+      data: {
+        status: "CANCELLED",
+        lastError: "Comanda incassata in cassa prima della consegna al POS.",
+      },
+    });
     const closed = await tx.restaurantOrder.updateMany({
       where: {
         id: order.id,
@@ -416,6 +435,7 @@ export async function settleFloorOrder(actor: Actor, orderId: string) {
         tableIds,
         linesForcedToServed: served.count,
         kitchenTicketsCancelled: tickets.count,
+        printJobsCancelled: jobs.count,
       },
     });
     await emitRestaurantEventTx(
