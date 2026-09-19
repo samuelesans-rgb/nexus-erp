@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { sendOrderToKitchen } from "@/lib/restaurant-kitchen";
 import { restaurantMenuEligibleItemWhere } from "@/lib/restaurant-menu-eligibility";
 import { menuExclusionReason } from "@/lib/restaurant-menu-manager";
+import { getKitchenChannelHealth } from "@/lib/kitchen-connector";
 import { emitRestaurantEventTx, RestaurantDomainError } from "@/lib/restaurant";
 import {
   deriveTableStatusFromRow,
@@ -247,6 +248,7 @@ export async function getOperationalRestaurantFloor(
     })),
     orders: shapedOrders,
     menu: { id: menu?.id ?? null, sections },
+    connector: await getKitchenChannelHealth(companyId, locationId),
   };
 }
 

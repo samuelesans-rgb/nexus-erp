@@ -220,6 +220,14 @@ export async function heartbeatConnector(
  */
 export const PRINT_JOB_MAX_AGE_MINUTES = 120;
 
+/**
+ * How long without a heartbeat before a connector counts as gone.
+ *
+ * The connector beats often, so two minutes is well past any network hiccup
+ * and still fast enough that a waiter learns about it within one order.
+ */
+export const CONNECTOR_STALE_AFTER_MS = 120_000;
+
 export async function fetchConnectorJobs(
   device: {
     id: string;
@@ -759,7 +767,51 @@ export async function getConnectorDashboard(
       ...d,
       online:
         !!d.lastHeartbeatAt &&
-        Date.now() - d.lastHeartbeatAt.getTime() < 120_000,
+        Date.now() - d.lastHeartbeatAt.getTime() < CONNECTOR_STALE_AFTER_MS,
     })),
+  };
+}
+
+/**
+ * Whether the kitchen channel for a location has anybody able to deliver.
+ *
+ * The question is deliberately "is any connector alive", not "is every
+ * registered connector alive". A location accumulates devices — a replaced
+ * phone, a spare — and they are never revoked as a matter of course. Frisà runs
+ * exactly that way: two active devices on the same printer, one of which has
+ * not beaten in weeks. Asking the second question would raise a permanent alarm
+ * that everyone learns to ignore, which is worse than no alarm at all.
+ *
+ * `staleForMinutes` counts from the most recent heartbeat of any of them: it is
+ * how long the channel has been without anyone, not how old the oldest device
+ * is. Null means no device ever beat.
+ */
+export async function getKitchenChannelHealth(
+  companyId: string,
+  locationId: string,
+) {
+  const devices = await prisma.kitchenConnectorDevice.findMany({
+    where: {
+      companyId,
+      locationId,
+      active: true,
+      revokedAt: null,
+      printer: { enabled: true },
+    },
+    select: { lastHeartbeatAt: true },
+    orderBy: { lastHeartbeatAt: "desc" },
+  });
+  const now = Date.now(),
+    latest = devices.find((d) => d.lastHeartbeatAt)?.lastHeartbeatAt ?? null,
+    alive = latest !== null && now - latest.getTime() < CONNECTOR_STALE_AFTER_MS;
+  return {
+    // No device at all is not an outage: the location simply has no connector
+    // configured, and a dining room alarm would be noise.
+    stale: devices.length > 0 && !alive,
+    lastHeartbeatAt: latest,
+    staleForMinutes: latest
+      ? Math.floor((now - latest.getTime()) / 60000)
+      : null,
+    maxAgeMinutes: PRINT_JOB_MAX_AGE_MINUTES,
   };
 }

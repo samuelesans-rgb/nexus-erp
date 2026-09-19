@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import { prisma } from "../../lib/prisma";
-import { claimConnectorJob, fetchConnectorJobs } from "../../lib/kitchen-connector";
+import { claimConnectorJob, fetchConnectorJobs, getKitchenChannelHealth, PRINT_JOB_MAX_AGE_MINUTES } from "../../lib/kitchen-connector";
 import { addFloorOrderItem, settleFloorOrder, deleteUnsentFloorLine, dispatchFloorOrder, getOperationalRestaurantFloor, openFloorTable, releaseFloorTable, retrySafeFloorJob, updateFloorGuestCount, updateUnsentFloorLine } from "../../lib/restaurant-floor-operations";
 import { assignOrderPartner, closeRestaurantOrderAtomic, openOrder } from "../../lib/restaurant-orders";
 import { dissolveTableCombination, saveTableCombination } from "../../lib/restaurant-floor";
@@ -515,4 +515,39 @@ test("un job la cui comanda e' stata annullata non viene piu' consegnato", async
   await prisma.kitchenConnectorDevice.deleteMany({ where: { id: device.id } });
   await prisma.restaurantOrder.update({ where: { id: opened.id }, data: { status: "CANCELLED" } });
   await prisma.restaurantTable.updateMany({ where: { id: comboTableA }, data: { status: "AVAILABLE" } });
+});
+
+test("cucina collegata: basta un connector vivo, non servono tutti", async () => {
+  const printer = await prisma.restaurantPrinter.findFirstOrThrow({ where: { companyId } });
+  const mk = async (name: string, heartbeat: Date | null, extra: Record<string, unknown> = {}) =>
+    prisma.kitchenConnectorDevice.create({
+      data: { companyId, locationId, printerId: printer.id, name: `${name}-${suffix}`, credentialHash: `h-${name}-${suffix}`, credentialPrefix: name.slice(0, 2), lastHeartbeatAt: heartbeat, ...extra },
+    });
+  const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000);
+
+  // Nessun connector configurato non e' un guasto: sarebbe rumore in sala.
+  assert.equal((await getKitchenChannelHealth(companyId, locationId)).stale, false);
+
+  const stale = await mk("vecchio", minutesAgo(60 * 24 * 18));
+  const health = await getKitchenChannelHealth(companyId, locationId);
+  assert.equal(health.stale, true, "un solo device, fermo da 18 giorni: canale giu'");
+  assert.equal(health.staleForMinutes, 60 * 24 * 18);
+
+  // La situazione reale di Frisa: un device sostituito e mai revocato accanto a
+  // quello vivo. Il canale e' sano, e il banner non deve accendersi.
+  const alive = await mk("realme", minutesAgo(0));
+  const withBoth = await getKitchenChannelHealth(companyId, locationId);
+  assert.equal(withBoth.stale, false, "il device stantio non deve falsare il vivo");
+  assert.equal(withBoth.staleForMinutes, 0, "si conta dall'ultimo battito, non dal piu' vecchio");
+
+  // Un device revocato o disattivato non tiene in piedi il canale da solo.
+  await prisma.kitchenConnectorDevice.update({ where: { id: alive.id }, data: { active: false, revokedAt: new Date() } });
+  assert.equal((await getKitchenChannelHealth(companyId, locationId)).stale, true, "revocato non conta come vivo");
+
+  // E la Sala espone il verdetto, non lo ricalcola per conto suo.
+  const floor = await getOperationalRestaurantFloor(companyId, locationId);
+  assert.equal(floor.connector.stale, true);
+  assert.equal(floor.connector.maxAgeMinutes, PRINT_JOB_MAX_AGE_MINUTES);
+
+  await prisma.kitchenConnectorDevice.deleteMany({ where: { id: { in: [stale.id, alive.id] } } });
 });

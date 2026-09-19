@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { buildSettleConfirmation } from "@/lib/restaurant-floor-settle-copy";
+import { buildConnectorAlert } from "@/lib/restaurant-floor-connector-copy";
 import {
   addFloorItemAction,
   assignFloorPartnerAction,
@@ -92,6 +93,11 @@ type Props = {
       }>;
     }>;
     orders: Order[];
+    connector: {
+      stale: boolean;
+      staleForMinutes: number | null;
+      maxAgeMinutes: number;
+    };
     menu: {
       id: string | null;
       sections: Array<{ id: string; name: string; products: Product[] }>;
@@ -254,6 +260,10 @@ export function OperationalFloor({
       },
     );
   };
+  const connectorAlert = buildConnectorAlert({
+    staleForMinutes: data.connector.staleForMinutes,
+    maxAgeMinutes: data.connector.maxAgeMinutes,
+  });
   const dispatch = () => {
     if (!order) return;
     const key = dispatchKeys.current.get(order.id) ?? crypto.randomUUID();
@@ -276,6 +286,30 @@ export function OperationalFloor({
           Tavoli e comande operative · nessuna funzione di pagamento
         </p>
       </header>
+      {data.connector.stale && (
+        // Sempre visibile e non chiudibile: un avviso che il cameriere zittisce
+        // alle 20:00 non lo protegge alle 21:00.
+        <section
+          role="alert"
+          className="rounded-2xl border-4 border-red-600 bg-red-50 p-4"
+        >
+          <h2 className="text-xl font-black text-red-800">
+            ⚠ {connectorAlert.title}
+          </h2>
+          {connectorAlert.lines.map((line, index) => (
+            <p
+              className={
+                index === 0
+                  ? "mt-1 text-base font-black text-red-900"
+                  : "mt-1 text-sm font-semibold text-red-900"
+              }
+              key={line}
+            >
+              {line}
+            </p>
+          ))}
+        </section>
+      )}
       {feedback && (
         <p
           role="status"
