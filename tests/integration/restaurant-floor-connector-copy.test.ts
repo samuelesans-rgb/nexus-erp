@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   buildConnectorAlert,
+  buildOfflineDispatchConfirmation,
   formatDowntime,
 } from "@/lib/restaurant-floor-connector-copy";
 
@@ -59,4 +60,20 @@ test("la durata usa l'unita' leggibile e accorda il singolare", () => {
   assert.equal(formatDowntime(120), "2 ore");
   assert.equal(formatDowntime(1440), "1 giorno");
   assert.equal(formatDowntime(60 * 24 * 18), "18 giorni");
+});
+
+test("conferma d'invio a canale fermo: conseguenza e azione, non allarme e basta", () => {
+  const c = buildOfflineDispatchConfirmation({ maxAgeMinutes: 120 });
+  assert.equal(c.title, "CUCINA NON COLLEGATA");
+  assert.equal(c.lines[0], "La comanda NON esce in cucina adesso.");
+  assert.match(c.lines[1], /Resta in coda ed esce al ripristino\. Oltre 2 ore, da rimandare a mano\./);
+  // L'istruzione e' separata perche' e' l'unica cosa che il cameriere puo' fare
+  // adesso perche' i piatti si facciano davvero.
+  assert.equal(c.instruction, "Avvisa la cucina a voce.");
+  assert.equal(c.confirmLabel, "INVIA LO STESSO");
+  assert.equal(c.cancelLabel, "ANNULLA");
+});
+
+test("anche qui la finestra segue la costante", () => {
+  assert.match(buildOfflineDispatchConfirmation({ maxAgeMinutes: 45 }).lines[1], /Oltre 45 minuti/);
 });

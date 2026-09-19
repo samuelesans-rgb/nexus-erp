@@ -789,13 +789,37 @@ export async function updateFloorGuestCount(
   });
 }
 
+/**
+ * Il canale verso il POS e' fermo e nessuno ne ha ancora preso atto.
+ * Non e' un errore dell'operazione: l'invio e' legittimo e mettera' la comanda
+ * in coda. Serve solo che qualcuno confermi di saperlo.
+ */
+export class KitchenChannelOfflineError extends RestaurantDomainError {}
+
 export async function dispatchFloorOrder(
   actor: Actor,
   orderId: string,
   idempotencyKey: string,
+  options?: { offlineAcknowledged?: boolean },
 ) {
   if (!idempotencyKey || idempotencyKey.length > 200)
     throw new RestaurantDomainError("Chiave invio non valida.");
+  // Il client previene con i dati del suo ultimo refresh, ma la verita' al
+  // momento della scrittura ce l'ha solo qui: il connector puo' cadere fra il
+  // caricamento della pagina e il gesto, e il refresh si sospende mentre un
+  // modale e' aperto. Il controllo sta prima dell'operazione idempotente, cosi'
+  // il rifiuto non consuma la chiave e il secondo tentativo con la stessa
+  // chiave non duplica nulla.
+  if (!options?.offlineAcknowledged) {
+    const channel = await getKitchenChannelHealth(
+      actor.companyId,
+      actor.locationId,
+    );
+    if (channel.stale)
+      throw new KitchenChannelOfflineError(
+        "Cucina non collegata: la comanda resterebbe in coda.",
+      );
+  }
   return sendOrderToKitchen(
     actor.companyId,
     actor.locationId,

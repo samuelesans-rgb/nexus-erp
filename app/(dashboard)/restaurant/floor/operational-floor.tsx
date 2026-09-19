@@ -4,7 +4,10 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { buildSettleConfirmation } from "@/lib/restaurant-floor-settle-copy";
-import { buildConnectorAlert } from "@/lib/restaurant-floor-connector-copy";
+import {
+  buildConnectorAlert,
+  buildOfflineDispatchConfirmation,
+} from "@/lib/restaurant-floor-connector-copy";
 import {
   DELIVERY_HINTS,
   DELIVERY_LABELS,
@@ -130,6 +133,9 @@ export function OperationalFloor({
     [partnerQuery, setPartnerQuery] = useState(""),
     [partnerResults, setPartnerResults] = useState<FloorPartnerOption[]>([]);
   const [settleConfirmId, setSettleConfirmId] = useState<string | null>(null);
+  const [dispatchConfirmId, setDispatchConfirmId] = useState<string | null>(
+    null,
+  );
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null),
     [openingTableId, setOpeningTableId] = useState<string | null>(null),
     [guestCount, setGuestCount] = useState(2),
@@ -195,6 +201,7 @@ export function OperationalFloor({
   const execute = (
     action: () => Promise<FloorActionResult>,
     onSuccess?: (result: FloorActionResult) => void,
+    onFailure?: (result: FloorActionResult) => void,
   ) =>
     startTransition(async () => {
       setFeedback(null);
@@ -203,7 +210,7 @@ export function OperationalFloor({
       if (result.ok) {
         onSuccess?.(result);
         router.refresh();
-      }
+      } else onFailure?.(result);
     });
   const open = (tableId: string) =>
     execute(
@@ -268,14 +275,30 @@ export function OperationalFloor({
     staleForMinutes: data.connector.staleForMinutes,
     maxAgeMinutes: data.connector.maxAgeMinutes,
   });
-  const dispatch = () => {
+  const dispatchConfirming = order !== null && dispatchConfirmId === order.id;
+  const offlineDispatch = buildOfflineDispatchConfirmation({
+    maxAgeMinutes: data.connector.maxAgeMinutes,
+  });
+  const dispatch = (offlineAcknowledged = false) => {
     if (!order) return;
+    // Prevenzione lato client: evita un rifiuto quando lo sappiamo gia'.
+    if (data.connector.stale && !offlineAcknowledged) {
+      setDispatchConfirmId(order.id);
+      return;
+    }
+    // La chiave sopravvive al rifiuto, quindi il secondo tentativo dopo la
+    // presa d'atto e' lo stesso invio, non uno nuovo.
     const key = dispatchKeys.current.get(order.id) ?? crypto.randomUUID();
     dispatchKeys.current.set(order.id, key);
     execute(
-      () => dispatchFloorOrderAction(order.id, key),
+      () => dispatchFloorOrderAction(order.id, key, offlineAcknowledged),
+      () => {
+        dispatchKeys.current.delete(order.id);
+        setDispatchConfirmId(null);
+      },
+      // Il canale e' caduto fra il caricamento e il gesto: chiedi adesso.
       (result) => {
-        if (result.ok) dispatchKeys.current.delete(order.id);
+        if (result.needsOfflineAck) setDispatchConfirmId(order.id);
       },
     );
   };
@@ -788,13 +811,51 @@ export function OperationalFloor({
                   <span>Totale</span>
                   <span>{money.format(order.total)}</span>
                 </div>
-                <button
-                  disabled={pending || order.unsentCount === 0}
-                  onClick={dispatch}
-                  className="mt-4 min-h-14 w-full rounded-xl bg-amber-600 px-4 font-black text-white disabled:bg-slate-300"
-                >
-                  {pending ? "INVIO…" : "INVIA IN CUCINA"}
-                </button>
+                {dispatchConfirming ? (
+                  <section
+                    aria-label="Conferma invio con cucina non collegata"
+                    className="mt-4 rounded-xl border-4 border-red-600 bg-red-50 p-4"
+                  >
+                    <h3 className="text-lg font-black text-red-800">
+                      ⚠ {offlineDispatch.title}
+                    </h3>
+                    {offlineDispatch.lines.map((line) => (
+                      <p
+                        className="mt-1 text-sm font-semibold text-red-900"
+                        key={line}
+                      >
+                        {line}
+                      </p>
+                    ))}
+                    <p className="mt-3 rounded-lg bg-red-200 p-2 text-base font-black text-red-900">
+                      → {offlineDispatch.instruction}
+                    </p>
+                    <div className="mt-4 grid grid-cols-2 gap-3">
+                      <button
+                        disabled={pending}
+                        onClick={() => setDispatchConfirmId(null)}
+                        className="min-h-14 rounded-xl border-2 border-slate-400 px-4 font-black text-slate-700 disabled:opacity-50"
+                      >
+                        {offlineDispatch.cancelLabel}
+                      </button>
+                      <button
+                        disabled={pending}
+                        onClick={() => dispatch(true)}
+                        className="min-h-14 rounded-xl bg-red-700 px-4 font-black text-white disabled:bg-slate-300"
+                      >
+                        {pending ? "INVIO…" : offlineDispatch.confirmLabel}
+                      </button>
+                    </div>
+                  </section>
+                ) : (
+                  <button
+                    disabled={pending || order.unsentCount === 0}
+                    onClick={() => dispatch()}
+                    className="mt-4 min-h-14 w-full rounded-xl bg-amber-600 px-4 font-black text-white disabled:bg-slate-300"
+                  >
+                    {pending ? "INVIO…" : "INVIA IN CUCINA"}
+                  </button>
+                )}
                 {settleConfirming && settleCopy ? (
                   <section
                     aria-label="Conferma chiusura comanda"

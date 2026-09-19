@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import { prisma } from "../../lib/prisma";
 import { claimConnectorJob, fetchConnectorJobs, getKitchenChannelHealth, PRINT_JOB_MAX_AGE_MINUTES } from "../../lib/kitchen-connector";
-import { addFloorOrderItem, settleFloorOrder, deleteUnsentFloorLine, dispatchFloorOrder, getOperationalRestaurantFloor, openFloorTable, releaseFloorTable, retrySafeFloorJob, updateFloorGuestCount, updateUnsentFloorLine } from "../../lib/restaurant-floor-operations";
+import { KitchenChannelOfflineError, addFloorOrderItem, settleFloorOrder, deleteUnsentFloorLine, dispatchFloorOrder, getOperationalRestaurantFloor, openFloorTable, releaseFloorTable, retrySafeFloorJob, updateFloorGuestCount, updateUnsentFloorLine } from "../../lib/restaurant-floor-operations";
 import { assignOrderPartner, closeRestaurantOrderAtomic, openOrder } from "../../lib/restaurant-orders";
 import { dissolveTableCombination, saveTableCombination } from "../../lib/restaurant-floor";
 import { FloorConfigError, getFloorConfiguration, getAreaCombinations, saveFloorArea, saveFloorLayout, saveFloorTable } from "../../lib/restaurant-floor-config";
@@ -593,4 +593,51 @@ test("stato riga: la Sala dice cosa il POS ha confermato, non cosa Nexus spera",
 
   await prisma.restaurantOrder.update({ where: { id: opened.id }, data: { status: "CANCELLED" } });
   await prisma.restaurantTable.updateMany({ where: { id: comboTableB }, data: { status: "AVAILABLE" } });
+});
+
+test("invio a canale fermo: rifiutato senza presa d'atto, accettato con, e senza duplicare", async () => {
+  const printer = await prisma.restaurantPrinter.findFirstOrThrow({ where: { companyId } });
+  await prisma.restaurantTable.updateMany({ where: { id: comboTableA }, data: { physicalStatus: "READY", status: "AVAILABLE" } });
+  const opened = await openFloorTable(actor(), comboTableA, 2);
+  await addFloorOrderItem(actor(), opened.id, itemId);
+  const key = `offline-${suffix}`;
+
+  // Canale fermo: un connector attivo che non batte da mezz'ora.
+  const device = await prisma.kitchenConnectorDevice.create({
+    data: { companyId, locationId, printerId: printer.id, name: `off-${suffix}`, credentialHash: `ho-${suffix}`, credentialPrefix: "of", lastHeartbeatAt: new Date(Date.now() - 30 * 60_000) },
+  });
+  assert.equal((await getKitchenChannelHealth(companyId, locationId)).stale, true);
+
+  await assert.rejects(
+    dispatchFloorOrder(actor(), opened.id, key),
+    (error: Error) => error instanceof KitchenChannelOfflineError,
+    "senza presa d'atto l'invio non passa",
+  );
+  // Il rifiuto non deve lasciare tracce: niente dispatch, niente ticket, niente
+  // job, e soprattutto la chiave resta spendibile.
+  assert.equal(await prisma.kitchenDispatch.count({ where: { companyId, orderId: opened.id } }), 0);
+  assert.equal(await prisma.kitchenTicket.count({ where: { companyId, orderId: opened.id } }), 0);
+
+  // Con la presa d'atto passa, e la comanda finisce in coda come deve.
+  const sent = await dispatchFloorOrder(actor(), opened.id, key, { offlineAcknowledged: true });
+  assert.ok(sent.id);
+  assert.equal(await prisma.kitchenDispatch.count({ where: { companyId, orderId: opened.id } }), 1);
+  const queued = await prisma.kitchenPrintJob.count({ where: { companyId, ticket: { orderId: opened.id }, status: "PENDING" } });
+  assert.ok(queued > 0, "la comanda resta in coda, pronta a uscire al ripristino");
+
+  // Stessa chiave dopo il rifiuto: e' lo stesso invio, non uno nuovo.
+  const again = await dispatchFloorOrder(actor(), opened.id, key, { offlineAcknowledged: true });
+  assert.equal(again.id, sent.id, "idempotenza preservata attraverso il rifiuto");
+  assert.equal(await prisma.kitchenDispatch.count({ where: { companyId, orderId: opened.id } }), 1);
+
+  // Canale sano: nessuna presa d'atto richiesta.
+  await prisma.kitchenConnectorDevice.update({ where: { id: device.id }, data: { lastHeartbeatAt: new Date() } });
+  assert.equal((await getKitchenChannelHealth(companyId, locationId)).stale, false);
+  await addFloorOrderItem(actor(), opened.id, secondItemId);
+  const healthy = await dispatchFloorOrder(actor(), opened.id, `healthy-${suffix}`);
+  assert.ok(healthy.id, "a canale sano l'invio resta un gesto solo");
+
+  await prisma.kitchenConnectorDevice.deleteMany({ where: { id: device.id } });
+  await prisma.restaurantOrder.update({ where: { id: opened.id }, data: { status: "CANCELLED" } });
+  await prisma.restaurantTable.updateMany({ where: { id: comboTableA }, data: { status: "AVAILABLE" } });
 });

@@ -44,3 +44,38 @@ export function buildConnectorAlert({
     ],
   };
 }
+
+export type OfflineDispatchConfirmation = {
+  title: string;
+  lines: string[];
+  /** L'unica cosa che il cameriere puo' fare adesso perche' i piatti si facciano. */
+  instruction: string;
+  cancelLabel: string;
+  confirmLabel: string;
+};
+
+/**
+ * Conferma richiesta prima di inviare a canale fermo.
+ *
+ * Non blocca: e' proprio l'invio a mettere la comanda in coda, ed e' la coda a
+ * farla uscire al ripristino. Impedire il gesto trasformerebbe un ritardo in
+ * una perdita, perche' le righe resterebbero da inviare e la cucina non le
+ * vedrebbe nemmeno dopo. Serve invece che il cameriere sappia due cose: che
+ * adesso non esce niente, e che la cucina va avvisata a voce.
+ */
+export function buildOfflineDispatchConfirmation({
+  maxAgeMinutes,
+}: {
+  maxAgeMinutes: number;
+}): OfflineDispatchConfirmation {
+  return {
+    title: "CUCINA NON COLLEGATA",
+    lines: [
+      "La comanda NON esce in cucina adesso.",
+      `Resta in coda ed esce al ripristino. Oltre ${formatDowntime(maxAgeMinutes)}, da rimandare a mano.`,
+    ],
+    instruction: "Avvisa la cucina a voce.",
+    cancelLabel: "ANNULLA",
+    confirmLabel: "INVIA LO STESSO",
+  };
+}

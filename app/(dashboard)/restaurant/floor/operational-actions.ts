@@ -8,6 +8,7 @@ import {
   assignFloorOrderPartner,
   deleteUnsentFloorLine,
   dispatchFloorOrder,
+  KitchenChannelOfflineError,
   openFloorTable,
   releaseFloorTable,
   settleFloorOrder,
@@ -21,6 +22,8 @@ export type FloorActionResult = {
   ok: boolean;
   message: string;
   orderId?: string;
+  /** Il canale e' fermo: serve la presa d'atto esplicita, non un retry. */
+  needsOfflineAck?: boolean;
 };
 const run = async (
   operation: (actor: {
@@ -43,6 +46,7 @@ const run = async (
       ok: false,
       message:
         error instanceof Error ? error.message : "Operazione non riuscita",
+      needsOfflineAck: error instanceof KitchenChannelOfflineError,
     };
   }
 };
@@ -143,10 +147,16 @@ export async function changeFloorGuestCountAction(
 export async function dispatchFloorOrderAction(
   orderId: string,
   idempotencyKey: string,
+  offlineAcknowledged = false,
 ) {
   return run(
-    (actor) => dispatchFloorOrder(actor, orderId, idempotencyKey),
-    "Comanda inviata",
+    (actor) =>
+      dispatchFloorOrder(actor, orderId, idempotencyKey, {
+        offlineAcknowledged,
+      }),
+    offlineAcknowledged
+      ? "Comanda in coda: avvisa la cucina a voce"
+      : "Comanda inviata",
   );
 }
 export async function retryFloorJobAction(jobId: string) {
