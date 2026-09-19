@@ -8,7 +8,11 @@ import { prisma } from "@/lib/prisma";
 import { sendOrderToKitchen } from "@/lib/restaurant-kitchen";
 import { restaurantMenuEligibleItemWhere } from "@/lib/restaurant-menu-eligibility";
 import { menuExclusionReason } from "@/lib/restaurant-menu-manager";
-import { getKitchenChannelHealth } from "@/lib/kitchen-connector";
+import {
+  getKitchenChannelHealth,
+  isUncertainDeliveryError,
+} from "@/lib/kitchen-connector";
+import { deriveLineDelivery } from "@/lib/restaurant-floor-line-state";
 import { emitRestaurantEventTx, RestaurantDomainError } from "@/lib/restaurant";
 import {
   deriveTableStatusFromRow,
@@ -72,6 +76,7 @@ export async function getOperationalRestaurantFloor(
             modifiers: true,
             ticketLines: {
               include: {
+                dispatch: { select: { fusionStatus: true } },
                 ticket: {
                   include: { printJobs: { orderBy: { createdAt: "desc" } } },
                 },
@@ -185,25 +190,26 @@ export async function getOperationalRestaurantFloor(
       (line) => Number(line.quantity) > Number(line.sentQuantity),
     ).length,
     lines: order.lines.map((line) => {
-      const jobs = line.ticketLines
-        .flatMap(({ ticket }) => ticket.printJobs)
-        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-      const job = jobs[0],
-        error = job?.lastError ?? null;
-      const uncertain = Boolean(
-        error &&
-        /FUSION_UNCERTAIN_DELIVERY|UNCERTAIN_PRINT_OUTCOME/i.test(error),
-      );
-      const state: "PENDING" | "SENDING" | "SENT" | "ERROR" | "UNCERTAIN" =
-        Number(line.quantity) > Number(line.sentQuantity)
-          ? "PENDING"
-          : uncertain
-            ? "UNCERTAIN"
-            : job?.status === "FAILED"
-              ? "ERROR"
-              : job?.status === "PENDING" || job?.status === "PROCESSING"
-                ? "SENDING"
-                : "SENT";
+      // L'ultimo tentativo, non il peggiore: una riga fallita e poi rimandata
+      // con successo deve tornare verde. Il rovescio e' dichiarato nella UI —
+      // di una riga spezzata in piu' invii si mostra l'esito dell'ultimo.
+      const attempts = line.ticketLines
+        .flatMap(({ dispatch, ticket }) =>
+          ticket.printJobs.map((job) => ({ job, fusionStatus: dispatch.fusionStatus })),
+        )
+        .sort((a, b) => b.job.createdAt.getTime() - a.job.createdAt.getTime());
+      const latest = attempts[0],
+        job = latest?.job ?? null;
+      const state = deriveLineDelivery({
+        hasUnsentQuantity:
+          Number(line.quantity) > Number(line.sentQuantity),
+        fusionStatus: latest?.fusionStatus ?? null,
+        jobStatus: job?.status ?? null,
+        jobErrorIsUncertain: isUncertainDeliveryError(job?.lastError),
+        jobAgeSeconds: job
+          ? Math.max(0, Math.round((now.getTime() - job.createdAt.getTime()) / 1000))
+          : null,
+      });
       return {
         id: line.id,
         itemId: line.itemId,
@@ -220,7 +226,12 @@ export async function getOperationalRestaurantFloor(
           priceDelta: Number(modifier.priceDelta),
         })),
         state,
-        retryJobId: state === "ERROR" ? (job?.id ?? null) : null,
+        // retryConnectorJob accetta solo i FAILED, e rifiuta gli incerti: non
+        // offrire un pulsante che il server rifiuterebbe.
+        retryJobId:
+          job?.status === "FAILED" && !isUncertainDeliveryError(job.lastError)
+            ? job.id
+            : null,
       };
     }),
   }));

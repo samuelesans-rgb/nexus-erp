@@ -228,6 +228,20 @@ export const PRINT_JOB_MAX_AGE_MINUTES = 120;
  */
 export const CONNECTOR_STALE_AFTER_MS = 120_000;
 
+/**
+ * Whether a failure left the delivery genuinely in doubt.
+ *
+ * The bytes were on the wire when it broke, so the POS may hold the order. A
+ * blind retry can double the lines on the table and therefore the customer's
+ * bill, which is why retryConnectorJob refuses these and why the floor must
+ * show them as uncertain rather than as failed.
+ */
+export function isUncertainDeliveryError(error: string | null | undefined) {
+  return Boolean(
+    error && /FUSION_UNCERTAIN_DELIVERY|UNCERTAIN_PRINT_OUTCOME/i.test(error),
+  );
+}
+
 export async function fetchConnectorJobs(
   device: {
     id: string;
@@ -601,10 +615,7 @@ export async function retryConnectorJob(
     select: { lastError: true },
   });
   if (!current) throw new ConnectorError("Job fallito non trovato.", 404);
-  if (
-    current?.lastError &&
-    /FUSION_UNCERTAIN_DELIVERY|UNCERTAIN_PRINT_OUTCOME/i.test(current.lastError)
-  )
+  if (isUncertainDeliveryError(current?.lastError))
     throw new ConnectorError(
       "Invio incerto: non reinviare automaticamente. Verificare la comanda in cucina.",
       409,

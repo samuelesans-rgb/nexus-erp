@@ -6,6 +6,12 @@ import { useRouter } from "next/navigation";
 import { buildSettleConfirmation } from "@/lib/restaurant-floor-settle-copy";
 import { buildConnectorAlert } from "@/lib/restaurant-floor-connector-copy";
 import {
+  DELIVERY_HINTS,
+  DELIVERY_LABELS,
+  DELIVERY_TONE,
+  type FloorLineDelivery,
+} from "@/lib/restaurant-floor-line-state";
+import {
   addFloorItemAction,
   assignFloorPartnerAction,
   changeFloorGuestCountAction,
@@ -22,7 +28,6 @@ import {
   saveFloorLineNoteAction,
 } from "./operational-actions";
 
-type LineState = "PENDING" | "SENDING" | "SENT" | "ERROR" | "UNCERTAIN";
 type Modifier = {
   id: string;
   name: string;
@@ -47,7 +52,7 @@ type OrderLine = {
   lineTotal: number;
   kitchenNotes: string | null;
   modifiers: Modifier[];
-  state: LineState;
+  state: FloorLineDelivery;
   retryJobId: string | null;
 };
 type Order = {
@@ -108,12 +113,11 @@ const money = new Intl.NumberFormat("it-IT", {
   style: "currency",
   currency: "EUR",
 });
-const labels: Record<LineState, string> = {
-  PENDING: "DA INVIARE",
-  SENDING: "IN INVIO",
-  SENT: "INVIATO",
-  ERROR: "ERRORE",
-  UNCERTAIN: "INVIO INCERTO",
+const toneClass: Record<"green" | "amber" | "red" | "grey", string> = {
+  green: "text-emerald-700",
+  amber: "text-amber-700",
+  red: "text-red-700",
+  grey: "text-slate-500",
 };
 
 export function OperationalFloor({
@@ -376,13 +380,17 @@ export function OperationalFloor({
                       const available = !active && table.status === "AVAILABLE";
                       const dirty = !active && table.status === "DIRTY";
                       const uncertain = active?.lines.some(
-                          (line) => line.state === "UNCERTAIN",
+                          (line) =>
+                            line.state === "INCERTA" ||
+                            line.state === "DA_VERIFICARE",
                         ),
                         failed = active?.lines.some(
-                          (line) => line.state === "ERROR",
+                          (line) => line.state === "NON_ARRIVATA",
                         ),
                         sending = active?.lines.some(
-                          (line) => line.state === "SENDING",
+                          (line) =>
+                            line.state === "IN_INVIO" ||
+                            line.state === "IN_RITARDO",
                         );
                       const state = available
                         ? "LIBERO"
@@ -651,15 +659,15 @@ export function OperationalFloor({
               <div className="mt-4 space-y-3">
                 {order.lines.map((line) => {
                   const editable =
-                    line.state === "PENDING" && line.sentQuantity === 0;
+                    line.state === "DA_INVIARE" && line.sentQuantity === 0;
                   return (
                     <article key={line.id} className="rounded-xl border p-3">
                       <div className="flex justify-between gap-2">
                         <div>
                           <span
-                            className={`text-xs font-black ${line.state === "UNCERTAIN" || line.state === "ERROR" ? "text-red-700" : line.state === "PENDING" ? "text-amber-700" : "text-blue-700"}`}
+                            className={`text-xs font-black ${toneClass[DELIVERY_TONE[line.state]]}`}
                           >
-                            {labels[line.state]}
+                            {DELIVERY_LABELS[line.state]}
                           </span>
                           <p className="font-semibold">
                             {line.quantity} × {line.name}
@@ -747,7 +755,7 @@ export function OperationalFloor({
                           />
                         </div>
                       )}
-                      {line.state === "ERROR" && line.retryJobId && (
+                      {line.retryJobId && (
                         <button
                           disabled={pending}
                           onClick={() =>
@@ -758,13 +766,12 @@ export function OperationalFloor({
                           Riprova invio sicuro
                         </button>
                       )}
-                      {line.state === "UNCERTAIN" && (
+                      {DELIVERY_HINTS[line.state] && (
                         <p
                           role="alert"
                           className="mt-3 rounded-lg bg-red-100 p-2 text-sm font-semibold text-red-900"
                         >
-                          Invio incerto — verificare la comanda in cucina. Non
-                          reinviare automaticamente.
+                          {DELIVERY_HINTS[line.state]}
                         </p>
                       )}
                     </article>
@@ -846,6 +853,11 @@ export function OperationalFloor({
                     </p>
                   </>
                 )}
+                <p className="mt-2 text-xs text-slate-500">
+                  Lo stato di ogni riga è l’esito dell’ultimo invio: una riga
+                  mandata in più volte mostra il risultato più recente.
+                  “ARRIVATA AL POS” significa che il POS ha confermato.
+                </p>
                 <p className="mt-2 text-xs text-slate-500">
                   Invia esclusivamente le righe contrassegnate “DA INVIARE”. Le
                   note e i modificatori locali restano nel ticket Nexus; i

@@ -105,7 +105,7 @@ test("operational floor lifecycle is incremental, tenant-safe and non-fiscal", a
   const secondJob = await prisma.kitchenPrintJob.findFirstOrThrow({ where: { ticket: { dispatchId: dispatchB.id } } });
   await prisma.kitchenPrintJob.update({ where: { id: secondJob.id }, data: { status: "FAILED", lastError: "FUSION_CONNECTION_ERROR" } }); await retrySafeFloorJob(actor(), secondJob.id); assert.equal((await prisma.kitchenPrintJob.findUniqueOrThrow({ where: { id: secondJob.id } })).status, "PENDING");
   await prisma.kitchenPrintJob.update({ where: { id: secondJob.id }, data: { status: "FAILED", lastError: "FUSION_UNCERTAIN_DELIVERY" } }); await assert.rejects(retrySafeFloorJob(actor(), secondJob.id), /Invio incerto/);
-  floor = await getOperationalRestaurantFloor(companyId, locationId); const current = floor.orders.find(({ id }) => id === orderId)!; assert.equal(current.lines.find(({ id }) => id === addition.id)?.state, "UNCERTAIN"); assert.equal(current.total, 46);
+  floor = await getOperationalRestaurantFloor(companyId, locationId); const current = floor.orders.find(({ id }) => id === orderId)!; assert.equal(current.lines.find(({ id }) => id === addition.id)?.state, "INCERTA"); assert.equal(current.total, 46);
   assert.match((await prisma.kitchenTicketLine.findFirstOrThrow({ where: { orderLineId: line.id } })).notes ?? "", /Cottura media/);
   assert.equal(await prisma.businessDocument.count({ where: { companyId } }), initialDocuments); assert.equal(await prisma.financialMovement.count({ where: { companyId } }), initialMovements);
   assert.ok((await prisma.auditLog.count({ where: { companyId } })) >= 5);
@@ -550,4 +550,47 @@ test("cucina collegata: basta un connector vivo, non servono tutti", async () =>
   assert.equal(floor.connector.maxAgeMinutes, PRINT_JOB_MAX_AGE_MINUTES);
 
   await prisma.kitchenConnectorDevice.deleteMany({ where: { id: { in: [stale.id, alive.id] } } });
+});
+
+test("stato riga: la Sala dice cosa il POS ha confermato, non cosa Nexus spera", async () => {
+  await prisma.restaurantTable.updateMany({ where: { id: comboTableB }, data: { physicalStatus: "READY", status: "AVAILABLE" } });
+  const opened = await openFloorTable(actor(), comboTableB, 2);
+  const line = await addFloorOrderItem(actor(), opened.id, itemId);
+  const stateOf = async () => {
+    const floor = await getOperationalRestaurantFloor(companyId, locationId);
+    return floor.orders.find((o) => o.id === opened.id)?.lines.find((l) => l.id === line.id)?.state;
+  };
+  assert.equal(await stateOf(), "DA_INVIARE", "prima dell'invio");
+
+  await dispatchFloorOrder(actor(), opened.id, `state-${suffix}`);
+  const job = await prisma.kitchenPrintJob.findFirstOrThrow({ where: { companyId, ticket: { orderId: opened.id } } });
+  const dispatchId = (await prisma.kitchenTicket.findFirstOrThrow({ where: { companyId, orderId: opened.id } })).dispatchId;
+  assert.equal(await stateOf(), "IN_INVIO", "appena inviata");
+
+  // Oltre la tolleranza il ritardo si vede sulla riga, non solo nel banner.
+  await prisma.kitchenPrintJob.update({ where: { id: job.id }, data: { createdAt: new Date(Date.now() - 5 * 60_000) } });
+  assert.equal(await stateOf(), "IN_RITARDO");
+
+  // Conferma del POS: l'unico verde.
+  await prisma.kitchenDispatch.update({ where: { id: dispatchId }, data: { fusionStatus: "ACCEPTED" } });
+  await prisma.kitchenPrintJob.update({ where: { id: job.id }, data: { status: "PRINTED" } });
+  assert.equal(await stateOf(), "ARRIVATA");
+
+  // Rifiuto del POS: rosso anche se il job risulta stampato.
+  await prisma.kitchenDispatch.update({ where: { id: dispatchId }, data: { fusionStatus: "REJECTED" } });
+  assert.equal(await stateOf(), "NON_ARRIVATA");
+
+  // Incerto: vince su tutto, perche' e' l'unico caso in cui rimandare fa danno.
+  await prisma.kitchenPrintJob.update({ where: { id: job.id }, data: { status: "UNCERTAIN" } });
+  assert.equal(await stateOf(), "INCERTA");
+
+  // Il difetto strutturale: senza alcun job la riga risultava "INVIATO".
+  await prisma.kitchenDispatch.update({ where: { id: dispatchId }, data: { fusionStatus: "PENDING" } });
+  await prisma.kitchenPrintJob.deleteMany({ where: { id: job.id } });
+  const orphan = await stateOf();
+  assert.equal(orphan, "DA_VERIFICARE", "nessun job non significa consegnata");
+  assert.notEqual(orphan, "ARRIVATA");
+
+  await prisma.restaurantOrder.update({ where: { id: opened.id }, data: { status: "CANCELLED" } });
+  await prisma.restaurantTable.updateMany({ where: { id: comboTableB }, data: { status: "AVAILABLE" } });
 });
