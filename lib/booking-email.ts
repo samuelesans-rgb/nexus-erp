@@ -36,6 +36,17 @@ async function finish(companyId: string, reservationId: string, kind: Notificati
 }
 
 async function deliver(companyId: string, reservationId: string, kind: NotificationKind, message: EmailMessage, provider: EmailProvider) {
+  // Il controllo sta prima della claim, e non e' un dettaglio: claim() consuma
+  // la chiave di idempotenza, quindi scoprire dopo che il canale non esiste
+  // marcherebbe la notifica come gia' inviata per sempre. Il giorno in cui SMTP
+  // viene configurato quelle prenotazioni resterebbero senza conferma.
+  if (provider.name === "noop") {
+    await prisma.domainEvent.create({
+      data: { companyId, aggregateType: "RestaurantReservation", aggregateId: reservationId, eventType: "BookingEmailSkipped", payload: { notification: kind, provider: provider.name, outcome: "NOT_CONFIGURED" }, occurredAt: new Date() },
+    });
+    console.warn(JSON.stringify({ scope: "booking-email", notification: kind, provider: provider.name, outcome: "NOT_CONFIGURED" }));
+    return "NOT_CONFIGURED" as const;
+  }
   if (!(await claim(companyId, reservationId, kind))) return "DUPLICATE" as const;
   try {
     await provider.send(message);

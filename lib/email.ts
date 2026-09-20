@@ -53,6 +53,15 @@ class SmtpEmailProvider implements EmailProvider {
 
 let provider: EmailProvider | undefined;
 
+/**
+ * Se manca la configurazione SMTP le email non partono. Esposto perche' la UI
+ * possa dirlo prima che qualcuno apra le prenotazioni al pubblico, invece di
+ * scoprirlo dal silenzio dei clienti.
+ */
+export function isEmailConfigured() {
+  return Boolean(process.env.SMTP_HOST && process.env.SMTP_FROM);
+}
+
 export function getEmailProvider(): EmailProvider {
   if (provider) return provider;
   provider = process.env.SMTP_HOST && process.env.SMTP_FROM

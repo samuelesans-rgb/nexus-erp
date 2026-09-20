@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 
-import { cancelBookingWithNotifications } from "../../lib/booking-email";
+import { cancelBookingWithNotifications, sendBookingConfirmationEmails } from "../../lib/booking-email";
 import type { EmailMessage, EmailProvider } from "../../lib/email";
 import { prisma } from "../../lib/prisma";
 import { PublicBookingRateLimiter, submitPublicBooking } from "../../lib/public-booking";
@@ -119,4 +119,51 @@ test("Booking Email: cancellazione invia cliente e ristorante una volta", async 
   const cancellationMessages = provider.messages.filter((message) => message.subject.startsWith("Prenotazione annullata"));
   assert.equal(cancellationMessages.length, 2);
   assert.equal((await prisma.restaurantReservation.findUniqueOrThrow({ where: { id: result.reservationId } })).status, "CANCELLED");
+});
+
+class UnconfiguredProvider implements EmailProvider {
+  readonly name = "noop" as const;
+  calls = 0;
+  async send(_message: EmailMessage) {
+    this.calls += 1;
+    return { provider: "noop" as const };
+  }
+}
+
+test("Booking Email: canale non configurato non dichiara di aver consegnato", async () => {
+  const provider = new UnconfiguredProvider();
+  const result = await book(44, provider);
+  assert.equal(provider.calls, 0, "non si finge un invio su un canale che non esiste");
+
+  // Nessun evento di consegna: sarebbe una bugia a registro.
+  const delivered = await prisma.domainEvent.count({
+    where: { companyId, aggregateId: result.reservationId, eventType: "BookingEmailDelivered" },
+  });
+  assert.equal(delivered, 0);
+
+  // Il fatto viene registrato per quello che e'.
+  const skipped = await prisma.domainEvent.findMany({
+    where: { companyId, aggregateId: result.reservationId, eventType: "BookingEmailSkipped" },
+  });
+  assert.ok(skipped.length >= 1, "la mancata configurazione deve restare a registro");
+  assert.equal((skipped[0].payload as { outcome: string }).outcome, "NOT_CONFIGURED");
+});
+
+test("Booking Email: il canale assente non brucia la chiave di idempotenza", async () => {
+  // Il punto vero: se la claim venisse consumata, il giorno in cui SMTP viene
+  // configurato questa prenotazione resterebbe senza conferma per sempre,
+  // marcata come gia' inviata.
+  const result = await book(45, new UnconfiguredProvider());
+  const claims = await prisma.idempotencyRecord.count({
+    where: { companyId, aggregateId: result.reservationId, commandType: { startsWith: "BookingEmail:" } },
+  });
+  assert.equal(claims, 0, "nessuna claim consumata");
+
+  // Con un canale vero la conferma parte ancora, sulla stessa prenotazione.
+  const provider = new RecordingProvider();
+  await sendBookingConfirmationEmails(
+    companyId, locationId, result.reservationId,
+    randomUUID(), "http://127.0.0.1:3100", provider,
+  );
+  assert.ok(provider.messages.length >= 1, "configurato SMTP, la notifica deve poter partire");
 });
