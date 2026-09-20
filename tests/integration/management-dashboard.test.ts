@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 
-import { getManagementDashboard, parseManagementPeriod } from "../../lib/management-dashboard";
+import { getManagementDashboard, marginInflationPoints, parseManagementPeriod } from "../../lib/management-dashboard";
 import { prisma } from "../../lib/prisma";
 
 if (!(process.env.DATABASE_URL ?? "").includes("_test")) throw new Error("I test Management richiedono DATABASE_URL con suffisso _test.");
@@ -44,3 +44,53 @@ test("Management 9: Restaurant resta isolato per Location", async () => { const 
 test("Management 10: Sales e Purchasing restano isolati per Location", async () => { const d = await getManagementDashboard(companyId, locationB, parseManagementPeriod({ period: "currentMonth" }, now)); assert.deepEqual([d.sales.orders, d.purchasing.orders], [0, 0]); });
 test("Management 11: Inventory resta isolato per Location", async () => { const d = await getManagementDashboard(companyId, locationB, parseManagementPeriod({ period: "currentMonth" }, now)); assert.deepEqual([d.inventory.stockValue, d.inventory.movements], [0, 0]); });
 test("Management 12: tenant senza Location corrispondente non vede dati", async () => { const d = await getManagementDashboard(otherCompanyId, locationA, parseManagementPeriod({ period: "currentMonth" }, now)); assert.equal(d.revenue.total + d.costs.purchases + d.inventory.stockValue, 0); });
+
+test("Management 13: il margine gonfiato si misura, non si stima", () => {
+  // Ricavo lordo 110 con IVA 10% ⇒ netto 100. Costo 60, netto per definizione.
+  // Margine dichiarato: (110-60)/110 = 45,45%. Reale: (100-60)/100 = 40%.
+  const points = marginInflationPoints({ revenue: 110, netRevenue: 100, costOfGoods: 60 });
+  assert.ok(Math.abs(points - 5.4545) < 0.01, `punti calcolati: ${points}`);
+});
+
+test("Management 14: senza costi il margine non è gonfiato", () => {
+  // Entrambi i margini valgono 100%: non c'è nulla da dichiarare, e la nota
+  // nella UI non deve comparire.
+  assert.equal(marginInflationPoints({ revenue: 110, netRevenue: 100, costOfGoods: 0 }), 0);
+  assert.equal(marginInflationPoints({ revenue: 0, netRevenue: 0, costOfGoods: 0 }), 0);
+});
+
+test("Management 15: ricavo del ristorante dalle comande, non dai documenti", async () => {
+  const suffix = randomUUID().slice(0, 8);
+  const [vat, uom] = await Promise.all([
+    prisma.vatRate.create({ data: { companyId, code: `V${suffix}`, name: "IVA 10%", percentage: 10 } }),
+    prisma.unitOfMeasure.create({ data: { companyId, code: `U${suffix}`, name: "Pezzo", symbol: "pz" } }),
+  ]);
+  const category = await prisma.itemCategory.create({ data: { companyId, code: `C${suffix}`, name: "Cat", purpose: "SELLABLE" } });
+  const item = await prisma.item.create({ data: { companyId, code: `I${suffix}`, name: "Piatto", type: "PRODUCT", status: "ACTIVE", unitOfMeasureId: uom.id, categoryId: category.id, vatRateId: vat.id, salePrice: 10, sellable: true } });
+  const closedAt = new Date("2026-08-14T20:00:00.000Z");
+  const order = await prisma.restaurantOrder.create({
+    data: { companyId, locationId: locationA, code: `ORD-${suffix}`, status: "CLOSED", serviceType: "DINE_IN", guestCount: 2, openedAt: closedAt, closedAt, createdById: null },
+  });
+  const line = (quantity: number, total: number) => prisma.restaurantOrderLine.create({
+    data: { companyId, locationId: locationA, orderId: order.id, itemId: item.id, productName: "Piatto", baseUnitPrice: 10, quantity, unitPrice: 10, vatRateId: vat.id, vatName: "IVA 10%", vatPercentage: 10, lineTotal: total, status: "SERVED" },
+  });
+  await line(2, 20);
+  const cancelled = await line(1, 10);
+  await prisma.restaurantOrderLine.update({ where: { id: cancelled.id }, data: { status: "CANCELLED" } });
+
+  const d = await getManagementDashboard(companyId, locationA, parseManagementPeriod({ period: "previousMonth" }, new Date("2026-09-15T12:00:00.000Z")));
+  // Nessun documento esiste: prima questo valeva zero.
+  assert.equal(d.revenue.restaurant, 20, "somma le righe, e non conta quelle annullate");
+  assert.equal(d.revenue.total, 20);
+  assert.equal(d.restaurant.averageCheck, 20, "lo scontrino medio smette di essere zero");
+  // Il grafico giornaliero non resta piatto.
+  const day = d.trend.find((row) => row.revenue > 0);
+  assert.ok(day, "il ricavo deve comparire anche nell'andamento giornaliero");
+
+  await prisma.restaurantOrderLine.deleteMany({ where: { orderId: order.id } });
+  await prisma.restaurantOrder.delete({ where: { id: order.id } });
+  await prisma.item.delete({ where: { id: item.id } });
+  await prisma.itemCategory.delete({ where: { id: category.id } });
+  await prisma.unitOfMeasure.delete({ where: { id: uom.id } });
+  await prisma.vatRate.delete({ where: { id: vat.id } });
+});

@@ -45,6 +45,22 @@ const sum = (values: Array<number | { toNumber(): number } | null>) => values.re
 const percentChange = (current: number, previous: number) => previous === 0 ? (current === 0 ? 0 : null) : ((current - previous) / Math.abs(previous)) * 100;
 const dateKey = (date: Date) => date.toISOString().slice(0, 10);
 
+/**
+ * Di quanti punti percentuali il margine risulta gonfiato.
+ *
+ * Il ricavo del ristorante e' lordo IVA — `salePrice` e' il prezzo PLU del POS,
+ * quello che il cliente paga — mentre il costo del venduto arriva dai movimenti
+ * di magazzino, che sono netti. Confrontarli sovrastima il margine.
+ *
+ * Il numero si deriva dalle aliquote effettive invece di cablare una stima:
+ * oggi sono tutte al 10%, ma una costante mentirebbe il giorno in cui smettono
+ * di esserlo, ed e' esattamente lo scenario da non far invecchiare male.
+ */
+export function marginInflationPoints({ revenue, netRevenue, costOfGoods }: { revenue: number; netRevenue: number; costOfGoods: number }) {
+  if (!revenue || !netRevenue) return 0;
+  return ((revenue - costOfGoods) / revenue) * 100 - ((netRevenue - costOfGoods) / netRevenue) * 100;
+}
+
 export async function getManagementDashboard(companyId: string, locationId: string, period: ManagementPeriod) {
   const scoped = { companyId, locationId } as const;
   const activeDocument = { status: { in: ["CONFIRMED", "POSTED", "CLOSED"] }, deletedAt: null } satisfies Prisma.BusinessDocumentWhereInput;
@@ -54,31 +70,47 @@ export async function getManagementDashboard(companyId: string, locationId: stri
   const now = new Date();
   const inThirtyDays = addDays(now, 30);
 
-  const [documents, previousDocuments, orders, previousOrders, reservations, movements, schedules, stock, inventoryMovements, topLines] = await Promise.all([
-    prisma.businessDocument.findMany({ where: { ...scoped, ...activeDocument, documentDate: selected, documentType: { in: ["SALES_INVOICE", "SALES_RECEIPT", "PURCHASE_INVOICE", "SALES_ORDER", "PURCHASE_ORDER"] } }, select: { documentType: true, status: true, total: true, documentDate: true, partner: { select: { name: true, displayName: true } }, restaurantOrder: { select: { id: true } } } }),
+  const [documents, previousDocuments, orders, reservations, movements, schedules, stock, inventoryMovements, topLines, previousLines] = await Promise.all([
+    prisma.businessDocument.findMany({ where: { ...scoped, ...activeDocument, documentDate: selected, documentType: { in: ["SALES_INVOICE", "SALES_RECEIPT", "PURCHASE_INVOICE", "SALES_ORDER", "PURCHASE_ORDER"] } }, select: { documentType: true, status: true, total: true, tax: true, documentDate: true, partner: { select: { name: true, displayName: true } }, restaurantOrder: { select: { id: true } } } }),
     prisma.businessDocument.findMany({ where: { ...scoped, ...activeDocument, documentDate: previous, documentType: { in: ["SALES_INVOICE", "SALES_RECEIPT", "PURCHASE_INVOICE"] } }, select: { documentType: true, status: true, total: true, restaurantOrder: { select: { id: true } } } }),
     prisma.restaurantOrder.findMany({ where: { ...scoped, status: "CLOSED", closedAt: selected }, select: { closedAt: true, guestCount: true, document: { select: { total: true } } } }),
-    prisma.restaurantOrder.findMany({ where: { ...scoped, status: "CLOSED", closedAt: previous }, select: { document: { select: { total: true } } } }),
     prisma.restaurantReservation.findMany({ where: { ...scoped, deletedAt: null, startTime: selected }, select: { status: true, partySize: true } }),
     prisma.financialMovement.findMany({ where: { ...scoped, occurredAt: selected, movementType: { in: ["CUSTOMER_RECEIPT", "SUPPLIER_PAYMENT"] }, reversalOfId: null, reversals: { none: {} } }, select: { direction: true, amount: true, occurredAt: true } }),
     prisma.paymentSchedule.findMany({ where: { ...scoped, deletedAt: null, status: { in: [...openStatuses] }, residualAmount: { gt: 0 }, dueDate: { lt: inThirtyDays } }, select: { direction: true, dueDate: true, residualAmount: true } }),
     prisma.stockBalance.findMany({ where: scoped, select: { quantity: true, stockValue: true, item: { select: { name: true, productProfile: { select: { minimumStock: true, reorderPoint: true } } } } } }),
     prisma.inventoryMovement.findMany({ where: { ...scoped, occurredAt: selected, reversalOfId: null }, select: { direction: true, movementType: true, totalCost: true, occurredAt: true } }),
-    prisma.restaurantOrderLine.findMany({ where: { ...scoped, status: { not: "CANCELLED" }, order: { status: "CLOSED", closedAt: selected } }, select: { itemId: true, quantity: true, unitPrice: true, item: { select: { name: true } } } }),
+    prisma.restaurantOrderLine.findMany({ where: { ...scoped, status: { not: "CANCELLED" }, order: { status: "CLOSED", closedAt: selected } }, select: { itemId: true, quantity: true, unitPrice: true, lineTotal: true, vatPercentage: true, order: { select: { closedAt: true } }, item: { select: { name: true } } } }),
+    // Il periodo precedente va caricato: un confronto falsato e' peggio di
+    // nessun confronto, e prima veniva letto dai documenti inesistenti.
+    prisma.restaurantOrderLine.findMany({ where: { ...scoped, status: { not: "CANCELLED" }, order: { status: "CLOSED", closedAt: previous } }, select: { lineTotal: true } }),
   ]);
 
   const docRevenue = sum(documents.filter((row) => ["SALES_INVOICE", "SALES_RECEIPT"].includes(row.documentType) && ["POSTED", "CLOSED"].includes(row.status) && !row.restaurantOrder).map((row) => row.total));
-  const restaurantRevenue = sum(orders.map((row) => row.document?.total ?? null));
+  // Somma delle righe, non del documento: con la chiusura da cassa il documento
+  // non esiste e ogni comanda contribuiva null, quindi il ricavo era
+  // strutturalmente zero. E' lordo, perche' salePrice e' il prezzo PLU del POS,
+  // cioe' quello che il cliente paga.
+  const restaurantRevenue = topLines.reduce((total, row) => total + row.lineTotal.toNumber(), 0);
+  // Netto derivato dall'aliquota di ciascuna riga, non da una stima cablata:
+  // resta corretto anche se un giorno le aliquote smettono di essere uniformi.
+  const restaurantRevenueNet = topLines.reduce((total, row) => total + row.lineTotal.toNumber() / (1 + row.vatPercentage.toNumber() / 100), 0);
   const revenue = docRevenue + restaurantRevenue;
-  const previousRevenue = sum(previousDocuments.filter((row) => ["SALES_INVOICE", "SALES_RECEIPT"].includes(row.documentType) && ["POSTED", "CLOSED"].includes(row.status) && !row.restaurantOrder).map((row) => row.total)) + sum(previousOrders.map((row) => row.document?.total ?? null));
+  const previousRevenue = sum(previousDocuments.filter((row) => ["SALES_INVOICE", "SALES_RECEIPT"].includes(row.documentType) && ["POSTED", "CLOSED"].includes(row.status) && !row.restaurantOrder).map((row) => row.total)) + previousLines.reduce((total, row) => total + row.lineTotal.toNumber(), 0);
   const purchases = sum(documents.filter((row) => row.documentType === "PURCHASE_INVOICE" && ["POSTED", "CLOSED"].includes(row.status)).map((row) => row.total));
   const costOfGoods = sum(inventoryMovements.filter((row) => row.direction < 0 && ["ISSUE", "CONSUMPTION", "TRANSFER_OUT", "ADJUSTMENT_OUT", "INVENTORY_LOSS", "RETURN_OUT"].includes(row.movementType)).map((row) => row.totalCost));
   const receipts = sum(movements.filter((row) => row.direction === "IN").map((row) => row.amount));
   const payments = sum(movements.filter((row) => row.direction === "OUT").map((row) => row.amount));
+  // Il margine confronta ricavi lordi IVA con costi di magazzino netti, quindi
+  // risulta ottimista. Di quanto lo si calcola, invece di dire genericamente
+  // "ottimista": il netto dei documenti dalla loro imposta, quello delle
+  // comande dall'aliquota riga per riga.
+  const docTax = sum(documents.filter((row) => ["SALES_INVOICE", "SALES_RECEIPT"].includes(row.documentType) && ["POSTED", "CLOSED"].includes(row.status) && !row.restaurantOrder).map((row) => row.tax));
+  const netRevenue = docRevenue - docTax + restaurantRevenueNet;
+  const inflationPoints = marginInflationPoints({ revenue, netRevenue, costOfGoods });
   const trend = new Map<string, { revenue: number; receipts: number; payments: number }>();
   const point = (date: Date) => { const key = dateKey(date); const value = trend.get(key) ?? { revenue: 0, receipts: 0, payments: 0 }; trend.set(key, value); return value; };
   documents.filter((row) => ["SALES_INVOICE", "SALES_RECEIPT"].includes(row.documentType) && ["POSTED", "CLOSED"].includes(row.status) && !row.restaurantOrder).forEach((row) => { point(row.documentDate).revenue += row.total.toNumber(); });
-  orders.forEach((row) => { if (row.closedAt) point(row.closedAt).revenue += row.document?.total.toNumber() ?? 0; });
+  topLines.forEach((row) => { if (row.order.closedAt) point(row.order.closedAt).revenue += row.lineTotal.toNumber(); });
   movements.forEach((row) => { point(row.occurredAt)[row.direction === "IN" ? "receipts" : "payments"] += row.amount.toNumber(); });
   const topProducts = new Map<string, { name: string; quantity: number; value: number }>();
   topLines.forEach((row) => { const value = topProducts.get(row.itemId) ?? { name: row.item.name, quantity: 0, value: 0 }; value.quantity += row.quantity.toNumber(); value.value += row.quantity.toNumber() * row.unitPrice.toNumber(); topProducts.set(row.itemId, value); });
@@ -89,7 +121,7 @@ export async function getManagementDashboard(companyId: string, locationId: stri
   return {
     period,
     revenue: { total: revenue, documents: docRevenue, restaurant: restaurantRevenue, previous: previousRevenue, change: percentChange(revenue, previousRevenue) },
-    costs: { purchases, costOfGoods, grossMargin: revenue - costOfGoods, marginPercent: revenue ? ((revenue - costOfGoods) / revenue) * 100 : 0 },
+    costs: { purchases, costOfGoods, grossMargin: revenue - costOfGoods, marginPercent: revenue ? ((revenue - costOfGoods) / revenue) * 100 : 0, marginInflationPoints: inflationPoints },
     treasury: { receipts, payments, net: receipts - payments, overdue: sum(schedules.filter((row) => row.dueDate < now).map((row) => row.residualAmount)), upcoming30: sum(schedules.filter((row) => row.dueDate >= now).map((row) => row.residualAmount)) },
     restaurant: { orders: orders.length, covers: sum(orders.map((row) => row.guestCount)), averageCheck: orders.length ? restaurantRevenue / orders.length : 0, reservations: reservations.length, noShows: reservations.filter((row) => row.status === "NO_SHOW").length, cancellations: reservations.filter((row) => row.status === "CANCELLED").length, topProducts: [...topProducts.values()].sort((a, b) => b.value - a.value).slice(0, 5) },
     sales: { orders: documents.filter((row) => row.documentType === "SALES_ORDER").length, orderValue: sum(documents.filter((row) => row.documentType === "SALES_ORDER").map((row) => row.total)), invoices: documents.filter((row) => ["SALES_INVOICE", "SALES_RECEIPT"].includes(row.documentType) && ["POSTED", "CLOSED"].includes(row.status)).length },
