@@ -89,9 +89,39 @@ journalctl -u nexus-kitchen-monitor.service -n 20 --no-pager
 #  WHERE "aggregateType"='KitchenChannel' ORDER BY "occurredAt" DESC;
 ```
 
-## Limite noto
+## Sorveglianza esterna: interruttore dell'uomo morto
 
-Se la **VPS** è spenta, nessun processo sulla VPS può segnalarlo. Lo script
-copre il caso "ERP fermo, VPS viva". La copertura completa richiede un
-controllo esterno che interroghi `https://erp.frisabistro.com/api/health` da
-fuori: è fuori da questo lavoro.
+`HEALTHCHECK_URL` in `/etc/nexus-monitor.env` punta a un controllo su
+[healthchecks.io](https://healthchecks.io). Lo script segnala il successo a ogni
+giro riuscito; se il segnale manca, il servizio esterno avvisa su Telegram
+tramite webhook, nella **stessa conversazione** degli allarmi del connector.
+
+Non è un servizio che interroga il sito da fuori, ed è una scelta: un pinger su
+`/api/health` vedrebbe solo la VPS spenta. Il segnale invertito copre anche i
+casi che nessun processo su questa macchina può denunciare da solo.
+
+| Guasto | Chi lo segnala |
+|---|---|
+| Connector fermo | app → Telegram |
+| ERP fermo, VPS viva | script → Telegram |
+| Database fermo | script (l'endpoint va in errore) |
+| Proxy o certificato rotto | script (chiama l'URL pubblico) |
+| **VPS spenta** | **healthchecks** |
+| **Timer systemd morto o disabilitato** | **healthchecks** |
+| **Questo script rotto da una modifica** | **healthchecks** |
+
+Tempi: periodo 5 minuti, grazia 15. Il servizio suona dopo **20 minuti di
+silenzio**, cioè quattro giri mancati, quindi un intoppo isolato non lo
+raggiunge. Al terzo fallimento consecutivo invece lo script dichiara il guasto
+esplicitamente con un ping a `/fail`, per non aspettare i venti minuti su un
+problema ormai conclamato.
+
+`/api/health` è adeguato come controllo di profondità: esegue `SELECT 1` sul
+database e risponde 503 se fallisce, quindi non dichiara "ok" con il database a
+terra. Non serve migliorarlo.
+
+### Limite residuo
+
+Se healthchecks.io è irraggiungibile, arriva un falso allarme. È il prezzo di
+qualunque sorveglianza esterna, e resta preferibile a un guasto vero che nessuno
+segnala.

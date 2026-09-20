@@ -19,6 +19,15 @@ mkdir -p "$STATE_DIR"
 FAILS="$STATE_DIR/consecutive-failures"
 NOTIFIED="$STATE_DIR/erp-unreachable-notified"
 
+# Interruttore dell'uomo morto: il segnale parte solo quando il giro e' andato
+# a buon fine. Se la VPS e' spenta, se il timer non gira piu', o se questo
+# script si rompe, il segnale non parte e il servizio esterno suona. Sono i tre
+# casi che nessun processo su questa macchina puo' segnalare da solo.
+ping_health() {
+  [ -n "${HEALTHCHECK_URL:-}" ] || return 0
+  curl -fsS --max-time 10 --retry 2 "${HEALTHCHECK_URL}${1:-}" >/dev/null 2>&1 || true
+}
+
 response=$(curl -fsS --max-time 30 -X POST "$ENDPOINT" \
   -H "authorization: Bearer ${INTERNAL_MONITOR_SECRET:-}" 2>&1)
 status=$?
@@ -26,6 +35,7 @@ status=$?
 if [ $status -eq 0 ]; then
   echo "ok $response"
   echo 0 > "$FAILS"
+  ping_health
   # L'ERP e' tornato: se avevamo avvisato della sua assenza, dillo.
   if [ -f "$NOTIFIED" ] && [ -n "${KITCHEN_ALERT_TELEGRAM_TOKEN:-}" ]; then
     curl -fsS --max-time 15 -X POST \
@@ -43,6 +53,11 @@ echo "errore: endpoint non raggiungibile (tentativo $count): $response" >&2
 
 # Chi sorveglia il sorvegliante: se l'app non risponde non puo' avvisare da
 # sola, quindi qui il messaggio lo manda lo script. Una volta sola per episodio.
+# Un fallimento isolato non segnala nulla: se ne occupa il tempo di grazia del
+# servizio esterno. Al terzo consecutivo invece lo si dichiara, per non
+# aspettare i venti minuti di silenzio su un guasto ormai conclamato.
+if [ "$count" -ge "$FAIL_THRESHOLD" ]; then ping_health "/fail"; fi
+
 if [ "$count" -ge "$FAIL_THRESHOLD" ] && [ ! -f "$NOTIFIED" ] \
    && [ -n "${KITCHEN_ALERT_TELEGRAM_TOKEN:-}" ]; then
   curl -fsS --max-time 15 -X POST \
