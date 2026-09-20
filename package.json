@@ -56,7 +56,9 @@
     "test:integration:booking-floor-v2": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/restaurant-booking-floor-v2.test.ts",
     "test:integration:restaurant-floor-settle-copy": "node --import tsx --test tests/integration/restaurant-floor-settle-copy.test.ts",
     "test:integration:restaurant-floor-connector-copy": "node --import tsx --test tests/integration/restaurant-floor-connector-copy.test.ts",
-    "test:integration:restaurant-floor-line-state": "node --import tsx --test tests/integration/restaurant-floor-line-state.test.ts"
+    "test:integration:restaurant-floor-line-state": "node --import tsx --test tests/integration/restaurant-floor-line-state.test.ts",
+    "test:integration:kitchen-channel-alert-policy": "node --import tsx --test tests/integration/kitchen-channel-alert-policy.test.ts",
+    "test:integration:kitchen-channel-alert": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/kitchen-channel-alert.test.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

@@ -1,0 +1,12 @@
+[Unit]
+Description=Nexus — controllo del canale cucina ogni 5 minuti
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+# Senza Persistent un riavvio della VPS azzererebbe il ciclo in silenzio.
+Persistent=true
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

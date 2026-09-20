@@ -1,0 +1,10 @@
+[Unit]
+Description=Nexus — controllo del canale cucina
+After=docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/kitchen-channel-check.sh
+# Il segreto e il token stanno nel file di ambiente, non nell'unita'.
+EnvironmentFile=-/etc/nexus-monitor.env
