@@ -1,0 +1,3 @@
+#!/data/data/com.termux/files/usr/bin/sh
+mkdir -p "$HOME/.local/state/nexus-kitchen/log"
+exec svlogd -tt "$HOME/.local/state/nexus-kitchen/log"

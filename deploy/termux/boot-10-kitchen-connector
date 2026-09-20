@@ -1,0 +1,5 @@
+#!/data/data/com.termux/files/usr/bin/sh
+# Senza wake lock Android congela il processo a schermo spento, e nessun
+# supervisore se ne accorge: runit non lo vede morto, lo vede fermo.
+termux-wake-lock
+. $PREFIX/etc/profile.d/start-services.sh

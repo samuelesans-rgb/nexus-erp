@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { KitchenConnectorClient } from "./runtime";
+import { isFatalConnectorError } from "./runtime";
 import { FusionCatalogReader, FusionCatalogSnapshotStore, reconcileCatalog } from "./fusion-catalog";
 
 export type CatalogSyncRuntimeConfig={enabled:boolean;intervalMs:number;fullIntervalMs:number;maxBackoffMs:number;watchdogMs?:number};
@@ -16,10 +17,25 @@ export class FusionCatalogSyncController {
 
 type FusionRuntimeClient={pollOnce():Promise<unknown>;heartbeat(lastError?:string):Promise<unknown>};
 type FusionRuntimeCatalog={request(version:number):void;tick(force?:boolean):Promise<boolean>};
-export function startFusionRuntime(client:FusionRuntimeClient,catalog:FusionRuntimeCatalog,options:{pollMs?:number;heartbeatMs?:number;catalogMs:number;onError?:(error:unknown)=>void}){
-  const onError=options.onError??(error=>console.error("[kitchen-connector]",error));let polling=false,heartbeating=false;
+/**
+ * Quanti rifiuti per credenziale servono, senza un heartbeat riuscito in mezzo,
+ * prima di considerare il connector escluso.
+ *
+ * Col battito ogni 30 secondi sono circa 90 secondi di rifiuto ostinato. Tre
+ * bastano perche' il 401 nasce da una ricerca per hash della credenziale, che
+ * o corrisponde o no; uno solo sarebbe gia' prova forte, ma uccidere il
+ * connector in piena serata per un intoppo isolato sarebbe peggio del male.
+ * Il conteggio si azzera solo su un heartbeat riuscito: un errore passeggero
+ * fra due rifiuti non incrementa e non azzera, altrimenti un timeout ben
+ * piazzato terrebbe il contatore a zero per sempre.
+ */
+export const FATAL_HEARTBEAT_LIMIT=3;
+
+export function startFusionRuntime(client:FusionRuntimeClient,catalog:FusionRuntimeCatalog,options:{pollMs?:number;heartbeatMs?:number;catalogMs:number;onError?:(error:unknown)=>void;onFatal?:(error:unknown)=>void;fatalLimit?:number}){
+  const onError=options.onError??(error=>console.error("[kitchen-connector]",error));let polling=false,heartbeating=false,fatalCount=0;
+  const fatalLimit=options.fatalLimit??FATAL_HEARTBEAT_LIMIT;
   const poll=async()=>{if(polling)return;polling=true;try{await client.pollOnce();}catch(error){onError(error);}finally{polling=false;}};
-  const heartbeat=async()=>{if(heartbeating)return;heartbeating=true;try{const command=await client.heartbeat() as {catalogSyncRequested?:boolean;requestVersion?:number};if(command.catalogSyncRequested){catalog.request(command.requestVersion??0);void catalog.tick(true).catch(onError);}}catch(error){onError(error);}finally{heartbeating=false;}};
+  const heartbeat=async()=>{if(heartbeating)return;heartbeating=true;try{const command=await client.heartbeat() as {catalogSyncRequested?:boolean;requestVersion?:number};fatalCount=0;if(command.catalogSyncRequested){catalog.request(command.requestVersion??0);void catalog.tick(true).catch(onError);}}catch(error){onError(error);if(isFatalConnectorError(error)){fatalCount+=1;if(fatalCount>=fatalLimit)options.onFatal?.(error);}}finally{heartbeating=false;}};
   const sync=()=>void catalog.tick().catch(onError);
   const timers=[setInterval(()=>void poll(),options.pollMs??2_000),setInterval(()=>void heartbeat(),options.heartbeatMs??30_000),setInterval(sync,options.catalogMs)];
   void poll();void catalog.tick(true).catch(onError);

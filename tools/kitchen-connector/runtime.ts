@@ -375,6 +375,65 @@ export class KitchenConnectorClient {
   }
 }
 
+/**
+ * Un rifiuto per credenziale contro un guasto passeggero.
+ *
+ * `request()` lancia un errore la cui stringa comincia col codice HTTP, quindi
+ * la distinzione si legge di li'. Il 401 nasce da `authenticateConnector`, che
+ * e' una ricerca per hash della credenziale: o corrisponde o no, non e' un
+ * esito che va e viene. Un problema del database darebbe 500. Tutto il resto —
+ * fetch rifiutato, timeout, risposta illeggibile, 5xx — e' passeggero e si
+ * ritenta.
+ */
+export function isFatalConnectorError(error: unknown) {
+  return /^(401|403):/.test(error instanceof Error ? error.message : String(error));
+}
+
+export type StartupHeartbeat =
+  | { ok: true; command: { catalogSyncRequested?: boolean; requestVersion?: number } }
+  | { ok: false; fatal: boolean; error: unknown };
+
+/**
+ * L'heartbeat di avvio, che non deve piu' uccidere il processo.
+ *
+ * Prima era un `await` nudo a livello di modulo: se la rete non era pronta — al
+ * riavvio del telefono, sempre — il processo terminava subito, e il connector
+ * dipendeva da un launcher che aspettasse per lui.
+ *
+ * Su un errore passeggero si prosegue: `startFusionRuntime` ribatte ogni 30
+ * secondi con il suo try/catch, e l'unica cosa che questo heartbeat fa in piu',
+ * leggere `catalogSyncRequested`, la rifa' il ciclo al primo giro. Su 401/403
+ * invece si esce, perche' con una credenziale revocata non c'e' niente da
+ * aspettare — e perche' Nexus non puo' segnalarlo: un device revocato esce dal
+ * conteggio dei device attivi, quindi l'allarme "cucina non collegata" non
+ * scatta. L'unico che puo' protestare e' il connector.
+ */
+export async function startupHeartbeat(
+  client: { heartbeat(lastError?: string): Promise<unknown> },
+): Promise<StartupHeartbeat> {
+  try {
+    const command = (await client.heartbeat()) as {
+      catalogSyncRequested?: boolean;
+      requestVersion?: number;
+    };
+    console.info(
+      JSON.stringify({ scope: "kitchen-connector", event: "startup", heartbeat: "ok" }),
+    );
+    return { ok: true, command };
+  } catch (error) {
+    const fatal = isFatalConnectorError(error);
+    console.error(
+      JSON.stringify({
+        scope: "kitchen-connector",
+        event: "startup",
+        heartbeat: fatal ? "rejected" : "deferred",
+        error: error instanceof Error ? error.message : String(error),
+      }),
+    );
+    return { ok: false, fatal, error };
+  }
+}
+
 export async function pair(
   baseUrl: string,
   pairingToken: string,

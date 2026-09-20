@@ -1,0 +1,17 @@
+#!/data/data/com.termux/files/usr/bin/sh
+exec 2>&1
+set -a
+. "$HOME/.config/nexus-kitchen/env"
+set +a
+
+# Serve al ritardo crescente in `finish`: distingue un crash loop da un
+# riavvio isolato dopo giorni di funzionamento.
+mkdir -p "$HOME/.local/state/nexus-kitchen"
+date +%s > "$HOME/.local/state/nexus-kitchen/started-at"
+
+# Nessuna attesa della rete qui, per scelta. Il connector aspetta da solo:
+# l'heartbeat di avvio non lo uccide piu' se l'ERP non risponde. Aspettare qui
+# sarebbe anzi dannoso, perche' recover() stampa sul POS le comande gia'
+# ricevute senza bisogno dell'ERP, e bloccare l'avvio ne ritarderebbe l'uscita.
+cd "$HOME/nexus-kitchen/tools/kitchen-connector-standalone" || exit 1
+exec node dist/kitchen-connector/fusion.js
