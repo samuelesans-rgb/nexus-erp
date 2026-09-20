@@ -42,7 +42,7 @@ sudo tee /etc/nexus-monitor.env >/dev/null <<'ENV'
 INTERNAL_MONITOR_SECRET=...
 KITCHEN_ALERT_TELEGRAM_TOKEN=...
 KITCHEN_ALERT_TELEGRAM_CHAT_ID=...
-MONITOR_ENDPOINT=http://127.0.0.1:3000/api/internal/kitchen-channel
+MONITOR_ENDPOINT=https://erp.frisabistro.com/api/internal/kitchen-channel
 ENV
 sudo chmod 600 /etc/nexus-monitor.env
 
@@ -67,6 +67,15 @@ l'invio lo fa l'app. Senza token la rotta risponde comunque e registra
 
 Il destinatario non deve essere il Realme: se il guasto è quel telefono,
 avvisare quel telefono è un cerchio chiuso.
+
+## Perché l'URL pubblico e non l'IP del container
+
+Il container non pubblica porte e il suo IP sulla rete Docker **cambia a ogni
+ricreazione**, cioè a ogni deploy: puntarci vorrebbe dire rompere il
+sorvegliante a ogni rilascio, con in più un falso allarme "ERP non
+raggiungibile". L'URL pubblico è stabile e in più verifica il percorso vero,
+quello che attraversano gli utenti: se il proxy o il certificato cadono, il
+controllo se ne accorge invece di dichiarare tutto a posto.
 
 ## Verifica
 

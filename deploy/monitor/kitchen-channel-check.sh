@@ -10,7 +10,9 @@ CONFIG="${KITCHEN_MONITOR_CONFIG:-/etc/nexus-monitor.env}"
 # shellcheck source=/dev/null
 [ -r "$CONFIG" ] && . "$CONFIG"
 
-ENDPOINT="${MONITOR_ENDPOINT:-http://127.0.0.1:3000/api/internal/kitchen-channel}"
+# Default sull'URL pubblico: stabile fra i deploy, a differenza dell'IP del
+# container, e verifica il percorso vero anziche' una scorciatoia interna.
+ENDPOINT="${MONITOR_ENDPOINT:-https://erp.frisabistro.com/api/internal/kitchen-channel}"
 STATE_DIR="${MONITOR_STATE_DIR:-/var/lib/nexus-monitor}"
 FAIL_THRESHOLD="${MONITOR_FAIL_THRESHOLD:-3}"
 mkdir -p "$STATE_DIR"
