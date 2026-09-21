@@ -14,10 +14,7 @@ import {
   saveModifier,
   saveRecipeImpact,
 } from "@/lib/restaurant-catalog";
-import {
-  createReservation,
-  transitionReservation,
-} from "@/lib/restaurant-reservations";
+import { createStaffReservation } from "@/lib/restaurant-booking";
 import {
   openOrder,
   addOrderLine,
@@ -89,7 +86,7 @@ export async function createReservationAction(f: FormData) {
   let id = "";
   try {
     id = (
-      await createReservation(c.companyId, c.locationId, c.userId, {
+      await createStaffReservation(c.companyId, c.locationId, c.userId, {
         partnerId: t(f, "partnerId") || null,
         guestName: t(f, "guestName"),
         phone: t(f, "phone"),
@@ -110,26 +107,6 @@ export async function createReservationAction(f: FormData) {
   }
   done(`/restaurant/reservations/${id}`);
 }
-export async function reservationStatusAction(f: FormData) {
-  const c = await requireRestaurantContext(
-    MODULE_CODES.RESTAURANT_RESERVATIONS,
-    "operate",
-  );
-  const id = t(f, "id");
-  try {
-    await transitionReservation(
-      c.companyId,
-      c.locationId,
-      c.userId,
-      id,
-      t(f, "status") as never,
-    );
-  } catch (e) {
-    fail(`/restaurant/reservations/${id}`, e);
-  }
-  done(`/restaurant/reservations/${id}`);
-}
-
 export async function createMenuAction(f: FormData) {
   const c = await requireRestaurantContext(
     MODULE_CODES.RESTAURANT_MENU,
