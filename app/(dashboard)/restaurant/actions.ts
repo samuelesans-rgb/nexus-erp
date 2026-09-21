@@ -1,28 +1,547 @@
 "use server";
-import { revalidatePath } from "next/cache";import { redirect } from "next/navigation";
-import { requireRestaurantContext } from "@/lib/restaurant-access";import { MODULE_CODES } from "@/lib/module-catalog";
-import { saveArea,saveTable } from "@/lib/restaurant";import { ensureEuAllergens,saveAllergen,saveItemCategory,setItemAllergens,saveVariant,saveModifierGroup,saveModifier,saveRecipeImpact } from "@/lib/restaurant-catalog";import { createReservation,transitionReservation } from "@/lib/restaurant-reservations";import { openOrder,addOrderLine,reassignOrderTables,closeOrder } from "@/lib/restaurant-orders";import { sendOrderToKitchen,advanceKitchenLine,cancelOrderLine,retryKitchenPrintJob,reprintKitchenTicket,processKitchenPrintJob,saveKitchenStation,saveRestaurantPrinter,saveKitchenRouting } from "@/lib/restaurant-kitchen";import { prisma } from "@/lib/prisma";
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import { requireRestaurantContext } from "@/lib/restaurant-access";
+import { MODULE_CODES } from "@/lib/module-catalog";
+import { saveArea, saveTable } from "@/lib/restaurant";
+import {
+  ensureEuAllergens,
+  saveAllergen,
+  saveItemCategory,
+  setItemAllergens,
+  saveVariant,
+  saveModifierGroup,
+  saveModifier,
+  saveRecipeImpact,
+} from "@/lib/restaurant-catalog";
+import {
+  createReservation,
+  transitionReservation,
+} from "@/lib/restaurant-reservations";
+import {
+  openOrder,
+  addOrderLine,
+  reassignOrderTables,
+  closeOrder,
+} from "@/lib/restaurant-orders";
+import {
+  sendOrderToKitchen,
+  advanceKitchenLine,
+  cancelOrderLine,
+  retryKitchenPrintJob,
+  reprintKitchenTicket,
+  processKitchenPrintJob,
+  saveKitchenStation,
+  saveRestaurantPrinter,
+  saveKitchenRouting,
+} from "@/lib/restaurant-kitchen";
+import { prisma } from "@/lib/prisma";
 import { restaurantMenuEligibleItemWhere } from "@/lib/restaurant-menu-eligibility";
-const t=(f:FormData,k:string)=>String(f.get(k)??"").trim();const n=(f:FormData,k:string)=>Number(t(f,k).replace(",","."));const done=(path:string)=>{revalidatePath("/restaurant");redirect(path)};const fail=(path:string,e:unknown)=>redirect(`${path}?error=${encodeURIComponent(e instanceof Error?e.message:"Operazione non riuscita")}`);
-export async function saveAreaAction(f:FormData){const c=await requireRestaurantContext(MODULE_CODES.RESTAURANT_FLOOR,"manage");try{await saveArea(c.companyId,c.locationId,c.userId,{code:t(f,"code"),name:t(f,"name"),description:t(f,"description")})}catch(e){fail("/restaurant/areas",e)}done("/restaurant/areas?success=Area salvata")}
-export async function saveTableAction(f:FormData){const c=await requireRestaurantContext(MODULE_CODES.RESTAURANT_FLOOR,"manage");try{await saveTable(c.companyId,c.locationId,{areaId:t(f,"areaId"),code:t(f,"code"),name:t(f,"name"),seats:n(f,"seats"),status:t(f,"status") as never})}catch(e){fail("/restaurant/tables",e)}done("/restaurant/tables?success=Tavolo salvato")}
-export async function createReservationAction(f:FormData){const c=await requireRestaurantContext(MODULE_CODES.RESTAURANT_RESERVATIONS,"operate");let id="";try{id=(await createReservation(c.companyId,c.locationId,c.userId,{partnerId:t(f,"partnerId")||null,guestName:t(f,"guestName"),phone:t(f,"phone"),email:t(f,"email"),startTime:new Date(t(f,"startTime")),partySize:n(f,"partySize"),source:t(f,"source") as never,status:t(f,"status") as never,notes:t(f,"notes"),tableIds:f.getAll("tableIds").map(String),adminOverride:f.get("adminOverride")==="on"&&c.roles.some(r=>["ADMIN","SUPER_ADMIN"].includes(r))})).id}catch(e){fail("/restaurant/reservations/new",e)}done(`/restaurant/reservations/${id}`)}
-export async function reservationStatusAction(f:FormData){const c=await requireRestaurantContext(MODULE_CODES.RESTAURANT_RESERVATIONS,"operate");const id=t(f,"id");try{await transitionReservation(c.companyId,c.locationId,c.userId,id,t(f,"status") as never)}catch(e){fail(`/restaurant/reservations/${id}`,e)}done(`/restaurant/reservations/${id}`)}
-export async function createMenuAction(f:FormData){const c=await requireRestaurantContext(MODULE_CODES.RESTAURANT_MENU,"manage");const row=await prisma.restaurantMenu.create({data:{companyId:c.companyId,locationId:c.locationId,code:t(f,"code").toUpperCase(),name:t(f,"name"),description:t(f,"description")||null}});done(`/restaurant/menus/${row.id}`)}
-export async function addMenuSectionAction(f:FormData){const c=await requireRestaurantContext(MODULE_CODES.RESTAURANT_MENU,"manage");const menuId=t(f,"menuId");const menu=await prisma.restaurantMenu.findFirst({where:{id:menuId,companyId:c.companyId,locationId:c.locationId,deletedAt:null}});if(!menu)fail("/restaurant/menus",new Error("Menu non valido"));await prisma.restaurantMenuSection.create({data:{companyId:c.companyId,menuId,name:t(f,"name"),sortOrder:n(f,"sortOrder")}});done(`/restaurant/menus/${menuId}`)}
-export async function addMenuItemAction(f:FormData){const c=await requireRestaurantContext(MODULE_CODES.RESTAURANT_MENU,"manage");const sectionId=t(f,"sectionId"),menuId=t(f,"menuId"),itemId=t(f,"itemId");const [section,item,fusionMapping]=await Promise.all([prisma.restaurantMenuSection.findFirst({where:{id:sectionId,companyId:c.companyId}}),prisma.item.findFirst({where:{id:itemId,companyId:c.companyId,...restaurantMenuEligibleItemWhere,type:{in:["RECIPE","PRODUCT","SERVICE"]}}}),prisma.fusionCatalogMapping.findFirst({where:{companyId:c.companyId,locationId:c.locationId,itemId,missingFromFusion:false},select:{id:true}})]);if(!section||!item)fail(`/restaurant/menus/${menuId}`,new Error("Sezione o Item non valido"));await prisma.restaurantMenuItem.create({data:{companyId:c.companyId,menuSectionId:sectionId,itemId,priceOverride:fusionMapping?null:t(f,"priceOverride")?n(f,"priceOverride"):null}});done(`/restaurant/menus/${menuId}`)}
-export async function openOrderAction(f:FormData){const c=await requireRestaurantContext(MODULE_CODES.RESTAURANT_FLOOR,"operate");let id="";try{id=(await openOrder(c.companyId,c.locationId,c.userId,{tableId:t(f,"tableId")||null,tableIds:f.getAll("tableIds").map(String),reservationId:t(f,"reservationId")||null,partnerId:t(f,"partnerId")||null,guestCount:n(f,"guestCount"),serviceType:t(f,"serviceType") as never,notes:t(f,"notes")})).id}catch(e){fail("/restaurant/orders/new",e)}done(`/restaurant/orders/${id}`)}
-export async function orderAction(f:FormData){const c=await requireRestaurantContext(MODULE_CODES.RESTAURANT_FLOOR,"operate");const id=t(f,"orderId");try{const op=t(f,"operation");if(op==="add")await addOrderLine(c.companyId,c.locationId,id,{itemId:t(f,"itemId"),variantId:t(f,"variantId")||null,modifierIds:f.getAll("modifierIds").map(String),quantity:n(f,"quantity"),courseNumber:n(f,"courseNumber")||undefined,kitchenNotes:t(f,"kitchenNotes")});else if(op==="cancel")await cancelOrderLine(c.companyId,c.locationId,id,t(f,"lineId"),c.userId,t(f,"idempotencyKey"));else if(op==="transfer")await reassignOrderTables(c.companyId,c.locationId,id,f.getAll("tableIds").map(String));else if(op==="send")await sendOrderToKitchen(c.companyId,c.locationId,id,c.userId,t(f,"idempotencyKey"));else if(op==="close")await closeOrder(c.companyId,c.locationId,c.userId,id,t(f,"idempotencyKey"),{seriesId:t(f,"seriesId"),financialAccountId:t(f,"financialAccountId"),paymentMethod:t(f,"paymentMethod") as never,amount:n(f,"amount"),invoice:f.get("invoice")==="on"})}catch(e){fail(`/restaurant/orders/${id}`,e)}done(`/restaurant/orders/${id}`)}
-export async function kitchenAction(f:FormData){const c=await requireRestaurantContext(MODULE_CODES.RESTAURANT_KITCHEN,"kitchen");try{await advanceKitchenLine(c.companyId,c.locationId,c.userId,t(f,"lineId"),t(f,"status") as never)}catch(e){fail("/restaurant/kitchen",e)}done("/restaurant/kitchen")}
+const t = (f: FormData, k: string) => String(f.get(k) ?? "").trim();
+const n = (f: FormData, k: string) => Number(t(f, k).replace(",", "."));
+const done = (path: string) => {
+  revalidatePath("/restaurant");
+  redirect(path);
+};
+const fail = (path: string, e: unknown) =>
+  redirect(
+    `${path}?error=${encodeURIComponent(e instanceof Error ? e.message : "Operazione non riuscita")}`,
+  );
+export async function saveAreaAction(f: FormData) {
+  const c = await requireRestaurantContext(
+    MODULE_CODES.RESTAURANT_FLOOR,
+    "manage",
+  );
+  try {
+    await saveArea(c.companyId, c.locationId, c.userId, {
+      code: t(f, "code"),
+      name: t(f, "name"),
+      description: t(f, "description"),
+    });
+  } catch (e) {
+    fail("/restaurant/areas", e);
+  }
+  done("/restaurant/areas?success=Area salvata");
+}
+export async function saveTableAction(f: FormData) {
+  const c = await requireRestaurantContext(
+    MODULE_CODES.RESTAURANT_FLOOR,
+    "manage",
+  );
+  try {
+    await saveTable(c.companyId, c.locationId, {
+      areaId: t(f, "areaId"),
+      code: t(f, "code"),
+      name: t(f, "name"),
+      seats: n(f, "seats"),
+      status: t(f, "status") as never,
+    });
+  } catch (e) {
+    fail("/restaurant/tables", e);
+  }
+  done("/restaurant/tables?success=Tavolo salvato");
+}
+export async function createReservationAction(f: FormData) {
+  const c = await requireRestaurantContext(
+    MODULE_CODES.RESTAURANT_RESERVATIONS,
+    "operate",
+  );
+  let id = "";
+  try {
+    id = (
+      await createReservation(c.companyId, c.locationId, c.userId, {
+        partnerId: t(f, "partnerId") || null,
+        guestName: t(f, "guestName"),
+        phone: t(f, "phone"),
+        email: t(f, "email"),
+        startTime: new Date(t(f, "startTime")),
+        partySize: n(f, "partySize"),
+        source: t(f, "source") as never,
+        status: t(f, "status") as never,
+        notes: t(f, "notes"),
+        tableIds: f.getAll("tableIds").map(String),
+        adminOverride:
+          f.get("adminOverride") === "on" &&
+          c.roles.some((r) => ["ADMIN", "SUPER_ADMIN"].includes(r)),
+      })
+    ).id;
+  } catch (e) {
+    fail("/restaurant/reservations/new", e);
+  }
+  done(`/restaurant/reservations/${id}`);
+}
+export async function reservationStatusAction(f: FormData) {
+  const c = await requireRestaurantContext(
+    MODULE_CODES.RESTAURANT_RESERVATIONS,
+    "operate",
+  );
+  const id = t(f, "id");
+  try {
+    await transitionReservation(
+      c.companyId,
+      c.locationId,
+      c.userId,
+      id,
+      t(f, "status") as never,
+    );
+  } catch (e) {
+    fail(`/restaurant/reservations/${id}`, e);
+  }
+  done(`/restaurant/reservations/${id}`);
+}
 
-export async function saveCatalogCategoryAction(f:FormData){const c=await requireRestaurantContext(MODULE_CODES.RESTAURANT_MENU,"manage");try{await saveItemCategory(c.companyId,c.userId,{id:t(f,"id")||undefined,code:t(f,"code"),name:t(f,"name"),description:t(f,"description")||null,purpose:t(f,"purpose") as "SELLABLE"|"INVENTORY"|"BOTH",active:f.get("active")==="on"})}catch(e){fail("/restaurant/catalog",e)}done("/restaurant/catalog?success=Categoria salvata")}
+export async function createMenuAction(f: FormData) {
+  const c = await requireRestaurantContext(
+    MODULE_CODES.RESTAURANT_MENU,
+    "manage",
+  );
+  const row = await prisma.restaurantMenu.create({
+    data: {
+      companyId: c.companyId,
+      locationId: c.locationId,
+      code: t(f, "code").toUpperCase(),
+      name: t(f, "name"),
+      description: t(f, "description") || null,
+    },
+  });
+  done(`/restaurant/menus/${row.id}`);
+}
+export async function addMenuSectionAction(f: FormData) {
+  const c = await requireRestaurantContext(
+    MODULE_CODES.RESTAURANT_MENU,
+    "manage",
+  );
+  const menuId = t(f, "menuId");
+  const menu = await prisma.restaurantMenu.findFirst({
+    where: {
+      id: menuId,
+      companyId: c.companyId,
+      locationId: c.locationId,
+      deletedAt: null,
+    },
+  });
+  if (!menu) fail("/restaurant/menus", new Error("Menu non valido"));
+  await prisma.restaurantMenuSection.create({
+    data: {
+      companyId: c.companyId,
+      menuId,
+      name: t(f, "name"),
+      sortOrder: n(f, "sortOrder"),
+    },
+  });
+  done(`/restaurant/menus/${menuId}`);
+}
+export async function addMenuItemAction(f: FormData) {
+  const c = await requireRestaurantContext(
+    MODULE_CODES.RESTAURANT_MENU,
+    "manage",
+  );
+  const sectionId = t(f, "sectionId"),
+    menuId = t(f, "menuId"),
+    itemId = t(f, "itemId");
+  const [section, item, fusionMapping] = await Promise.all([
+    prisma.restaurantMenuSection.findFirst({
+      where: { id: sectionId, companyId: c.companyId },
+    }),
+    prisma.item.findFirst({
+      where: {
+        id: itemId,
+        companyId: c.companyId,
+        ...restaurantMenuEligibleItemWhere,
+        type: { in: ["RECIPE", "PRODUCT", "SERVICE"] },
+      },
+    }),
+    prisma.fusionCatalogMapping.findFirst({
+      where: {
+        companyId: c.companyId,
+        locationId: c.locationId,
+        itemId,
+        missingFromFusion: false,
+      },
+      select: { id: true },
+    }),
+  ]);
+  if (!section || !item)
+    fail(`/restaurant/menus/${menuId}`, new Error("Sezione o Item non valido"));
+  await prisma.restaurantMenuItem.create({
+    data: {
+      companyId: c.companyId,
+      menuSectionId: sectionId,
+      itemId,
+      priceOverride: fusionMapping
+        ? null
+        : t(f, "priceOverride")
+          ? n(f, "priceOverride")
+          : null,
+    },
+  });
+  done(`/restaurant/menus/${menuId}`);
+}
+export async function openOrderAction(f: FormData) {
+  const c = await requireRestaurantContext(
+    MODULE_CODES.RESTAURANT_FLOOR,
+    "operate",
+  );
+  let id = "";
+  try {
+    id = (
+      await openOrder(c.companyId, c.locationId, c.userId, {
+        tableId: t(f, "tableId") || null,
+        tableIds: f.getAll("tableIds").map(String),
+        reservationId: t(f, "reservationId") || null,
+        partnerId: t(f, "partnerId") || null,
+        guestCount: n(f, "guestCount"),
+        serviceType: t(f, "serviceType") as never,
+        notes: t(f, "notes"),
+      })
+    ).id;
+  } catch (e) {
+    fail("/restaurant/orders/new", e);
+  }
+  done(`/restaurant/orders/${id}`);
+}
+export async function orderAction(f: FormData) {
+  const c = await requireRestaurantContext(
+    MODULE_CODES.RESTAURANT_FLOOR,
+    "operate",
+  );
+  const id = t(f, "orderId");
+  try {
+    const op = t(f, "operation");
+    if (op === "add")
+      await addOrderLine(c.companyId, c.locationId, id, {
+        itemId: t(f, "itemId"),
+        variantId: t(f, "variantId") || null,
+        modifierIds: f.getAll("modifierIds").map(String),
+        quantity: n(f, "quantity"),
+        courseNumber: n(f, "courseNumber") || undefined,
+        kitchenNotes: t(f, "kitchenNotes"),
+      });
+    else if (op === "cancel")
+      await cancelOrderLine(
+        c.companyId,
+        c.locationId,
+        id,
+        t(f, "lineId"),
+        c.userId,
+        t(f, "idempotencyKey"),
+      );
+    else if (op === "transfer")
+      await reassignOrderTables(
+        c.companyId,
+        c.locationId,
+        id,
+        f.getAll("tableIds").map(String),
+      );
+    else if (op === "send")
+      await sendOrderToKitchen(
+        c.companyId,
+        c.locationId,
+        id,
+        c.userId,
+        t(f, "idempotencyKey"),
+      );
+    else if (op === "close")
+      await closeOrder(
+        c.companyId,
+        c.locationId,
+        c.userId,
+        id,
+        t(f, "idempotencyKey"),
+        {
+          seriesId: t(f, "seriesId"),
+          financialAccountId: t(f, "financialAccountId"),
+          paymentMethod: t(f, "paymentMethod") as never,
+          amount: n(f, "amount"),
+          invoice: f.get("invoice") === "on",
+        },
+      );
+  } catch (e) {
+    fail(`/restaurant/orders/${id}`, e);
+  }
+  done(`/restaurant/orders/${id}`);
+}
+export async function kitchenAction(f: FormData) {
+  const c = await requireRestaurantContext(
+    MODULE_CODES.RESTAURANT_KITCHEN,
+    "kitchen",
+  );
+  try {
+    await advanceKitchenLine(
+      c.companyId,
+      c.locationId,
+      c.userId,
+      t(f, "lineId"),
+      t(f, "status") as never,
+    );
+  } catch (e) {
+    fail("/restaurant/kitchen", e);
+  }
+  done("/restaurant/kitchen");
+}
 
-export async function kitchenPrintAction(f:FormData){const c=await requireRestaurantContext(MODULE_CODES.RESTAURANT_KITCHEN,"kitchen");try{const op=t(f,"operation");if(op==="process")await processKitchenPrintJob(c.companyId,c.locationId,t(f,"jobId"));else if(op==="retry")await retryKitchenPrintJob(c.companyId,c.locationId,c.userId,t(f,"jobId"));else if(op==="reprint")await reprintKitchenTicket(c.companyId,c.locationId,c.userId,t(f,"ticketId"),t(f,"idempotencyKey"),t(f,"reason"));}catch(e){fail("/restaurant/kitchen/print-queue",e)}done("/restaurant/kitchen/print-queue")}
-export async function kitchenSettingsAction(f:FormData){const c=await requireRestaurantContext(MODULE_CODES.RESTAURANT_KITCHEN,"manage");try{const op=t(f,"operation");if(op==="station")await saveKitchenStation(c.companyId,c.locationId,c.userId,{id:t(f,"id")||undefined,code:t(f,"code"),name:t(f,"name"),sortOrder:n(f,"sortOrder")||0,active:f.get("active")==="on"});else if(op==="printer")await saveRestaurantPrinter(c.companyId,c.locationId,c.userId,{id:t(f,"id")||undefined,stationId:t(f,"stationId"),code:t(f,"code"),name:t(f,"name"),type:t(f,"type") as never,connectionType:t(f,"connectionType") as never,mode:t(f,"mode") as never,deviceType:t(f,"deviceType") as never,address:t(f,"address"),enabled:f.get("enabled")==="on",copies:n(f,"copies")||1,paperWidth:n(f,"paperWidth")||80});else if(op==="routing")await saveKitchenRouting(c.companyId,c.locationId,c.userId,t(f,"itemId"),t(f,"stationId"));}catch(e){fail("/restaurant/settings/kitchen",e)}done("/restaurant/settings/kitchen?success=Configurazione salvata")}
-export async function saveAllergenAction(f:FormData){const c=await requireRestaurantContext(MODULE_CODES.RESTAURANT_MENU,"manage");try{await saveAllergen(c.companyId,{id:t(f,"id")||undefined,code:t(f,"code"),name:t(f,"name"),description:t(f,"description")||null,active:f.get("active")==="on"})}catch(e){fail("/restaurant/catalog",e)}done("/restaurant/catalog?success=Allergene salvato")}
-export async function ensureEuAllergensAction(){const c=await requireRestaurantContext(MODULE_CODES.RESTAURANT_MENU,"manage");try{await ensureEuAllergens(c.companyId)}catch(e){fail("/restaurant/catalog",e)}done("/restaurant/catalog?success=Catalogo allergeni UE disponibile")}
-export async function setItemAllergensAction(f:FormData){const c=await requireRestaurantContext(MODULE_CODES.RESTAURANT_MENU,"manage");try{await setItemAllergens(c.companyId,t(f,"itemId"),f.getAll("allergenIds").map(String))}catch(e){fail("/restaurant/catalog",e)}done("/restaurant/catalog?success=Allergeni prodotto aggiornati")}
-export async function saveVariantAction(f:FormData){const c=await requireRestaurantContext(MODULE_CODES.RESTAURANT_MENU,"manage");try{await saveVariant(c.companyId,{id:t(f,"id")||undefined,itemId:t(f,"itemId"),name:t(f,"name"),sku:t(f,"sku")||null,priceOverride:t(f,"priceOverride")?n(f,"priceOverride"):null,priceDelta:n(f,"priceDelta")||0,available:f.get("available")==="on",active:f.get("active")==="on",sortOrder:n(f,"sortOrder")||0})}catch(e){fail("/restaurant/catalog",e)}done("/restaurant/catalog?success=Variante salvata")}
-export async function saveModifierGroupAction(f:FormData){const c=await requireRestaurantContext(MODULE_CODES.RESTAURANT_MENU,"manage");try{await saveModifierGroup(c.companyId,{id:t(f,"id")||undefined,itemId:t(f,"itemId"),name:t(f,"name"),required:f.get("required")==="on",minSelections:n(f,"minSelections")||0,maxSelections:n(f,"maxSelections"),active:f.get("active")==="on",sortOrder:n(f,"sortOrder")||0})}catch(e){fail("/restaurant/catalog",e)}done("/restaurant/catalog?success=Gruppo salvato")}
-export async function saveModifierAction(f:FormData){const c=await requireRestaurantContext(MODULE_CODES.RESTAURANT_MENU,"manage");try{await saveModifier(c.companyId,{id:t(f,"id")||undefined,locationId:c.locationId,groupId:t(f,"groupId"),name:t(f,"name"),kitchenLabel:t(f,"kitchenLabel")||t(f,"name"),priceDelta:n(f,"priceDelta")||0,fusionPluId:t(f,"fusionPluId")?n(f,"fusionPluId"):null,fusionPlateVariation:f.get("fusionPlateVariation")==="on",itemId:t(f,"itemId")||null,active:f.get("active")==="on",sortOrder:n(f,"sortOrder")||0})}catch(e){fail("/restaurant/catalog",e)}done("/restaurant/catalog?success=Modifier salvato")}
-export async function saveRecipeImpactAction(f:FormData){const c=await requireRestaurantContext(MODULE_CODES.RESTAURANT_RECIPES,"manage");const [ownerType,ownerId]=t(f,"owner").split(":");try{await saveRecipeImpact(c.companyId,{variantId:ownerType==="variant"?ownerId:null,modifierId:ownerType==="modifier"?ownerId:null,componentItemId:t(f,"componentItemId"),unitOfMeasureId:t(f,"unitOfMeasureId"),quantityDelta:n(f,"quantityDelta")})}catch(e){fail("/restaurant/catalog",e)}done("/restaurant/catalog?success=Impatto ricetta salvato")}
+export async function saveCatalogCategoryAction(f: FormData) {
+  const c = await requireRestaurantContext(
+    MODULE_CODES.RESTAURANT_MENU,
+    "manage",
+  );
+  try {
+    await saveItemCategory(c.companyId, c.userId, {
+      id: t(f, "id") || undefined,
+      code: t(f, "code"),
+      name: t(f, "name"),
+      description: t(f, "description") || null,
+      purpose: t(f, "purpose") as "SELLABLE" | "INVENTORY" | "BOTH",
+      active: f.get("active") === "on",
+    });
+  } catch (e) {
+    fail("/restaurant/catalog", e);
+  }
+  done("/restaurant/catalog?success=Categoria salvata");
+}
+
+export async function kitchenPrintAction(f: FormData) {
+  const c = await requireRestaurantContext(
+    MODULE_CODES.RESTAURANT_KITCHEN,
+    "kitchen",
+  );
+  try {
+    const op = t(f, "operation");
+    if (op === "process")
+      await processKitchenPrintJob(c.companyId, c.locationId, t(f, "jobId"));
+    else if (op === "retry")
+      await retryKitchenPrintJob(
+        c.companyId,
+        c.locationId,
+        c.userId,
+        t(f, "jobId"),
+      );
+    else if (op === "reprint")
+      await reprintKitchenTicket(
+        c.companyId,
+        c.locationId,
+        c.userId,
+        t(f, "ticketId"),
+        t(f, "idempotencyKey"),
+        t(f, "reason"),
+      );
+  } catch (e) {
+    fail("/restaurant/kitchen/print-queue", e);
+  }
+  done("/restaurant/kitchen/print-queue");
+}
+export async function kitchenSettingsAction(f: FormData) {
+  const c = await requireRestaurantContext(
+    MODULE_CODES.RESTAURANT_KITCHEN,
+    "manage",
+  );
+  try {
+    const op = t(f, "operation");
+    if (op === "station")
+      await saveKitchenStation(c.companyId, c.locationId, c.userId, {
+        id: t(f, "id") || undefined,
+        code: t(f, "code"),
+        name: t(f, "name"),
+        sortOrder: n(f, "sortOrder") || 0,
+        active: f.get("active") === "on",
+      });
+    else if (op === "printer")
+      await saveRestaurantPrinter(c.companyId, c.locationId, c.userId, {
+        id: t(f, "id") || undefined,
+        stationId: t(f, "stationId"),
+        code: t(f, "code"),
+        name: t(f, "name"),
+        type: t(f, "type") as never,
+        connectionType: t(f, "connectionType") as never,
+        mode: t(f, "mode") as never,
+        deviceType: t(f, "deviceType") as never,
+        address: t(f, "address"),
+        enabled: f.get("enabled") === "on",
+        copies: n(f, "copies") || 1,
+        paperWidth: n(f, "paperWidth") || 80,
+      });
+    else if (op === "routing")
+      await saveKitchenRouting(
+        c.companyId,
+        c.locationId,
+        c.userId,
+        t(f, "itemId"),
+        t(f, "stationId"),
+      );
+  } catch (e) {
+    fail("/restaurant/settings/kitchen", e);
+  }
+  done("/restaurant/settings/kitchen?success=Configurazione salvata");
+}
+export async function saveAllergenAction(f: FormData) {
+  const c = await requireRestaurantContext(
+    MODULE_CODES.RESTAURANT_MENU,
+    "manage",
+  );
+  try {
+    await saveAllergen(c.companyId, {
+      id: t(f, "id") || undefined,
+      code: t(f, "code"),
+      name: t(f, "name"),
+      description: t(f, "description") || null,
+      active: f.get("active") === "on",
+    });
+  } catch (e) {
+    fail("/restaurant/catalog", e);
+  }
+  done("/restaurant/catalog?success=Allergene salvato");
+}
+export async function ensureEuAllergensAction() {
+  const c = await requireRestaurantContext(
+    MODULE_CODES.RESTAURANT_MENU,
+    "manage",
+  );
+  try {
+    await ensureEuAllergens(c.companyId);
+  } catch (e) {
+    fail("/restaurant/catalog", e);
+  }
+  done("/restaurant/catalog?success=Catalogo allergeni UE disponibile");
+}
+export async function setItemAllergensAction(f: FormData) {
+  const c = await requireRestaurantContext(
+    MODULE_CODES.RESTAURANT_MENU,
+    "manage",
+  );
+  try {
+    await setItemAllergens(
+      c.companyId,
+      t(f, "itemId"),
+      f.getAll("allergenIds").map(String),
+    );
+  } catch (e) {
+    fail("/restaurant/catalog", e);
+  }
+  done("/restaurant/catalog?success=Allergeni prodotto aggiornati");
+}
+export async function saveVariantAction(f: FormData) {
+  const c = await requireRestaurantContext(
+    MODULE_CODES.RESTAURANT_MENU,
+    "manage",
+  );
+  try {
+    await saveVariant(c.companyId, {
+      id: t(f, "id") || undefined,
+      itemId: t(f, "itemId"),
+      name: t(f, "name"),
+      sku: t(f, "sku") || null,
+      priceOverride: t(f, "priceOverride") ? n(f, "priceOverride") : null,
+      priceDelta: n(f, "priceDelta") || 0,
+      available: f.get("available") === "on",
+      active: f.get("active") === "on",
+      sortOrder: n(f, "sortOrder") || 0,
+    });
+  } catch (e) {
+    fail("/restaurant/catalog", e);
+  }
+  done("/restaurant/catalog?success=Variante salvata");
+}
+export async function saveModifierGroupAction(f: FormData) {
+  const c = await requireRestaurantContext(
+    MODULE_CODES.RESTAURANT_MENU,
+    "manage",
+  );
+  try {
+    await saveModifierGroup(c.companyId, {
+      id: t(f, "id") || undefined,
+      itemId: t(f, "itemId"),
+      name: t(f, "name"),
+      required: f.get("required") === "on",
+      minSelections: n(f, "minSelections") || 0,
+      maxSelections: n(f, "maxSelections"),
+      active: f.get("active") === "on",
+      sortOrder: n(f, "sortOrder") || 0,
+    });
+  } catch (e) {
+    fail("/restaurant/catalog", e);
+  }
+  done("/restaurant/catalog?success=Gruppo salvato");
+}
+export async function saveModifierAction(f: FormData) {
+  const c = await requireRestaurantContext(
+    MODULE_CODES.RESTAURANT_MENU,
+    "manage",
+  );
+  try {
+    await saveModifier(c.companyId, {
+      id: t(f, "id") || undefined,
+      locationId: c.locationId,
+      groupId: t(f, "groupId"),
+      name: t(f, "name"),
+      kitchenLabel: t(f, "kitchenLabel") || t(f, "name"),
+      priceDelta: n(f, "priceDelta") || 0,
+      fusionPluId: t(f, "fusionPluId") ? n(f, "fusionPluId") : null,
+      fusionPlateVariation: f.get("fusionPlateVariation") === "on",
+      itemId: t(f, "itemId") || null,
+      active: f.get("active") === "on",
+      sortOrder: n(f, "sortOrder") || 0,
+    });
+  } catch (e) {
+    fail("/restaurant/catalog", e);
+  }
+  done("/restaurant/catalog?success=Modifier salvato");
+}
+export async function saveRecipeImpactAction(f: FormData) {
+  const c = await requireRestaurantContext(
+    MODULE_CODES.RESTAURANT_RECIPES,
+    "manage",
+  );
+  const [ownerType, ownerId] = t(f, "owner").split(":");
+  try {
+    await saveRecipeImpact(c.companyId, {
+      variantId: ownerType === "variant" ? ownerId : null,
+      modifierId: ownerType === "modifier" ? ownerId : null,
+      componentItemId: t(f, "componentItemId"),
+      unitOfMeasureId: t(f, "unitOfMeasureId"),
+      quantityDelta: n(f, "quantityDelta"),
+    });
+  } catch (e) {
+    fail("/restaurant/catalog", e);
+  }
+  done("/restaurant/catalog?success=Impatto ricetta salvato");
+}
