@@ -164,11 +164,6 @@ export async function openOrder(
           tableId,
         })),
       });
-    if (requested.length)
-      await tx.restaurantTable.updateMany({
-        where: { companyId, locationId, id: { in: requested } },
-        data: { status: "OCCUPIED" },
-      });
     await writeAuditLogTx(tx, {
       companyId,
       locationId,
@@ -486,16 +481,9 @@ export async function reassignOrderTables(
         })),
       });
     }
-    const released = oldIds.filter((id) => !requested.includes(id));
-    if (released.length)
-      await tx.restaurantTable.updateMany({
-        where: { companyId, locationId, id: { in: released } },
-        data: { status: "AVAILABLE" },
-      });
-    await tx.restaurantTable.updateMany({
-      where: { companyId, locationId, id: { in: requested } },
-      data: { status: "OCCUPIED" },
-    });
+    // La riassegnazione non tocca piu' i tavoli: liberare il vecchio e
+    // occupare il nuovo e' esattamente cio' che la derivazione ricava dalle
+    // righe di RestaurantOrderTable appena riscritte.
     return { id: orderId, tableIds: requested };
   });
 }
@@ -863,7 +851,7 @@ export async function closeRestaurantOrderAtomic(
             locationId,
             id: { in: order.tables.map((row) => row.tableId) },
           },
-          data: { status: "DIRTY", physicalStatus: "DIRTY" },
+          data: { physicalStatus: "DIRTY" },
         });
       if (paid)
         await emitRestaurantEventTx(

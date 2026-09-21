@@ -63,7 +63,7 @@ test("Public Booking: prenotazione pubblica e gestione completa staff", async ({
 
     const assignedTableId = reservation.tables[0]?.tableId;
     const alternateTable = await prisma.restaurantTable.findFirstOrThrow({
-      where: { companyId: company.id, locationId: location.id, id: assignedTableId ? { not: assignedTableId } : undefined, active: true, deletedAt: null, status: { notIn: ["OUT_OF_SERVICE", "OCCUPIED"] }, OR: [{ maxSeats: { gte: 2 } }, { maxSeats: null, seats: { gte: 2 } }] },
+      where: { companyId: company.id, locationId: location.id, id: assignedTableId ? { not: assignedTableId } : undefined, active: true, deletedAt: null, physicalStatus: { not: "OUT_OF_SERVICE" }, OR: [{ maxSeats: { gte: 2 } }, { maxSeats: null, seats: { gte: 2 } }] },
       select: { id: true },
     });
     await page.locator('select[name="tableId"]').selectOption(alternateTable.id);

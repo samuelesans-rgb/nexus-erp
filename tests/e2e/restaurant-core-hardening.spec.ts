@@ -136,7 +136,7 @@ test("Restaurant Core: login, cucina, pagamenti e idempotenza UI", async ({ page
         code: tableCode,
         name: tableName,
         seats: 2,
-        status: "AVAILABLE",
+        physicalStatus: "READY",
       },
       select: { id: true, name: true },
     });
@@ -300,7 +300,7 @@ test("Restaurant Core: login, cucina, pagamenti e idempotenza UI", async ({ page
     const order = await prisma.restaurantOrder.findUniqueOrThrow({ where: { id: orderId }, include: { document: true, table: true } });
     if (order.documentId) createdDocumentIds.push(order.documentId);
     expect(order.document?.status).toBe("POSTED");
-    expect(order.table?.status).toBe("DIRTY");
+    expect(order.table?.physicalStatus).toBe("DIRTY");
     expect(await prisma.financialMovement.count({ where: { documentId: order.documentId, movementType: "CUSTOMER_RECEIPT" } })).toBe(2);
     await page.reload();
     if (!order.documentId) throw new Error("Documento non associato all'ordine test.");

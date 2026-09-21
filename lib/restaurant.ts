@@ -1,8 +1,8 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
-import type { Prisma, RestaurantTableStatus } from "@/generated/prisma/client";
+import type { Prisma, RestaurantTablePhysicalStatus } from "@/generated/prisma/client";
 import { restaurantMenuEligibleItemWhere } from "@/lib/restaurant-menu-eligibility";
-import { deriveTableStatusFromRow, tableHasOpenOrderWhere, tableStatusInclude, toPhysicalStatus } from "@/lib/restaurant-table-status";
+import { deriveTableStatusFromRow, tableHasOpenOrderWhere, tableStatusInclude } from "@/lib/restaurant-table-status";
 
 export class RestaurantDomainError extends Error {}
 export async function emitRestaurantEventTx(tx: Prisma.TransactionClient, companyId: string, eventType: string, aggregateType: string, aggregateId: string, payload: Prisma.InputJsonValue = {}) {
@@ -33,10 +33,10 @@ export async function saveArea(companyId: string, locationId: string, userId: st
   if (input.id) { const result = await prisma.restaurantArea.updateMany({ where: { id: input.id, companyId, locationId, deletedAt: null }, data }); if (!result.count) throw new RestaurantDomainError("Area non trovata."); return { id: input.id }; }
   return prisma.restaurantArea.create({ data: { companyId, ...data, createdById: userId }, select: { id: true } });
 }
-export async function saveTable(companyId: string, locationId: string, input: { id?: string; areaId: string; code: string; name: string; seats: number; status?: RestaurantTableStatus }) {
+export async function saveTable(companyId: string, locationId: string, input: { id?: string; areaId: string; code: string; name: string; seats: number; physicalStatus?: RestaurantTablePhysicalStatus }) {
   const area = await prisma.restaurantArea.findFirst({ where: { id: input.areaId, companyId, locationId, deletedAt: null }, select: { id: true } });
   if (!area || input.seats < 1) throw new RestaurantDomainError("Area non valida o coperti non validi.");
-  const data = { locationId, areaId: area.id, code: input.code.trim().toUpperCase(), name: input.name.trim(), seats: input.seats, status: input.status ?? "AVAILABLE" as RestaurantTableStatus, physicalStatus: toPhysicalStatus(input.status ?? "AVAILABLE") };
+  const data = { locationId, areaId: area.id, code: input.code.trim().toUpperCase(), name: input.name.trim(), seats: input.seats, physicalStatus: input.physicalStatus ?? "READY" };
   if (input.id) { const result = await prisma.restaurantTable.updateMany({ where: { id: input.id, companyId, locationId, deletedAt: null }, data }); if (!result.count) throw new RestaurantDomainError("Tavolo non trovato."); return { id: input.id }; }
   return prisma.restaurantTable.create({ data: { companyId, ...data }, select: { id: true } });
 }

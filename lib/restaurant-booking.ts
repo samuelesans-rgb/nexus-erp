@@ -294,12 +294,10 @@ export async function transitionReservation(companyId: string, locationId: strin
     });
     if (!updated.count) throw new RestaurantBookingError("La prenotazione è stata modificata da un altro operatore.");
     if (promotion) { await tx.restaurantReservationTable.deleteMany({ where: { companyId, reservationId: id } }); await tx.restaurantReservationTable.createMany({ data: promotion.tableIds.map(tableId => ({ companyId, reservationId: id, tableId })) }); }
-    if (nextStatus === "SEATED" && current.tables.length) {
-      await tx.restaurantTable.updateMany({ where: { companyId, locationId, id: { in: current.tables.map((table) => table.tableId) } }, data: { status: "OCCUPIED" } });
-    }
-    if (["COMPLETED", "CANCELLED", "NO_SHOW"].includes(nextStatus) && current.tables.length) {
-      await tx.restaurantTable.updateMany({ where: { companyId, locationId, id: { in: current.tables.map((table) => table.tableId) }, status: "OCCUPIED" }, data: { status: "AVAILABLE" } });
-    }
+    // Niente da scrivere sui tavoli: sedere o liberare una prenotazione cambia
+    // lo stato derivato da se', perche' la derivazione guarda le prenotazioni
+    // che tengono il tavolo. Queste due updateMany scrivevano una colonna che
+    // nessuno leggeva piu'.
     await event(tx, companyId, id, eventNames[nextStatus] ?? "RestaurantReservationStatusChanged", { from: current.status, to: nextStatus, userId: userId ?? null });
   });
   return { id, status: nextStatus };

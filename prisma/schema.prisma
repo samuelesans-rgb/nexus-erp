@@ -2204,7 +2204,6 @@ model RestaurantTable {
   sortOrder         Int                               @default(0)
   visibleInFloor    Boolean                           @default(true)
   fusionTableNumber Int?
-  status            RestaurantTableStatus             @default(AVAILABLE)
   physicalStatus    RestaurantTablePhysicalStatus     @default(READY)
   combinable        Boolean                           @default(true)
   active            Boolean                           @default(true)
@@ -2223,7 +2222,6 @@ model RestaurantTable {
   @@unique([companyId, locationId, fusionTableNumber])
   @@unique([companyId, id])
   @@unique([companyId, locationId, id])
-  @@index([companyId, locationId, status, deletedAt])
   @@index([companyId, locationId, physicalStatus, deletedAt])
 }
 

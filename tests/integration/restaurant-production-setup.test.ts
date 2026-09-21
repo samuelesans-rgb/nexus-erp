@@ -11,7 +11,7 @@ const environment: NodeJS.ProcessEnv = { ...process.env, NODE_ENV: "test", RESTA
 const config = {
   company: { vatNumber: vat }, location: { slug },
   areas: [{ code: "sala", name: "Sala", description: "Interna", sortOrder: 1, active: true }, { code: "esterno", name: "Esterno", sortOrder: 2 }],
-  tables: [{ areaCode: "sala", code: "t1", name: "Tavolo 1", seats: 4, minSeats: 2, maxSeats: 6, active: true }, { areaCode: "esterno", code: "t2", name: "Tavolo 2", seats: 2, status: "AVAILABLE" as const }],
+  tables: [{ areaCode: "sala", code: "t1", name: "Tavolo 1", seats: 4, minSeats: 2, maxSeats: 6, active: true }, { areaCode: "esterno", code: "t2", name: "Tavolo 2", seats: 2, physicalStatus: "READY" as const }],
   bookingSettings: { bookingEnabled: true, weeklyOpeningHours: { "0": [], "1": [["12:00", "14:00"]] as [string, string][], "2": [], "3": [], "4": [], "5": [], "6": [] }, slotIntervalMinutes: 30, defaultDurationMinutes: 120, minimumAdvanceMinutes: 60, maximumAdvanceDays: 90, maxCoversPerSlot: 40, internalNotificationEmail: "booking@example.test", confirmationMessage: "Richiesta ricevuta." },
 };
 async function clearRestaurant() { await prisma.restaurantBookingSettings.deleteMany({ where: { locationId } }); await prisma.restaurantTable.deleteMany({ where: { locationId } }); await prisma.restaurantArea.deleteMany({ where: { locationId } }); }
@@ -47,4 +47,20 @@ test("12. preserva i dati Restaurant esistenti assenti dalla configurazione", as
   await run();
   assert.ok(await prisma.restaurantArea.findUnique({ where: { id: area.id } }));
   assert.ok(await prisma.restaurantTable.findUnique({ where: { id: table.id } }));
+});
+
+test("Setup: 'status' non è più accettato e lo dice", async () => {
+  // Accettarlo mappandolo su READY scarterebbe in silenzio un'informazione che
+  // il chiamante crede di aver passato: meglio un errore che indichi il campo
+  // giusto. Lo stato di un tavolo si deriva, in configurazione si dichiara solo
+  // ciò che è fisico.
+  const legacy = { ...config, tables: [{ areaCode: "sala", code: "t9", name: "Tavolo 9", seats: 2, status: "OCCUPIED" }] };
+  await assert.rejects(
+    run(legacy, { dryRun: true }),
+    (error: Error) => {
+      assert.match(error.message, /physicalStatus/);
+      assert.match(error.message, /status/);
+      return true;
+    },
+  );
 });

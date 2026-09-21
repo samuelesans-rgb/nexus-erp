@@ -71,7 +71,7 @@ export async function saveTableAction(f: FormData) {
       code: t(f, "code"),
       name: t(f, "name"),
       seats: n(f, "seats"),
-      status: t(f, "status") as never,
+      physicalStatus: t(f, "physicalStatus") as never,
     });
   } catch (e) {
     fail("/restaurant/tables", e);

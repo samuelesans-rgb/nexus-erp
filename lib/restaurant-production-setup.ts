@@ -1,13 +1,18 @@
 import "server-only";
 import { z } from "zod";
-import type { PrismaClient, RestaurantTableStatus } from "@/generated/prisma/client";
+import type { PrismaClient, RestaurantTablePhysicalStatus } from "@/generated/prisma/client";
 import { parseRestaurantBookingSettings } from "@/lib/restaurant-booking-settings";
-import { toPhysicalStatus } from "@/lib/restaurant-table-status";
 
 export class RestaurantProductionSetupError extends Error { constructor(message: string) { super(message); this.name = "RestaurantProductionSetupError"; } }
 const code = z.string().trim().min(1).max(64).regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/).transform((value) => value.toUpperCase());
 const area = z.object({ code, name: z.string().trim().min(1).max(200), description: z.string().trim().max(1000).nullable().optional(), sortOrder: z.number().int().min(0).max(100000).optional(), active: z.boolean().optional() }).strict();
-const table = z.object({ areaCode: code, code, name: z.string().trim().min(1).max(200), seats: z.number().int().min(1).max(1000), minSeats: z.number().int().min(1).max(1000).nullable().optional(), maxSeats: z.number().int().min(1).max(1000).nullable().optional(), active: z.boolean().optional(), status: z.enum(["AVAILABLE", "RESERVED", "OCCUPIED", "DIRTY", "OUT_OF_SERVICE"]).optional() }).strict().superRefine((value, context) => {
+const table = z.object({ areaCode: code, code, name: z.string().trim().min(1).max(200), seats: z.number().int().min(1).max(1000), minSeats: z.number().int().min(1).max(1000).nullable().optional(), maxSeats: z.number().int().min(1).max(1000).nullable().optional(), active: z.boolean().optional(), physicalStatus: z.enum(["READY", "DIRTY", "OUT_OF_SERVICE"]).optional(), status: z.unknown().optional() }).strict().superRefine((value, context) => {
+  // "status" non viene piu' accettato, e il rifiuto e' esplicito invece di una
+  // mappatura silenziosa: accettare OCCUPIED o RESERVED e ridurli a READY
+  // scarterebbe senza dirlo un'informazione che il chiamante crede di aver
+  // passato. Lo stato di un tavolo si deriva dalle comande e dalle
+  // prenotazioni; in configurazione si dichiara solo cio' che e' fisico.
+  if (value.status !== undefined) context.addIssue({ code: "custom", path: ["status"], message: "Il campo 'status' non esiste più: usare 'physicalStatus' con READY, DIRTY oppure OUT_OF_SERVICE." });
   if (value.minSeats != null && value.maxSeats != null && value.minSeats > value.maxSeats) context.addIssue({ code: "custom", message: "minSeats non può superare maxSeats." });
   if (value.minSeats != null && value.minSeats > value.seats) context.addIssue({ code: "custom", message: "minSeats non può superare seats." });
   if (value.maxSeats != null && value.maxSeats < value.seats) context.addIssue({ code: "custom", message: "maxSeats non può essere inferiore a seats." });
@@ -49,7 +54,7 @@ export async function setupRestaurantProduction(client: PrismaClient, rawConfig:
     }
     if (options.failAfter === "areas") throw new RestaurantProductionSetupError("Errore setup simulato.");
     for (const value of config.tables) {
-      const current = oldTables.find((row) => row.code === value.code); const data = { areaId: areaIds.get(value.areaCode)!, name: value.name, seats: value.seats, minSeats: value.minSeats ?? null, maxSeats: value.maxSeats ?? null, active: value.active ?? true, status: (value.status ?? "AVAILABLE") as RestaurantTableStatus, physicalStatus: toPhysicalStatus((value.status ?? "AVAILABLE") as RestaurantTableStatus), deletedAt: null }; const changed = !current || !same({ areaId: current.areaId, name: current.name, seats: current.seats, minSeats: current.minSeats, maxSeats: current.maxSeats, active: current.active, status: current.status, physicalStatus: current.physicalStatus, deletedAt: current.deletedAt }, data); actions.push({ entity: "table", code: value.code, action: !current ? "create" : changed ? "update" : "unchanged" });
+      const current = oldTables.find((row) => row.code === value.code); const data = { areaId: areaIds.get(value.areaCode)!, name: value.name, seats: value.seats, minSeats: value.minSeats ?? null, maxSeats: value.maxSeats ?? null, active: value.active ?? true, physicalStatus: (value.physicalStatus ?? "READY") as RestaurantTablePhysicalStatus, deletedAt: null }; const changed = !current || !same({ areaId: current.areaId, name: current.name, seats: current.seats, minSeats: current.minSeats, maxSeats: current.maxSeats, active: current.active, physicalStatus: current.physicalStatus, deletedAt: current.deletedAt }, data); actions.push({ entity: "table", code: value.code, action: !current ? "create" : changed ? "update" : "unchanged" });
       if (!options.dryRun && !current) await tx.restaurantTable.create({ data: { companyId: company.id, locationId: location.id, code: value.code, ...data } }); else if (!options.dryRun && changed) await tx.restaurantTable.update({ where: { id: current!.id }, data });
     }
     const data = settings(config); const comparable = oldSettings && { enabled: oldSettings.enabled, openingHours: oldSettings.openingHours, slotIntervalMinutes: oldSettings.slotIntervalMinutes, defaultDurationMinutes: oldSettings.defaultDurationMinutes, minAdvanceMinutes: oldSettings.minAdvanceMinutes, maxAdvanceDays: oldSettings.maxAdvanceDays, maxCoversPerSlot: oldSettings.maxCoversPerSlot, bufferBeforeMinutes: oldSettings.bufferBeforeMinutes, bufferAfterMinutes: oldSettings.bufferAfterMinutes, confirmationPolicy: oldSettings.confirmationPolicy, cancellationEnabled: oldSettings.cancellationEnabled, cancellationDeadlineMinutes: oldSettings.cancellationDeadlineMinutes, customerCancellationMessage: oldSettings.customerCancellationMessage, noShowThresholdMinutes: oldSettings.noShowThresholdMinutes, internalNotificationEmail: oldSettings.internalNotificationEmail, confirmationMessage: oldSettings.confirmationMessage, cancellationMessage: oldSettings.cancellationMessage }; const changed = !oldSettings || !same(comparable, data); actions.push({ entity: "bookingSettings", code: config.location.slug, action: !oldSettings ? "create" : changed ? "update" : "unchanged" });

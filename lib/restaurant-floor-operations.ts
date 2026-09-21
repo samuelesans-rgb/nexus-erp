@@ -427,18 +427,8 @@ export async function settleFloorOrder(actor: Actor, orderId: string) {
       throw new RestaurantDomainError(
         "La comanda è stata modificata da un altro operatore.",
       );
-    // The derived status frees the tables as soon as the order closes; the
-    // legacy column is only realigned so the two never disagree.
-    if (tableIds.length)
-      await tx.restaurantTable.updateMany({
-        where: {
-          companyId: actor.companyId,
-          locationId: actor.locationId,
-          id: { in: tableIds },
-          physicalStatus: "READY",
-        },
-        data: { status: "AVAILABLE" },
-      });
+    // Chiudere la comanda basta: lo stato del tavolo si deriva dalle comande
+    // aperte, quindi non c'e' piu' alcuna colonna da riallineare.
     await writeAuditLogTx(tx, {
       ...actor,
       action: "RESTAURANT_ORDER_SETTLED_AT_POS",
@@ -476,7 +466,7 @@ export async function releaseFloorTable(actor: Actor, tableId: string) {
         deletedAt: null,
         area: { active: true, deletedAt: null },
       },
-      select: { id: true, status: true },
+      select: { id: true, physicalStatus: true },
     });
     if (!table) throw new RestaurantDomainError("Tavolo non disponibile in Sala.");
     const busy = await tx.restaurantOrderTable.findFirst({
@@ -497,9 +487,9 @@ export async function releaseFloorTable(actor: Actor, tableId: string) {
         id: table.id,
         companyId: actor.companyId,
         locationId: actor.locationId,
-        status: "DIRTY",
+        physicalStatus: "DIRTY",
       },
-      data: { status: "AVAILABLE", physicalStatus: "READY" },
+      data: { physicalStatus: "READY" },
     });
     if (!released.count)
       throw new RestaurantDomainError(
@@ -510,7 +500,7 @@ export async function releaseFloorTable(actor: Actor, tableId: string) {
       action: "RESTAURANT_TABLE_RELEASED",
       entityType: "RestaurantTable",
       entityId: table.id,
-      metadata: { previousStatus: table.status },
+      metadata: { previousPhysicalStatus: table.physicalStatus },
     });
     return { id: table.id };
   });
