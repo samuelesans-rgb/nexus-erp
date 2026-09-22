@@ -6,6 +6,7 @@ import { executeIdempotent } from "@/lib/idempotency";
 import { prisma } from "@/lib/prisma";
 import { lockRestaurantResources } from "@/lib/restaurant-locking";
 import { checkAvailability, getBookingSettings, RestaurantAvailabilityError } from "@/lib/restaurant-availability";
+import { addZonedDays, startOfZonedDay } from "@/lib/timezone";
 import {
   deriveTableStatusFromRow,
   tableHasOpenOrderWhere,
@@ -76,11 +77,13 @@ async function byId(companyId: string, locationId: string, id: string) {
 }
 
 export async function getStaffReservations(companyId: string, locationId: string, filters: StaffReservationFilters) {
-  const start = new Date(filters.date);
-  if (Number.isNaN(start.getTime())) throw new RestaurantBookingError("Data non valida.");
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 1);
+  const requested = new Date(filters.date);
+  if (Number.isNaN(requested.getTime())) throw new RestaurantBookingError("Data non valida.");
+  // Il giorno dello staff e' quello del locale: una prenotazione all'una di
+  // notte appartiene alla serata precedente, non al giorno UTC successivo.
+  const { timeZone } = await getBookingSettings(companyId, locationId);
+  const start = startOfZonedDay(requested, timeZone);
+  const end = addZonedDays(start, 1, timeZone);
   const query = filters.query?.trim();
   return prisma.restaurantReservation.findMany({
     where: {
