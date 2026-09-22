@@ -2,6 +2,7 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import { tableHasOpenOrderWhere } from "@/lib/restaurant-table-status";
+import { canSeatAll, MAX_UNION_TABLES } from "@/lib/restaurant-seating";
 import { addZonedDays, atZonedTime, startOfZonedDay, zonedCalendarDate, zonedWeekday } from "@/lib/timezone";
 
 export class RestaurantAvailabilityError extends Error { constructor(message:string){super(message);this.name="RestaurantAvailabilityError";} }
@@ -23,7 +24,36 @@ async function rulesFor(companyId:string,locationId:string,startTime:Date,settin
 // only meaningful when the requested window actually contains the present
 // moment. Out of service is indefinite, so it still excludes a table outright.
 export async function checkAvailability(companyId:string,locationId:string,input:{startTime:Date;partySize:number;durationMinutes?:number;tableId?:string|null;tableIds?:string[];serviceWindowId?:string|null;excludeReservationId?:string;ignoreAdvance?:boolean}){if(!Number.isInteger(input.partySize)||input.partySize<1)throw new RestaurantAvailabilityError("Numero coperti non valido.");const settings=await getBookingSettings(companyId,locationId);if(!settings.enabled)throw new RestaurantAvailabilityError("Le prenotazioni non sono disponibili per questa sede.");const startTime=new Date(input.startTime);if(Number.isNaN(startTime.getTime()))throw new RestaurantAvailabilityError("Data prenotazione non valida.");const rules=await rulesFor(companyId,locationId,startTime,settings,input.serviceWindowId),durationMinutes=input.durationMinutes??rules.durationMinutes;if(!Number.isInteger(durationMinutes)||durationMinutes<15)throw new RestaurantAvailabilityError("Durata prenotazione non valida.");const endTime=new Date(startTime.getTime()+durationMinutes*60000);if(!rules.windows.some(([from,to])=>startTime>=atTime(startTime,from,settings.timeZone)&&endTime<=atTime(startTime,to,settings.timeZone)))throw new RestaurantAvailabilityError("L’orario selezionato è fuori servizio.");if(!input.ignoreAdvance){const now=Date.now();if(startTime.getTime()<now+settings.minAdvanceMinutes*60000)throw new RestaurantAvailabilityError("L’anticipo minimo non è rispettato.");if(startTime.getTime()>now+settings.maxAdvanceDays*86400000)throw new RestaurantAvailabilityError("La data è oltre l’anticipo massimo consentito.");}const target=occupiedWindow(startTime,endTime,rules.bufferBefore,rules.bufferAfter);const reservations=await prisma.restaurantReservation.findMany({where:{companyId,locationId,deletedAt:null,id:input.excludeReservationId?{not:input.excludeReservationId}:undefined,status:{in:["PENDING","CONFIRMED","SEATED"]},startTime:{lt:new Date(target.end.getTime()+86400000)},endTime:{gt:new Date(target.start.getTime()-86400000)}},include:{tables:{select:{tableId:true}},serviceWindow:true}});const overlapping=reservations.filter(r=>{const occupied=occupiedWindow(r.startTime,r.endTime??new Date(r.startTime.getTime()+r.durationMinutes*60000),r.serviceWindow?.bufferBeforeMinutes??settings.bufferBeforeMinutes,r.serviceWindow?.bufferAfterMinutes??settings.bufferAfterMinutes);return overlaps(target.start,target.end,occupied.start,occupied.end)});if(rules.maxCovers&&overlapping.reduce((n,r)=>n+r.partySize,0)+input.partySize>rules.maxCovers)throw new RestaurantAvailabilityError("Capienza massima della fascia raggiunta.");const nowInstant=new Date(),windowIncludesNow=target.start<=nowInstant&&target.end>nowInstant
-const busy=new Set(overlapping.flatMap(r=>r.tables.map(t=>t.tableId))),requested=[...(input.tableIds??[]),...(input.tableId?[input.tableId]:[])],unique=[...new Set(requested)];const tables=await prisma.restaurantTable.findMany({where:{companyId,locationId,active:true,deletedAt:null,physicalStatus:{not:"OUT_OF_SERVICE"},...(windowIncludesNow?{NOT:tableHasOpenOrderWhere()}:{}),...(unique.length?{id:{in:unique}}:{})},select:{id:true,areaId:true,seats:true,maxSeats:true,combinable:true}}),usable=tables.filter(t=>!busy.has(t.id));if(unique.length){if(usable.length!==unique.length)return{available:false,tableId:null,tableIds:[],startTime,endTime,durationMinutes,serviceWindowId:rules.service?.id??null};if(new Set(usable.map(t=>t.areaId)).size!==1)throw new RestaurantAvailabilityError("I tavoli combinati devono appartenere alla stessa area.");if(usable.reduce((n,t)=>n+(t.maxSeats??t.seats),0)<input.partySize)return{available:false,tableId:null,tableIds:[],startTime,endTime,durationMinutes,serviceWindowId:rules.service?.id??null};if(unique.length>1){const combo=await prisma.restaurantTableCombination.findFirst({where:{companyId,locationId,active:true,tables:{every:{tableId:{in:unique}}}},include:{tables:true}});if(!combo||combo.tables.length!==unique.length||unique.some(id=>!combo.tables.some(t=>t.tableId===id)))throw new RestaurantAvailabilityError("Combinazione tavoli non consentita.");}return{available:true,tableId:unique[0],tableIds:unique,startTime,endTime,durationMinutes,serviceWindowId:rules.service?.id??null}}const single=usable.find(t=>(t.maxSeats??t.seats)>=input.partySize);if(single)return{available:true,tableId:single.id,tableIds:[single.id],startTime,endTime,durationMinutes,serviceWindowId:rules.service?.id??null};const combos=await prisma.restaurantTableCombination.findMany({where:{companyId,locationId,active:true},include:{tables:{include:{table:{select:{id:true,seats:true,maxSeats:true,physicalStatus:true,active:true,deletedAt:true,orderTables:{select:{order:{select:{status:true}}}}}}}}}}),combo=combos.find(c=>c.tables.every(x=>x.table.active&&!x.table.deletedAt&&!busy.has(x.tableId)&&x.table.physicalStatus!=="OUT_OF_SERVICE"&&!(windowIncludesNow&&x.table.orderTables.some(o=>!["CLOSED","CANCELLED"].includes(o.order.status))))&&c.tables.reduce((n,x)=>n+(x.table.maxSeats??x.table.seats),0)>=input.partySize),tableIds=combo?.tables.map(x=>x.tableId)??[];return{available:Boolean(combo),tableId:tableIds[0]??null,tableIds,startTime,endTime,durationMinutes,serviceWindowId:rules.service?.id??null}}
+const busy=new Set(overlapping.flatMap(r=>r.tables.map(t=>t.tableId))),requested=[...(input.tableIds??[]),...(input.tableId?[input.tableId]:[])],unique=[...new Set(requested)];
+  const tables=await prisma.restaurantTable.findMany({where:{companyId,locationId,active:true,deletedAt:null,physicalStatus:{not:"OUT_OF_SERVICE"},...(windowIncludesNow?{NOT:tableHasOpenOrderWhere()}:{})},select:{id:true,areaId:true,seats:true,maxSeats:true,combinable:true}});
+  const seating=tables.map(t=>({id:t.id,areaId:t.areaId,capacity:t.maxSeats??t.seats,combinable:t.combinable}));
+  const combinations=await prisma.restaurantTableCombination.findMany({where:{companyId,locationId,active:true},include:{tables:{select:{tableId:true}}}});
+  const configured=combinations.map(c=>c.tables.map(row=>row.tableId));
+  const none={available:false,tableId:null,tableIds:[] as string[],startTime,endTime,durationMinutes,serviceWindowId:rules.service?.id??null};
+  if(unique.length){
+    // Tavoli chiesti esplicitamente: e' il percorso dello staff, che sceglie.
+    const chosen=seating.filter(t=>unique.includes(t.id));
+    if(chosen.length!==unique.length||unique.some(id=>busy.has(id)))return none;
+    if(new Set(chosen.map(t=>t.areaId)).size!==1)throw new RestaurantAvailabilityError("I tavoli combinati devono appartenere alla stessa area.");
+    if(chosen.reduce((n,t)=>n+t.capacity,0)<input.partySize)return none;
+    if(unique.length>1){
+      // Un'unione al volo e' ammessa fra tavoli dichiarati combinabili nella
+      // stessa area, fino al tetto: la preconfigurazione non e' piu' l'unica
+      // strada. Le combinazioni configurate restano valide anche fra tavoli
+      // non combinabili, perche' qualcuno le ha dichiarate apposta.
+      const isConfigured=configured.some(combo=>combo.length===unique.length&&unique.every(id=>combo.includes(id)));
+      const adHoc=unique.length<=MAX_UNION_TABLES&&chosen.every(t=>t.combinable);
+      if(!isConfigured&&!adHoc)throw new RestaurantAvailabilityError("Combinazione tavoli non consentita.");
+    }
+    return{available:true,tableId:unique[0]!,tableIds:unique,startTime,endTime,durationMinutes,serviceWindowId:rules.service?.id??null};
+  }
+  // Nessun tavolo chiesto: e' il canale pubblico, che non rivendica tavoli. Si
+  // verifica che l'insieme delle prenotazioni della fascia sia sistemabile —
+  // chi va dove lo decide il cameriere all'arrivo.
+  const groups=[...overlapping.map(r=>({id:r.id,size:r.partySize,fixedTableIds:r.tables.map(t=>t.tableId)})),{id:"nuova",size:input.partySize,fixedTableIds:[] as string[]}];
+  const outcome=canSeatAll(groups,seating,configured);
+  return{available:outcome.seatable,tableId:null,tableIds:[],startTime,endTime,durationMinutes,serviceWindowId:rules.service?.id??null};
+}
 /**
  * Gli slot prenotabili di un giorno.
  *
@@ -34,4 +64,72 @@ const busy=new Set(overlapping.flatMap(r=>r.tables.map(t=>t.tableId))),requested
  * disponibile": il cliente vedeva il locale pieno e se ne andava, senza che
  * niente lo registrasse.
  */
-export async function getAvailableSlots(companyId:string,locationId:string,input:{date:Date;partySize:number;serviceWindowId?:string|null},check=checkAvailability){const settings=await getBookingSettings(companyId,locationId),date=startOfZonedDay(new Date(input.date),settings.timeZone);let rules;try{rules=await rulesFor(companyId,locationId,date,settings,input.serviceWindowId)}catch(error){if(error instanceof RestaurantAvailabilityError)return[];throw error}const slots:Date[]=[];for(const[from,to]of rules.windows)for(let cursor=atTime(date,from,settings.timeZone),limit=atTime(date,to,settings.timeZone);cursor.getTime()+rules.durationMinutes*60000<=limit.getTime();cursor=new Date(cursor.getTime()+rules.slotIntervalMinutes*60000)){try{if((await check(companyId,locationId,{startTime:cursor,partySize:input.partySize,serviceWindowId:input.serviceWindowId})).available)slots.push(cursor)}catch(error){if(!(error instanceof RestaurantAvailabilityError))throw error}}return slots}
+
+/**
+ * La sala e' sistemabile nella finestra indicata, contando anche un gruppo
+ * nuovo di `partySize`?
+ *
+ * Accetta un client qualsiasi perche' serve due volte: una fuori transazione,
+ * per rispondere al cliente, e una dentro, sotto lock, prima di scrivere —
+ * altrimenti due prenotazioni simultanee superano entrambe il controllo e
+ * insieme sforano.
+ */
+export async function isSeatable(
+  client: { restaurantReservation: { findMany: (args: unknown) => Promise<Array<{ id: string; partySize: number; tables: Array<{ tableId: string }> }>> }; restaurantTable: { findMany: (args: unknown) => Promise<Array<{ id: string; areaId: string; seats: number; maxSeats: number | null; combinable: boolean }>> }; restaurantTableCombination: { findMany: (args: unknown) => Promise<Array<{ tables: Array<{ tableId: string }> }>> } },
+  companyId: string,
+  locationId: string,
+  window: { start: Date; end: Date; partySize: number; excludeReservationId?: string },
+) {
+  const [reservations, tables, combinations] = await Promise.all([
+    client.restaurantReservation.findMany({ where: { companyId, locationId, deletedAt: null, id: window.excludeReservationId ? { not: window.excludeReservationId } : undefined, status: { in: ["PENDING", "CONFIRMED", "SEATED"] }, startTime: { lt: window.end }, endTime: { gt: window.start } }, select: { id: true, partySize: true, tables: { select: { tableId: true } } } }),
+    client.restaurantTable.findMany({ where: { companyId, locationId, active: true, deletedAt: null, physicalStatus: { not: "OUT_OF_SERVICE" } }, select: { id: true, areaId: true, seats: true, maxSeats: true, combinable: true } }),
+    client.restaurantTableCombination.findMany({ where: { companyId, locationId, active: true }, include: { tables: { select: { tableId: true } } } }),
+  ]);
+  const groups = [
+    ...reservations.map((row) => ({ id: row.id, size: row.partySize, fixedTableIds: row.tables.map((t) => t.tableId) })),
+    { id: "nuova", size: window.partySize, fixedTableIds: [] as string[] },
+  ];
+  return canSeatAll(
+    groups,
+    tables.map((t) => ({ id: t.id, areaId: t.areaId, capacity: t.maxSeats ?? t.seats, combinable: t.combinable })),
+    combinations.map((c) => c.tables.map((row) => row.tableId)),
+  );
+}
+
+export async function getAvailableSlots(companyId:string,locationId:string,input:{date:Date;partySize:number;serviceWindowId?:string|null},check?:typeof checkAvailability){
+  const settings=await getBookingSettings(companyId,locationId),date=startOfZonedDay(new Date(input.date),settings.timeZone);
+  let rules;try{rules=await rulesFor(companyId,locationId,date,settings,input.serviceWindowId)}catch(error){if(error instanceof RestaurantAvailabilityError)return[];throw error}
+  // Il percorso iniettabile resta per i test, che devono poter far fallire un
+  // singolo slot. Fuori dai test si usa la valutazione in memoria.
+  if(check){
+    const slots:Date[]=[];
+    for(const[from,to]of rules.windows)for(let cursor=atTime(date,from,settings.timeZone),limit=atTime(date,to,settings.timeZone);cursor.getTime()+rules.durationMinutes*60000<=limit.getTime();cursor=new Date(cursor.getTime()+rules.slotIntervalMinutes*60000)){
+      try{if((await check(companyId,locationId,{startTime:cursor,partySize:input.partySize,serviceWindowId:input.serviceWindowId})).available)slots.push(cursor)}catch(error){if(!(error instanceof RestaurantAvailabilityError))throw error}
+    }
+    return slots;
+  }
+  // Una lettura sola per tutta la giornata, invece di una interrogazione per
+  // slot: prima ogni richiesta pubblica ne costava un centinaio, su una rotta
+  // senza limitatore.
+  const dayStart=date,dayEnd=addZonedDays(date,1,settings.timeZone);
+  const margin=(Math.max(rules.bufferBefore,rules.bufferAfter)+rules.durationMinutes)*60000;
+  const[reservations,tables,combinations]=await Promise.all([
+    prisma.restaurantReservation.findMany({where:{companyId,locationId,deletedAt:null,status:{in:["PENDING","CONFIRMED","SEATED"]},startTime:{lt:new Date(dayEnd.getTime()+margin)},endTime:{gt:new Date(dayStart.getTime()-margin)}},select:{id:true,partySize:true,startTime:true,endTime:true,durationMinutes:true,tables:{select:{tableId:true}}}}),
+    prisma.restaurantTable.findMany({where:{companyId,locationId,active:true,deletedAt:null,physicalStatus:{not:"OUT_OF_SERVICE"}},select:{id:true,areaId:true,seats:true,maxSeats:true,combinable:true}}),
+    prisma.restaurantTableCombination.findMany({where:{companyId,locationId,active:true},include:{tables:{select:{tableId:true}}}}),
+  ]);
+  const seating=tables.map(t=>({id:t.id,areaId:t.areaId,capacity:t.maxSeats??t.seats,combinable:t.combinable}));
+  const configured=combinations.map(c=>c.tables.map(row=>row.tableId));
+  const now=Date.now(),slots:Date[]=[];
+  for(const[from,to]of rules.windows)for(let cursor=atTime(date,from,settings.timeZone),limit=atTime(date,to,settings.timeZone);cursor.getTime()+rules.durationMinutes*60000<=limit.getTime();cursor=new Date(cursor.getTime()+rules.slotIntervalMinutes*60000)){
+    const start=cursor,end=new Date(cursor.getTime()+rules.durationMinutes*60000);
+    if(start.getTime()<now+settings.minAdvanceMinutes*60000)continue;
+    if(start.getTime()>now+settings.maxAdvanceDays*86400000)continue;
+    const target=occupiedWindow(start,end,rules.bufferBefore,rules.bufferAfter);
+    const overlapping=reservations.filter(r=>{const occupied=occupiedWindow(r.startTime,r.endTime??new Date(r.startTime.getTime()+r.durationMinutes*60000),rules.bufferBefore,rules.bufferAfter);return overlaps(target.start,target.end,occupied.start,occupied.end)});
+    if(rules.maxCovers&&overlapping.reduce((n,r)=>n+r.partySize,0)+input.partySize>rules.maxCovers)continue;
+    const groups=[...overlapping.map(r=>({id:r.id,size:r.partySize,fixedTableIds:r.tables.map(t=>t.tableId)})),{id:"nuova",size:input.partySize,fixedTableIds:[] as string[]}];
+    if(canSeatAll(groups,seating,configured).seatable)slots.push(start);
+  }
+  return slots;
+}

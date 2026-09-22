@@ -5,7 +5,7 @@ import type { Prisma, RestaurantReservationSource, RestaurantReservationStatus }
 import { executeIdempotent } from "@/lib/idempotency";
 import { prisma } from "@/lib/prisma";
 import { lockRestaurantResources } from "@/lib/restaurant-locking";
-import { checkAvailability, getBookingSettings, RestaurantAvailabilityError } from "@/lib/restaurant-availability";
+import { checkAvailability, getBookingSettings, isSeatable, RestaurantAvailabilityError } from "@/lib/restaurant-availability";
 import { addZonedDays, startOfZonedDay } from "@/lib/timezone";
 import {
   deriveTableStatusFromRow,
@@ -153,16 +153,30 @@ export async function getAssignableTables(companyId: string, locationId: string)
 export async function createReservation(companyId: string, userId: string | null, idempotencyKey: string, input: ReservationInput) {
   if (!input.guestName.trim()) throw new RestaurantBookingError("Il nome del cliente è obbligatorio.");
   const availability = await checkAvailability(companyId, input.locationId, input);
-  if (!availability.available || !availability.tableIds.length) throw new RestaurantBookingError("Nessun tavolo disponibile per l'orario selezionato.");
+  if (!availability.available) throw new RestaurantBookingError("Nessun tavolo disponibile per l'orario selezionato.");
   return executeIdempotent(companyId, "RestaurantBookingCreate", idempotencyKey, async (tx) => {
-    await lockRestaurantResources(tx, companyId, availability.tableIds.map(id => "table:" + id));
-    const conflict = await tx.restaurantReservationTable.findFirst({ where: { companyId, tableId: { in: availability.tableIds }, reservation: { locationId: input.locationId, deletedAt: null, status: { in: ["PENDING", "CONFIRMED", "SEATED"] }, startTime: { lt: availability.endTime }, endTime: { gt: availability.startTime } } }, select: { tableId: true } });
-    if (conflict) throw new RestaurantBookingError("Il tavolo non è più disponibile.");
+    // Due modalita', esplicite. Chi nomina dei tavoli li vuole davvero, e
+    // vanno riservati come prima; il canale pubblico non ne nomina, e allora
+    // si verifica soltanto che la sala resti sistemabile — chi va dove lo
+    // decide il cameriere all'arrivo.
+    const claimed = availability.tableIds;
+    if (claimed.length) {
+      await lockRestaurantResources(tx, companyId, claimed.map((id) => "table:" + id));
+      const conflict = await tx.restaurantReservationTable.findFirst({ where: { companyId, tableId: { in: claimed }, reservation: { locationId: input.locationId, deletedAt: null, status: { in: ["PENDING", "CONFIRMED", "SEATED"] }, startTime: { lt: availability.endTime }, endTime: { gt: availability.startTime } } }, select: { tableId: true } });
+      if (conflict) throw new RestaurantBookingError("Il tavolo non è più disponibile.");
+    } else {
+      // Nessun tavolo da bloccare: si serializza sulla sede, altrimenti due
+      // prenotazioni simultanee supererebbero entrambe il controllo di
+      // sistemabilita' e insieme sforerebbero la sala.
+      await lockRestaurantResources(tx, companyId, ["booking:" + input.locationId]);
+      const seatable = await isSeatable(tx as never, companyId, input.locationId, { start: availability.startTime, end: availability.endTime, partySize: input.partySize });
+      if (!seatable.seatable) throw new RestaurantBookingError("Nessun tavolo disponibile per l'orario selezionato.");
+    }
     if (input.partnerId && !(await tx.partner.findFirst({ where: { id: input.partnerId, companyId, active: true, deletedAt: null }, select: { id: true } }))) throw new RestaurantBookingError("Cliente non valido.");
     const settings = await getBookingSettings(companyId, input.locationId);
     const status = settings.confirmationPolicy === "AUTO_CONFIRM" ? "CONFIRMED" : "PENDING";
-    const reservation = await tx.restaurantReservation.create({ data: { companyId, locationId: input.locationId, code: `RES-${randomBytes(6).toString("hex").toUpperCase()}`, partnerId: input.partnerId ?? null, guestName: input.guestName.trim(), phone: input.phone?.trim() || null, email: input.email?.trim().toLowerCase() || null, reservationDate: availability.startTime, startTime: availability.startTime, endTime: availability.endTime, durationMinutes: availability.durationMinutes, partySize: input.partySize, serviceWindowId: availability.serviceWindowId, source: input.source ?? "WEBSITE", status, notes: input.notes?.trim() || null, cancellationTokenHash: hash(input.cancellationToken), createdById: userId, updatedById: userId, tables: { create: availability.tableIds.map(tableId => ({ tableId })) } }, select: { id: true, code: true } });
-    await event(tx, companyId, reservation.id, "RestaurantReservationCreated", { source: input.source ?? "WEBSITE", status, tableIds: availability.tableIds, serviceWindowId: availability.serviceWindowId });
+    const reservation = await tx.restaurantReservation.create({ data: { companyId, locationId: input.locationId, code: `RES-${randomBytes(6).toString("hex").toUpperCase()}`, partnerId: input.partnerId ?? null, guestName: input.guestName.trim(), phone: input.phone?.trim() || null, email: input.email?.trim().toLowerCase() || null, reservationDate: availability.startTime, startTime: availability.startTime, endTime: availability.endTime, durationMinutes: availability.durationMinutes, partySize: input.partySize, serviceWindowId: availability.serviceWindowId, source: input.source ?? "WEBSITE", status, notes: input.notes?.trim() || null, cancellationTokenHash: hash(input.cancellationToken), createdById: userId, updatedById: userId, tables: { create: claimed.map((tableId) => ({ tableId })) } }, select: { id: true, code: true } });
+    await event(tx, companyId, reservation.id, "RestaurantReservationCreated", { source: input.source ?? "WEBSITE", status, tableIds: claimed, serviceWindowId: availability.serviceWindowId });
     return { aggregateId: reservation.id, reservationId: reservation.id, code: reservation.code };
   }, { aggregateType: "RestaurantReservation" });
 }
@@ -301,7 +315,21 @@ export async function transitionReservation(companyId: string, locationId: strin
     : null;
   if (promotion && !promotion.available) throw new RestaurantBookingError("Nessuna disponibilità per promuovere la waitlist.");
   await prisma.$transaction(async (tx) => {
-    if (promotion) { await lockRestaurantResources(tx, companyId, promotion.tableIds.map(tableId => "table:" + tableId)); const conflict = await tx.restaurantReservationTable.findFirst({ where: { companyId, tableId: { in: promotion.tableIds }, reservationId: { not: id }, reservation: { locationId, deletedAt: null, status: { in: ["PENDING", "CONFIRMED", "SEATED"] }, startTime: { lt: promotion.endTime }, endTime: { gt: promotion.startTime } } } }); if (conflict) throw new RestaurantBookingError("La disponibilità per la waitlist è stata occupata."); }
+    if (promotion) {
+      if (promotion.tableIds.length) {
+        await lockRestaurantResources(tx, companyId, promotion.tableIds.map(tableId => "table:" + tableId));
+        const conflict = await tx.restaurantReservationTable.findFirst({ where: { companyId, tableId: { in: promotion.tableIds }, reservationId: { not: id }, reservation: { locationId, deletedAt: null, status: { in: ["PENDING", "CONFIRMED", "SEATED"] }, startTime: { lt: promotion.endTime }, endTime: { gt: promotion.startTime } } } });
+        if (conflict) throw new RestaurantBookingError("La disponibilità per la waitlist è stata occupata.");
+      } else {
+        // Promozione senza tavoli rivendicati: non c'e' un tavolo su cui
+        // serializzare, quindi si serializza sulla sede e si riverifica la
+        // sistemabilita' sotto lock. Senza, due promozioni concorrenti
+        // passerebbero entrambe il controllo fatto fuori transazione.
+        await lockRestaurantResources(tx, companyId, ["booking:" + locationId]);
+        const seatable = await isSeatable(tx as never, companyId, locationId, { start: promotion.startTime, end: promotion.endTime, partySize: current.partySize, excludeReservationId: id });
+        if (!seatable.seatable) throw new RestaurantBookingError("La disponibilità per la waitlist è stata occupata.");
+      }
+    }
     const updated = await tx.restaurantReservation.updateMany({
       where: { id, companyId, locationId, status: current.status, deletedAt: null },
       data: { status: nextStatus, updatedById: userId, cancelledAt: nextStatus === "CANCELLED" ? new Date() : undefined },

@@ -224,11 +224,20 @@ test("il cliente è assegnabile a comanda aperta e congelato dopo l'emissione de
 
 test("la combinazione configurata abilita la comanda multi-tavolo", async () => {
   const pair = [comboTableA, comboTableB];
-  // Senza combinazione la comanda multi-tavolo è rifiutata.
+  // L'unione al volo fra tavoli combinabili della stessa area non richiede più
+  // una preconfigurazione: è la regola che permette al canale pubblico di
+  // accettare gruppi grandi senza promettere ciò che la Sala non può aprire.
+  const adHoc = await openOrder(companyId, locationId, userId, { tableIds: pair, guestCount: 4, serviceType: "DINE_IN" });
+  await prisma.restaurantOrder.update({ where: { id: adHoc.id }, data: { status: "CANCELLED" } });
+
+  // Ciò che resta rifiutato: un tavolo dichiarato non combinabile.
+  await prisma.restaurantTable.update({ where: { id: comboTableB }, data: { combinable: false } });
   await assert.rejects(
     openOrder(companyId, locationId, userId, { tableIds: pair, guestCount: 4, serviceType: "DINE_IN" }),
     /Combinazione tavoli non consentita/,
+    "un tavolo non combinabile non si unisce al volo",
   );
+  await prisma.restaurantTable.update({ where: { id: comboTableB }, data: { combinable: true } });
   assert.equal((await getAreaCombinations({ companyId, locationId }, areaId)).length, 0);
   // Creata dalla configurazione Sala, la combinazione compare ed è utilizzabile.
   const combination = await saveTableCombination(companyId, locationId, { name: `Tavolata ${suffix}`, tableIds: pair, active: true });

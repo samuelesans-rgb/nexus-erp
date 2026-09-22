@@ -2,6 +2,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
+import { MAX_UNION_TABLES } from "@/lib/restaurant-seating";
 import {
   createDraftTx,
   confirmDocumentTx,
@@ -103,19 +104,30 @@ export async function openOrder(
         "Uno o più tavoli non appartengono alla sede corrente.",
       );
     if (requested.length > 1 && !reservation) {
+      // Un'unione al volo e' ammessa fra tavoli dichiarati combinabili nella
+      // stessa area, fino al tetto. La preconfigurazione non e' piu' l'unica
+      // strada, e deve essere cosi': il canale pubblico accetta gruppi grandi
+      // contando su queste unioni, e se la Sala non potesse aprirle avremmo
+      // promesso al cliente qualcosa che il cameriere non puo' eseguire.
+      const chosen = await tx.restaurantTable.findMany({
+        where: { companyId, locationId, id: { in: requested }, active: true, deletedAt: null },
+        select: { id: true, areaId: true, combinable: true },
+      });
       const combinations = await tx.restaurantTableCombination.findMany({
         where: { companyId, locationId, active: true },
         include: { tables: true },
       });
-      if (
-        !combinations.some(
-          (combo) =>
-            combo.tables.length === requested.length &&
-            requested.every((id) =>
-              combo.tables.some((row) => row.tableId === id),
-            ),
-        )
-      )
+      const isConfigured = combinations.some(
+        (combo) =>
+          combo.tables.length === requested.length &&
+          requested.every((id) => combo.tables.some((row) => row.tableId === id)),
+      );
+      const adHoc =
+        chosen.length === requested.length &&
+        requested.length <= MAX_UNION_TABLES &&
+        chosen.every((table) => table.combinable) &&
+        new Set(chosen.map((table) => table.areaId)).size === 1;
+      if (!isConfigured && !adHoc)
         throw new RestaurantDomainError("Combinazione tavoli non consentita.");
     }
     const conflict = requested.length

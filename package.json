@@ -61,7 +61,9 @@
     "test:integration:kitchen-channel-alert": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/kitchen-channel-alert.test.ts",
     "test:integration:timezone": "node --import tsx --test tests/integration/timezone.test.ts",
     "test:integration:availability-timezone": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/restaurant-availability-timezone.test.ts",
-    "test:integration:public-booking-hardening": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test tests/integration/public-booking-hardening.test.ts"
+    "test:integration:public-booking-hardening": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test tests/integration/public-booking-hardening.test.ts",
+    "test:integration:seating": "node --import tsx --test tests/integration/restaurant-seating.test.ts",
+    "test:integration:capacity": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/restaurant-capacity.test.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
