@@ -9,7 +9,7 @@ import {
   assignTable,
   cancelReservation,
   confirmReservation,
-  createReservation,
+  createReservation, newCancellationToken,
   getStaffReservation,
   getStaffReservations,
   transitionReservation,
@@ -85,7 +85,7 @@ after(async () => {
 async function create(locationId: string, tableId: string, startTime: Date, partySize = 2) {
   const key = randomUUID();
   idempotencyKeys.push(key);
-  const result = await createReservation(companyId, userId, key, { locationId, tableId, startTime, partySize, guestName: `Guest ${suffix}`, phone: "+390000000", email: `booking-${suffix}@example.test`, source: "MANUAL" });
+  const result = await createReservation(companyId, userId, key, { cancellationToken: newCancellationToken(), locationId, tableId, startTime, partySize, guestName: `Guest ${suffix}`, phone: "+390000000", email: `booking-${suffix}@example.test`, source: "MANUAL" });
   reservationIds.push(result.reservationId);
   return result;
 }

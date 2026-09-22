@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { sendBookingConfirmationEmails, sendBookingCancellationEmails } from "@/lib/booking-email";
 import type { EmailProvider } from "@/lib/email";
 import { getEmailProvider } from "@/lib/email";
-import { createReservation } from "@/lib/restaurant-booking";
+import { createReservation, newCancellationToken } from "@/lib/restaurant-booking";
 import { transitionReservation } from "@/lib/restaurant-booking";
 import { getAvailableSlots } from "@/lib/restaurant-availability";
 import { prisma } from "@/lib/prisma";
@@ -32,13 +32,37 @@ export const publicBookingSchema = z.object({
 export type PublicBookingInput = Omit<z.input<typeof publicBookingSchema>, "privacyConsent"> & { privacyConsent: boolean };
 
 type RateEntry = { count: number; resetAt: number };
+/** Ogni quante richieste si ripulisce la mappa dalle voci scadute. */
+const PRUNE_EVERY = 256;
 
 export class PublicBookingRateLimiter {
   private readonly entries = new Map<string, RateEntry>();
 
   constructor(private readonly limit = 5, private readonly windowMs = 10 * 60_000) {}
 
+  /**
+   * Le voci scadute vanno tolte, non solo sovrascritte quando ricapita la
+   * stessa chiave. Con chiavi sempre diverse — che e' esattamente cio' che fa
+   * chi abusa — la mappa cresceva senza limite fino a far morire il processo.
+   * La potatura e' ammortizzata: si paga una volta ogni PRUNE_EVERY richieste.
+   */
+  private sinceLastPrune = 0;
+
+  private prune(now: number) {
+    if (++this.sinceLastPrune < PRUNE_EVERY) return;
+    this.sinceLastPrune = 0;
+    for (const [key, entry] of this.entries)
+      if (entry.resetAt <= now) this.entries.delete(key);
+  }
+
+  /** Quante voci sono in memoria adesso. Esposta per poterlo verificare. */
+  get size() {
+    return this.entries.size;
+  }
+
+
   consume(key: string, now = Date.now()) {
+    this.prune(now);
     const current = this.entries.get(key);
     if (!current || current.resetAt <= now) {
       this.entries.set(key, { count: 1, resetAt: now + this.windowMs });
@@ -92,8 +116,13 @@ export async function submitPublicBooking(slug: string, rateKey: string, input: 
     where: { companyId_commandType_idempotencyKey: { companyId: location.companyId, commandType: "RestaurantBookingCreate", idempotencyKey: parsed.data.idempotencyKey } },
     select: { status: true, result: true },
   });
-  const replay = z.object({ reservationId: z.string(), code: z.string(), cancellationToken: z.string() }).safeParse(existing?.status === "SUCCEEDED" ? existing.result : null);
+  const replay = z.object({ reservationId: z.string(), code: z.string() }).safeParse(existing?.status === "SUCCEEDED" ? existing.result : null);
+  // Il token esiste solo in questa richiesta: non viene persistito in chiaro,
+  // quindi un replay non puo' riemetterlo. L'email era gia' partita al primo
+  // tentativo, e la sua stessa claim di idempotenza la rende un duplicato.
+  const cancellationToken = replay.success ? null : newCancellationToken();
   const result = replay.success ? replay.data : await createReservation(location.companyId, null, parsed.data.idempotencyKey, {
+      cancellationToken: cancellationToken!,
       locationId: location.id,
       guestName: parsed.data.guestName,
       phone: parsed.data.phone,
@@ -103,7 +132,7 @@ export async function submitPublicBooking(slug: string, rateKey: string, input: 
       startTime: parsed.data.startTime,
       source: "WEBSITE",
     });
-  await sendBookingConfirmationEmails(location.companyId, location.id, result.reservationId, result.cancellationToken, baseUrl, emailProvider).catch((error) => {
+  if (cancellationToken) await sendBookingConfirmationEmails(location.companyId, location.id, result.reservationId, cancellationToken, baseUrl, emailProvider).catch((error) => {
     console.warn(JSON.stringify({ scope: "booking-email", notification: "confirmation", outcome: "FAILED", error: error instanceof Error ? error.name : "EmailError" }));
   });
   return {

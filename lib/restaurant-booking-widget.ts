@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/prisma";
 import { getAvailableSlots } from "@/lib/restaurant-availability";
-import { createReservation } from "@/lib/restaurant-booking";
+import { createReservation, newCancellationToken } from "@/lib/restaurant-booking";
 
 export class BookingWidgetError extends Error {
   constructor(message: string, readonly status = 400) {
@@ -66,13 +66,37 @@ const reservationSchema = z.object({
 });
 
 type RateEntry = { count: number; resetAt: number };
+/** Ogni quante richieste si ripulisce la mappa dalle voci scadute. */
+const PRUNE_EVERY = 256;
 
 export class BookingWidgetRateLimiter {
   private readonly entries = new Map<string, RateEntry>();
 
   constructor(private readonly limit = 5, private readonly windowMs = 10 * 60_000) {}
 
+  /**
+   * Le voci scadute vanno tolte, non solo sovrascritte quando ricapita la
+   * stessa chiave. Con chiavi sempre diverse — che e' esattamente cio' che fa
+   * chi abusa — la mappa cresceva senza limite fino a far morire il processo.
+   * La potatura e' ammortizzata: si paga una volta ogni PRUNE_EVERY richieste.
+   */
+  private sinceLastPrune = 0;
+
+  private prune(now: number) {
+    if (++this.sinceLastPrune < PRUNE_EVERY) return;
+    this.sinceLastPrune = 0;
+    for (const [key, entry] of this.entries)
+      if (entry.resetAt <= now) this.entries.delete(key);
+  }
+
+  /** Quante voci sono in memoria adesso. Esposta per poterlo verificare. */
+  get size() {
+    return this.entries.size;
+  }
+
+
   consume(key: string, now = Date.now()) {
+    this.prune(now);
     const entry = this.entries.get(key);
     if (!entry || entry.resetAt <= now) {
       this.entries.set(key, { count: 1, resetAt: now + this.windowMs });
@@ -163,6 +187,7 @@ export async function submitWidgetReservation(publicKey: string, rateKey: string
   });
   const replay = z.object({ code: z.string() }).safeParse(existing?.status === "SUCCEEDED" ? existing.result : null);
   const result = replay.success ? replay.data : await createReservation(widget.companyId, null, parsed.data.idempotencyKey, {
+    cancellationToken: newCancellationToken(),
     locationId: widget.locationId,
     guestName: parsed.data.guestName,
     phone: parsed.data.phone || null,

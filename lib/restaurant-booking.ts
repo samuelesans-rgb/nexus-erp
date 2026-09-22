@@ -36,6 +36,8 @@ const eventNames: Partial<Record<RestaurantReservationStatus, string>> = {
 };
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 const token = () => randomBytes(32).toString("base64url");
+/** Token di cancellazione da generare prima di creare la prenotazione. */
+export const newCancellationToken = token;
 
 export type ReservationInput = {
   locationId: string;
@@ -51,6 +53,16 @@ export type ReservationInput = {
   serviceWindowId?: string | null;
   partnerId?: string | null;
   source?: RestaurantReservationSource;
+  /**
+   * Token di cancellazione in chiaro, generato dal chiamante.
+   *
+   * Non viene generato qui e soprattutto non viene restituito: il valore di
+   * ritorno di executeIdempotent finisce in IdempotencyRecord.result, e un
+   * token in chiaro li' dentro annullerebbe l'hashing che lo protegge nella
+   * prenotazione. Chi chiama lo ha gia' in mano e lo usa per l'email; un
+   * replay, che quel token non lo ha mai avuto, non puo' riottenerlo.
+   */
+  cancellationToken: string;
 };
 
 export type StaffReservationFilters = {
@@ -147,12 +159,11 @@ export async function createReservation(companyId: string, userId: string | null
     const conflict = await tx.restaurantReservationTable.findFirst({ where: { companyId, tableId: { in: availability.tableIds }, reservation: { locationId: input.locationId, deletedAt: null, status: { in: ["PENDING", "CONFIRMED", "SEATED"] }, startTime: { lt: availability.endTime }, endTime: { gt: availability.startTime } } }, select: { tableId: true } });
     if (conflict) throw new RestaurantBookingError("Il tavolo non è più disponibile.");
     if (input.partnerId && !(await tx.partner.findFirst({ where: { id: input.partnerId, companyId, active: true, deletedAt: null }, select: { id: true } }))) throw new RestaurantBookingError("Cliente non valido.");
-    const confirmationToken = token(); const cancellationToken = token();
     const settings = await getBookingSettings(companyId, input.locationId);
     const status = settings.confirmationPolicy === "AUTO_CONFIRM" ? "CONFIRMED" : "PENDING";
-    const reservation = await tx.restaurantReservation.create({ data: { companyId, locationId: input.locationId, code: `RES-${randomBytes(6).toString("hex").toUpperCase()}`, partnerId: input.partnerId ?? null, guestName: input.guestName.trim(), phone: input.phone?.trim() || null, email: input.email?.trim().toLowerCase() || null, reservationDate: availability.startTime, startTime: availability.startTime, endTime: availability.endTime, durationMinutes: availability.durationMinutes, partySize: input.partySize, serviceWindowId: availability.serviceWindowId, source: input.source ?? "WEBSITE", status, notes: input.notes?.trim() || null, confirmationTokenHash: hash(confirmationToken), cancellationTokenHash: hash(cancellationToken), createdById: userId, updatedById: userId, tables: { create: availability.tableIds.map(tableId => ({ tableId })) } }, select: { id: true, code: true } });
+    const reservation = await tx.restaurantReservation.create({ data: { companyId, locationId: input.locationId, code: `RES-${randomBytes(6).toString("hex").toUpperCase()}`, partnerId: input.partnerId ?? null, guestName: input.guestName.trim(), phone: input.phone?.trim() || null, email: input.email?.trim().toLowerCase() || null, reservationDate: availability.startTime, startTime: availability.startTime, endTime: availability.endTime, durationMinutes: availability.durationMinutes, partySize: input.partySize, serviceWindowId: availability.serviceWindowId, source: input.source ?? "WEBSITE", status, notes: input.notes?.trim() || null, cancellationTokenHash: hash(input.cancellationToken), createdById: userId, updatedById: userId, tables: { create: availability.tableIds.map(tableId => ({ tableId })) } }, select: { id: true, code: true } });
     await event(tx, companyId, reservation.id, "RestaurantReservationCreated", { source: input.source ?? "WEBSITE", status, tableIds: availability.tableIds, serviceWindowId: availability.serviceWindowId });
-    return { aggregateId: reservation.id, reservationId: reservation.id, code: reservation.code, confirmationToken, cancellationToken };
+    return { aggregateId: reservation.id, reservationId: reservation.id, code: reservation.code };
   }, { aggregateType: "RestaurantReservation" });
 }
 

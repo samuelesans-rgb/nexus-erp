@@ -167,3 +167,42 @@ test("Booking Email: il canale assente non brucia la chiave di idempotenza", asy
   );
   assert.ok(provider.messages.length >= 1, "configurato SMTP, la notifica deve poter partire");
 });
+
+test("§2 il token di cancellazione non finisce in chiaro nel registro di idempotenza", async () => {
+  const provider = new RecordingProvider();
+  const key = randomUUID();
+  const result = await book(46, provider, key);
+
+  const record = await prisma.idempotencyRecord.findFirstOrThrow({
+    where: { companyId, commandType: "RestaurantBookingCreate", idempotencyKey: key },
+    select: { result: true },
+  });
+  const serialised = JSON.stringify(record.result);
+  assert.match(serialised, /reservationId/, "il risultato contiene ancora l'identificativo");
+  assert.ok(!/cancellationToken/.test(serialised), "nessun token nel risultato persistito");
+
+  // E il valore vero non è ricavabile: in prenotazione c'è solo l'hash.
+  const reservation = await prisma.restaurantReservation.findUniqueOrThrow({
+    where: { id: result.reservationId },
+    select: { cancellationTokenHash: true },
+  });
+  assert.ok(reservation.cancellationTokenHash, "l'hash resta, ed è l'unica copia lato server");
+  assert.ok(!serialised.includes(reservation.cancellationTokenHash), "nemmeno l'hash viene duplicato nel registro");
+});
+
+test("§2 il link di cancellazione inviato per email funziona davvero", async () => {
+  // La prova che togliere il token dal risultato non ha rotto la catena:
+  // quello mandato per email deve ancora annullare la prenotazione.
+  const provider = new RecordingProvider();
+  const result = await book(47, provider);
+  const customerEmail = provider.messages.find((m) => m.to.startsWith("cliente-"));
+  assert.ok(customerEmail, "il cliente riceve la conferma");
+  const token = /cancel\/([A-Za-z0-9_-]+)/.exec(customerEmail.html)?.[1];
+  assert.ok(token, "la conferma contiene il link di cancellazione");
+  const { cancelPublicBooking } = await import("../../lib/public-booking");
+  await cancelPublicBooking(slug, token, new RecordingProvider());
+  assert.equal(
+    (await prisma.restaurantReservation.findUniqueOrThrow({ where: { id: result.reservationId }, select: { status: true } })).status,
+    "CANCELLED",
+  );
+});
