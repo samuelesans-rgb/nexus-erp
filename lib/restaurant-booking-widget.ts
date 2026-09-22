@@ -6,6 +6,9 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getAvailableSlots } from "@/lib/restaurant-availability";
 import { createReservation, newCancellationToken } from "@/lib/restaurant-booking";
+import { sendBookingConfirmationEmails } from "@/lib/booking-email";
+import type { EmailProvider } from "@/lib/email";
+import { getEmailProvider } from "@/lib/email";
 
 export class BookingWidgetError extends Error {
   constructor(message: string, readonly status = 400) {
@@ -173,7 +176,7 @@ export async function getWidgetAvailability(publicKey: string, input: { date: Da
   return getAvailableSlots(widget.companyId, widget.locationId, input);
 }
 
-export async function submitWidgetReservation(publicKey: string, rateKey: string, input: unknown, origin: string | null = null, limiter = reservationLimiter) {
+export async function submitWidgetReservation(publicKey: string, rateKey: string, input: unknown, origin: string | null = null, limiter = reservationLimiter, emailProvider: EmailProvider = getEmailProvider(), baseUrl = process.env.AUTH_URL ?? "http://localhost:3000") {
   const widget = await resolveWidget(publicKey);
   if (!isWidgetDomainAllowed(widget.allowedDomains, origin)) throw new BookingWidgetError("Dominio non autorizzato.", 403);
   const parsed = reservationSchema.safeParse(input);
@@ -185,9 +188,12 @@ export async function submitWidgetReservation(publicKey: string, rateKey: string
     where: { companyId_commandType_idempotencyKey: { companyId: widget.companyId, commandType: "RestaurantBookingCreate", idempotencyKey: parsed.data.idempotencyKey } },
     select: { status: true, result: true },
   });
-  const replay = z.object({ code: z.string() }).safeParse(existing?.status === "SUCCEEDED" ? existing.result : null);
+  const replay = z.object({ reservationId: z.string(), code: z.string() }).safeParse(existing?.status === "SUCCEEDED" ? existing.result : null);
+  // Il token vive solo in questa richiesta, come nel percorso pubblico: serve
+  // qui per l'email, e non viene persistito in chiaro da nessuna parte.
+  const cancellationToken = replay.success ? null : newCancellationToken();
   const result = replay.success ? replay.data : await createReservation(widget.companyId, null, parsed.data.idempotencyKey, {
-    cancellationToken: newCancellationToken(),
+    cancellationToken: cancellationToken!,
     locationId: widget.locationId,
     guestName: parsed.data.guestName,
     phone: parsed.data.phone || null,
@@ -197,6 +203,14 @@ export async function submitWidgetReservation(publicKey: string, rateKey: string
     startTime: parsed.data.startTime,
     source: "WEBSITE",
   });
+  // Finora il widget non inviava nulla: chi prenotava dal sito del locale non
+  // riceveva conferma, non aveva il link di cancellazione e quindi non poteva
+  // disdire, mentre chi prenotava dalla pagina pubblica riceveva tutto. Due
+  // canali pubblici, due comportamenti.
+  if (cancellationToken && "reservationId" in result)
+    await sendBookingConfirmationEmails(widget.companyId, widget.locationId, result.reservationId, cancellationToken, baseUrl, emailProvider).catch((error) => {
+      console.warn(JSON.stringify({ scope: "booking-widget", notification: "confirmation", outcome: "FAILED", error: error instanceof Error ? error.name : "EmailError" }));
+    });
   console.info(JSON.stringify({ scope: "booking-widget", event: replay.success ? "reservation-replayed" : "reservation-created", outcome: "SUCCEEDED" }));
   return { code: result.code, startTime: parsed.data.startTime, partySize: parsed.data.partySize, locationName: widget.location.name, successMessage: widget.successMessage };
 }

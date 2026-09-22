@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 
 import { OPTIONS as reservationOptions } from "../../app/api/widget/v1/[publicKey]/reservation/route";
+import type { EmailMessage, EmailProvider } from "../../lib/email";
 import { prisma } from "../../lib/prisma";
 import { BookingWidgetError, BookingWidgetRateLimiter, generateWidgetPublicKey, getWidgetAvailability, getWidgetPublicConfig, submitWidgetReservation } from "../../lib/restaurant-booking-widget";
 
@@ -108,4 +109,42 @@ test("Booking Widget: doppio invio idempotente non duplica la prenotazione", asy
   const rows = await prisma.restaurantReservation.findMany({ where: { companyId, locationId, code: first.code } });
   reservationIds.push(...rows.map((row) => row.id));
   assert.equal(rows.length, 1);
+});
+
+class CollectingProvider implements EmailProvider {
+  readonly name = "test" as const;
+  readonly messages: EmailMessage[] = [];
+  async send(message: EmailMessage) {
+    this.messages.push(message);
+    return { provider: "noop" as const };
+  }
+}
+
+test("Booking Widget: chi prenota dal widget riceve la conferma e può disdire", async () => {
+  // Prima, il widget non inviava nulla: niente conferma, niente link, quindi
+  // nessuna possibilità di annullare. Chi prenotava dalla pagina pubblica
+  // riceveva tutto. Due canali pubblici, due comportamenti.
+  const provider = new CollectingProvider();
+  const input = reservationInput(future(33));
+  const result = await submitWidgetReservation(
+    publicKey, randomUUID(), input, "https://example.test",
+    new BookingWidgetRateLimiter(), provider, "http://127.0.0.1:3100",
+  );
+  const reservation = await prisma.restaurantReservation.findFirstOrThrow({ where: { companyId, locationId, code: result.code } });
+  reservationIds.push(reservation.id);
+
+  // L'indirizzo viene normalizzato in minuscolo alla creazione: il confronto
+  // deve tenerne conto, altrimenti fallisce per un motivo che non c'entra.
+  const toGuest = provider.messages.find((message) => message.to.toLowerCase() === input.email.toLowerCase());
+  assert.ok(toGuest, "il cliente deve ricevere la conferma");
+  const token = /cancel\/([A-Za-z0-9_-]+)/.exec(toGuest.html)?.[1];
+  assert.ok(token, "la conferma deve contenere il link di cancellazione");
+
+  // Il link funziona: il ciclo di vita del canale widget è completo.
+  const { cancelPublicBooking } = await import("../../lib/public-booking");
+  await cancelPublicBooking(`widget-${suffix.toLowerCase()}`, token, new CollectingProvider());
+  assert.equal(
+    (await prisma.restaurantReservation.findUniqueOrThrow({ where: { id: reservation.id }, select: { status: true } })).status,
+    "CANCELLED",
+  );
 });
