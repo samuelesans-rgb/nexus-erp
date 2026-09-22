@@ -1,5 +1,6 @@
 "use server";
 
+import { clientAddress } from "@/lib/client-address";
 import { PublicBookingError, submitPublicBooking } from "@/lib/public-booking";
 import { headers } from "next/headers";
 
@@ -16,7 +17,7 @@ export type PublicBookingState = {
 
 export async function submitPublicBookingAction(locationSlug: string, _state: PublicBookingState, formData: FormData): Promise<PublicBookingState> {
   const requestHeaders = await headers();
-  const rateKey = requestHeaders.get("x-forwarded-for")?.split(",")[0]?.trim() || requestHeaders.get("x-real-ip") || "anonymous";
+  const rateKey = clientAddress((name) => requestHeaders.get(name));
   try {
     const result = await submitPublicBooking(locationSlug, rateKey, {
       idempotencyKey: String(formData.get("idempotencyKey") ?? ""),

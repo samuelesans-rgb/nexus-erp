@@ -1,5 +1,6 @@
 import "server-only";
 
+import { clientAddress } from "@/lib/client-address";
 import { BookingWidgetError } from "@/lib/restaurant-booking-widget";
 
 export function widgetRequestOrigin(request: Request) {
@@ -9,7 +10,7 @@ export function widgetRequestOrigin(request: Request) {
 }
 
 export function widgetRateKey(request: Request) {
-  return request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "anonymous";
+  return clientAddress((name) => request.headers.get(name));
 }
 
 export function widgetJson(data: unknown, status = 200, origin?: string | null) {
