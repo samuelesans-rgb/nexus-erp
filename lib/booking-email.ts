@@ -3,16 +3,16 @@ import "server-only";
 import { Prisma } from "@/generated/prisma/client";
 import type { EmailMessage, EmailProvider } from "@/lib/email";
 import { getEmailProvider } from "@/lib/email";
-import { bookingCustomerCancellation, bookingCustomerConfirmation, bookingRestaurantCancellation, bookingRestaurantNotification, type BookingEmailDetails } from "@/lib/email-templates";
+import { waitlistOffer, bookingCustomerCancellation, bookingCustomerConfirmation, bookingRestaurantCancellation, bookingRestaurantNotification, type BookingEmailDetails } from "@/lib/email-templates";
 import { prisma } from "@/lib/prisma";
 import { transitionReservation } from "@/lib/restaurant-booking";
 
-type NotificationKind = "customer-confirmation" | "restaurant-confirmation" | "customer-cancellation" | "restaurant-cancellation";
+type NotificationKind = "customer-confirmation" | "restaurant-confirmation" | "customer-cancellation" | "restaurant-cancellation" | "waitlist-offer";
 
-async function claim(companyId: string, reservationId: string, kind: NotificationKind) {
+async function claim(companyId: string, reservationId: string, kind: NotificationKind, key = reservationId) {
   try {
     await prisma.idempotencyRecord.create({
-      data: { companyId, commandType: `BookingEmail:${kind}`, idempotencyKey: reservationId, aggregateType: "RestaurantReservation", aggregateId: reservationId },
+      data: { companyId, commandType: `BookingEmail:${kind}`, idempotencyKey: key, aggregateType: "RestaurantReservation", aggregateId: reservationId },
     });
     return true;
   } catch (error) {
@@ -21,11 +21,11 @@ async function claim(companyId: string, reservationId: string, kind: Notificatio
   }
 }
 
-async function finish(companyId: string, reservationId: string, kind: NotificationKind, outcome: "SUCCEEDED" | "FAILED", provider: string, error?: unknown) {
+async function finish(companyId: string, reservationId: string, kind: NotificationKind, outcome: "SUCCEEDED" | "FAILED", provider: string, error?: unknown, key = reservationId) {
   const result = { notification: kind, provider, outcome };
   await prisma.$transaction([
     prisma.idempotencyRecord.update({
-      where: { companyId_commandType_idempotencyKey: { companyId, commandType: `BookingEmail:${kind}`, idempotencyKey: reservationId } },
+      where: { companyId_commandType_idempotencyKey: { companyId, commandType: `BookingEmail:${kind}`, idempotencyKey: key } },
       data: { status: outcome, result: outcome === "SUCCEEDED" ? result : Prisma.JsonNull, error: outcome === "FAILED" ? { name: error instanceof Error ? error.name : "EmailError" } : Prisma.JsonNull, completedAt: new Date() },
     }),
     prisma.domainEvent.create({
@@ -35,7 +35,7 @@ async function finish(companyId: string, reservationId: string, kind: Notificati
   console.info(JSON.stringify({ scope: "booking-email", notification: kind, provider, outcome }));
 }
 
-async function deliver(companyId: string, reservationId: string, kind: NotificationKind, message: EmailMessage, provider: EmailProvider) {
+async function deliver(companyId: string, reservationId: string, kind: NotificationKind, message: EmailMessage, provider: EmailProvider, key = reservationId) {
   // Il controllo sta prima della claim, e non e' un dettaglio: claim() consuma
   // la chiave di idempotenza, quindi scoprire dopo che il canale non esiste
   // marcherebbe la notifica come gia' inviata per sempre. Il giorno in cui SMTP
@@ -47,13 +47,13 @@ async function deliver(companyId: string, reservationId: string, kind: Notificat
     console.warn(JSON.stringify({ scope: "booking-email", notification: kind, provider: provider.name, outcome: "NOT_CONFIGURED" }));
     return "NOT_CONFIGURED" as const;
   }
-  if (!(await claim(companyId, reservationId, kind))) return "DUPLICATE" as const;
+  if (!(await claim(companyId, reservationId, kind, key))) return "DUPLICATE" as const;
   try {
     await provider.send(message);
-    await finish(companyId, reservationId, kind, "SUCCEEDED", provider.name);
+    await finish(companyId, reservationId, kind, "SUCCEEDED", provider.name, undefined, key);
     return "SUCCEEDED" as const;
   } catch (error) {
-    await finish(companyId, reservationId, kind, "FAILED", provider.name, error).catch(() => undefined);
+    await finish(companyId, reservationId, kind, "FAILED", provider.name, error, key).catch(() => undefined);
     console.warn(JSON.stringify({ scope: "booking-email", notification: kind, provider: provider.name, outcome: "FAILED", error: error instanceof Error ? error.name : "EmailError" }));
     return "FAILED" as const;
   }
@@ -101,4 +101,19 @@ export async function cancelBookingWithNotifications(companyId: string, location
     console.error(JSON.stringify({ scope: "booking-email", event: "cancellation-notification-failed", error: error instanceof Error ? error.name : "UnknownError" }));
   }
   return result;
+}
+
+/**
+ * Offerta di un posto liberato a chi è in lista d'attesa.
+ *
+ * La chiave di idempotenza include la scadenza, perché la stessa prenotazione
+ * può ricevere più offerte nel tempo: usare il solo identificativo avrebbe
+ * fatto scartare come duplicata ogni offerta successiva alla prima.
+ */
+export async function sendWaitlistOffer(companyId: string, locationId: string, offer: { reservationId: string; offerToken: string; expiresAt: Date; minutes: number }, baseUrl: string, provider: EmailProvider = getEmailProvider()) {
+  const booking = await bookingDetails(companyId, locationId, offer.reservationId);
+  if (!booking) return [];
+  const url = `${baseUrl.replace(/\/$/, "")}/book/${booking.locationSlug}/offer/${encodeURIComponent(offer.offerToken)}`;
+  const minutesLabel = offer.minutes >= 60 ? `${Math.round(offer.minutes / 60)} ore` : `${offer.minutes} minuti`;
+  return [await deliver(companyId, offer.reservationId, "waitlist-offer", waitlistOffer(booking.details, url, minutesLabel), provider, `${offer.reservationId}:${offer.expiresAt.getTime()}`)];
 }

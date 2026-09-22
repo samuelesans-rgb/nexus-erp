@@ -82,3 +82,13 @@ export function bookingRestaurantCancellation(details: BookingEmailDetails, to: 
     html: `<p>Prenotazione annullata.</p>${summaryHtml(details)}<p><strong>Cliente</strong>: ${escapeHtml(details.guestName)}</p>`,
   };
 }
+
+export function waitlistOffer(details: BookingEmailDetails, offerUrl: string, minutesLabel: string) {
+  const sentence = `Si è liberato un tavolo. Il posto è tenuto per te per ${minutesLabel}: dopo viene offerto a chi è in lista dopo di te.`;
+  return {
+    to: details.guestEmail,
+    subject: `${details.locationName}: si è liberato un tavolo`,
+    text: `Ciao ${details.guestName},\n${sentence}\nConferma qui: ${offerUrl}`,
+    html: `<p>Ciao ${escapeHtml(details.guestName)},</p><p>${escapeHtml(sentence)}</p>${summaryHtml(details)}<p><a href="${escapeHtml(offerUrl)}">Confermo, prendo il tavolo</a></p>`,
+  };
+}

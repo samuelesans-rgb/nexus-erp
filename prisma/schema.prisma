@@ -2245,6 +2245,12 @@ model RestaurantReservation {
   internalNotes         String?
   confirmationTokenHash String?                      @unique
   cancellationTokenHash String?                      @unique
+  waitlistFromTime      DateTime?
+  waitlistToTime        DateTime?
+  offerTokenHash        String?                      @unique
+  offerExpiresAt        DateTime?
+  staffCallRequestedAt  DateTime?
+  staffCallResolvedAt   DateTime?
   privacyConsentAt      DateTime?
   depositAmount         Decimal?                     @db.Decimal(15, 2)
   depositScheduleId     String?

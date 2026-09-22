@@ -13,6 +13,7 @@ import {
   isUncertainDeliveryError,
 } from "@/lib/kitchen-connector";
 import { deriveLineDelivery } from "@/lib/restaurant-floor-line-state";
+import { pendingStaffCalls, resolveStaffCall } from "@/lib/restaurant-waitlist";
 import { emitRestaurantEventTx, RestaurantDomainError } from "@/lib/restaurant";
 import {
   deriveTableStatusFromRow,
@@ -260,6 +261,8 @@ export async function getOperationalRestaurantFloor(
     orders: shapedOrders,
     menu: { id: menu?.id ?? null, sections },
     connector: await getKitchenChannelHealth(companyId, locationId),
+    // Chiamate da fare: restano finché qualcuno non le gestisce.
+    staffCalls: await pendingStaffCalls(companyId, locationId),
   };
 }
 
@@ -829,3 +832,13 @@ export async function retrySafeFloorJob(actor: Actor, jobId: string) {
 }
 
 export const newFloorDispatchKey = () => randomUUID();
+
+/**
+ * Lo staff dichiara di aver chiamato il cliente in lista.
+ *
+ * È l'unico modo per far sparire il banner: un avviso che si spegne da solo
+ * non garantisce che qualcuno abbia telefonato.
+ */
+export async function resolveFloorStaffCall(actor: Actor, reservationId: string) {
+  return resolveStaffCall(actor.companyId, actor.locationId, reservationId, actor.userId);
+}

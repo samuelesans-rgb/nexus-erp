@@ -27,6 +27,7 @@ import {
   releaseFloorTableAction,
   searchFloorPartnersAction,
   settleFloorOrderAction,
+  resolveStaffCallAction,
   retryFloorJobAction,
   saveFloorLineNoteAction,
 } from "./operational-actions";
@@ -106,6 +107,14 @@ type Props = {
       staleForMinutes: number | null;
       maxAgeMinutes: number;
     };
+    staffCalls: Array<{
+      id: string;
+      guestName: string;
+      partySize: number;
+      phone: string | null;
+      timeLabel: string;
+      minutesToStart: number;
+    }>;
     menu: {
       id: string | null;
       sections: Array<{ id: string; name: string; products: Product[] }>;
@@ -337,6 +346,36 @@ export function OperationalFloor({
           ))}
         </section>
       )}
+      {data.staffCalls.map((call) => (
+        // Resta finché qualcuno non dichiara di aver chiamato: un avviso che
+        // si spegne da solo non garantisce che la telefonata sia avvenuta.
+        <section
+          role="alert"
+          className="rounded-2xl border-4 border-amber-500 bg-amber-50 p-4"
+          key={call.id}
+        >
+          <h2 className="text-xl font-black text-amber-900">
+            ☎ TAVOLO LIBERO: CHIAMA IL CLIENTE
+          </h2>
+          <p className="mt-1 text-base font-black text-amber-900">
+            {call.guestName} · {call.partySize} coperti · {call.timeLabel}
+          </p>
+          <p className="mt-1 text-sm font-semibold text-amber-900">
+            {call.phone ?? "Nessun telefono in anagrafica."}
+          </p>
+          <p className="mt-1 text-sm text-amber-900">
+            Mancano {call.minutesToStart} minuti: troppo poco per un’email,
+            serve una chiamata.
+          </p>
+          <button
+            disabled={pending}
+            onClick={() => execute(() => resolveStaffCallAction(call.id))}
+            className="mt-3 min-h-14 w-full rounded-xl bg-amber-700 px-4 font-black text-white disabled:bg-slate-300"
+          >
+            {pending ? "…" : "HO CHIAMATO"}
+          </button>
+        </section>
+      ))}
       {feedback && (
         <p
           role="status"

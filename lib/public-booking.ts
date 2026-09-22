@@ -1,10 +1,12 @@
 import "server-only";
 
 import { createHash } from "node:crypto";
-import { sendBookingConfirmationEmails, sendBookingCancellationEmails } from "@/lib/booking-email";
+import { sendBookingConfirmationEmails, sendBookingCancellationEmails, sendWaitlistOffer } from "@/lib/booking-email";
 import type { EmailProvider } from "@/lib/email";
 import { getEmailProvider } from "@/lib/email";
 import { createReservation, newCancellationToken } from "@/lib/restaurant-booking";
+import { checkAvailability } from "@/lib/restaurant-availability";
+import { acceptWaitlistOffer, joinWaitlist } from "@/lib/restaurant-waitlist";
 import { transitionReservation } from "@/lib/restaurant-booking";
 import { getAvailableSlots } from "@/lib/restaurant-availability";
 import { prisma } from "@/lib/prisma";
@@ -27,6 +29,9 @@ export const publicBookingSchema = z.object({
   email: z.string().trim().email("Inserisci un'email valida.").max(254),
   notes: z.string().trim().max(1000, "Le note sono troppo lunghe.").optional(),
   privacyConsent: z.literal(true, { error: "Il consenso privacy è obbligatorio." }),
+  /** Se non c'è posto, mettimi in lista d'attesa invece di rifiutare. */
+  joinWaitlistIfFull: z.coerce.boolean().optional().default(false),
+  waitlistToleranceMinutes: z.coerce.number().int().min(0).max(240).optional(),
 });
 
 export type PublicBookingInput = Omit<z.input<typeof publicBookingSchema>, "privacyConsent"> & { privacyConsent: boolean };
@@ -121,6 +126,23 @@ export async function submitPublicBooking(slug: string, rateKey: string, input: 
   // quindi un replay non puo' riemetterlo. L'email era gia' partita al primo
   // tentativo, e la sua stessa claim di idempotenza la rende un duplicato.
   const cancellationToken = replay.success ? null : newCancellationToken();
+  if (!replay.success && parsed.data.joinWaitlistIfFull) {
+    // Se non c'è posto si entra in lista invece di trovarsi davanti a un muro.
+    // L'adesione è esplicita: nessuno finisce in lista senza averlo chiesto.
+    const availability = await checkAvailability(location.companyId, location.id, { startTime: parsed.data.startTime, partySize: parsed.data.partySize }).catch(() => null);
+    if (!availability?.available) {
+      const entry = await joinWaitlist(location.companyId, location.id, {
+        guestName: parsed.data.guestName, phone: parsed.data.phone, email: parsed.data.email,
+        notes: parsed.data.notes, partySize: parsed.data.partySize, startTime: parsed.data.startTime,
+        toleranceMinutes: parsed.data.waitlistToleranceMinutes,
+      });
+      return {
+        reservationId: entry.id, code: entry.code, startTime: parsed.data.startTime,
+        partySize: parsed.data.partySize, locationName: location.name, status: "WAITLIST" as const,
+        confirmationMessage: "Non ci sono tavoli liberi per quell'orario. Sei in lista d'attesa: se si libera un posto ti avvisiamo.",
+      };
+    }
+  }
   const result = replay.success ? replay.data : await createReservation(location.companyId, null, parsed.data.idempotencyKey, {
       cancellationToken: cancellationToken!,
       locationId: location.id,
@@ -146,7 +168,7 @@ export async function submitPublicBooking(slug: string, rateKey: string, input: 
   };
 }
 
-export async function cancelPublicBooking(slug: string, cancellationToken: string, emailProvider: EmailProvider = getEmailProvider()) {
+export async function cancelPublicBooking(slug: string, cancellationToken: string, emailProvider: EmailProvider = getEmailProvider(), baseUrl = process.env.AUTH_URL ?? "http://localhost:3000") {
   const location = await resolveLocation(slug);
   if (!location) throw new PublicBookingError("Sede non disponibile.");
   const parsedToken = z.string().min(32).max(128).safeParse(cancellationToken);
@@ -162,10 +184,29 @@ export async function cancelPublicBooking(slug: string, cancellationToken: strin
   if (reservation.status !== "CANCELLED") {
     if (Date.now() > reservation.startTime.getTime() - policy.cancellationDeadlineMinutes * 60_000) throw new PublicBookingError(policy.customerCancellationMessage ?? "Il termine per la cancellazione online è scaduto. Contatta il ristorante.");
     if (!["PENDING", "CONFIRMED"].includes(reservation.status)) throw new PublicBookingError("La prenotazione non può essere annullata.");
-    await transitionReservation(location.companyId, location.id, reservation.id, "CANCELLED");
+    const outcome = await transitionReservation(location.companyId, location.id, reservation.id, "CANCELLED");
+    // Il posto liberato va offerto a chi è in lista. L'invio sta fuori dalla
+    // transazione, ma l'offerta è già registrata: se l'email non parte il posto
+    // resta assegnato a quella persona fino alla scadenza, non si perde.
+    if (outcome.waitlist?.offer)
+      await sendWaitlistOffer(location.companyId, location.id, outcome.waitlist.offer, baseUrl, emailProvider).catch((error) => {
+        console.warn(JSON.stringify({ scope: "waitlist-offer", outcome: "FAILED", error: error instanceof Error ? error.name : "EmailError" }));
+      });
   }
   await sendBookingCancellationEmails(location.companyId, location.id, reservation.id, emailProvider).catch((error) => {
     console.warn(JSON.stringify({ scope: "booking-email", notification: "cancellation", outcome: "FAILED", error: error instanceof Error ? error.name : "EmailError" }));
   });
   return { code: reservation.code, locationName: location.name };
+}
+
+/** Il cliente accetta il posto che si è liberato. */
+export async function acceptPublicWaitlistOffer(slug: string, offerToken: string) {
+  const location = await resolveLocation(slug);
+  if (!location) throw new PublicBookingError("Sede non disponibile.");
+  const parsed = z.string().min(32).max(128).safeParse(offerToken);
+  if (!parsed.success) throw new PublicBookingError("Link non valido.");
+  const accepted = await acceptWaitlistOffer(location.companyId, location.id, parsed.data).catch((error) => {
+    throw new PublicBookingError(error instanceof Error ? error.message : "Offerta non valida.");
+  });
+  return { code: accepted.code, startTime: accepted.startTime, locationName: location.name };
 }

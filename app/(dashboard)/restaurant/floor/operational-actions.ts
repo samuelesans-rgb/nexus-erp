@@ -13,6 +13,7 @@ import {
   releaseFloorTable,
   settleFloorOrder,
   searchFloorPartners,
+  resolveFloorStaffCall,
   retrySafeFloorJob,
   updateFloorGuestCount,
   updateUnsentFloorLine,
@@ -163,5 +164,12 @@ export async function retryFloorJobAction(jobId: string) {
   return run(
     (actor) => retrySafeFloorJob(actor, jobId),
     "Invio rimesso in coda",
+  );
+}
+
+export async function resolveStaffCallAction(reservationId: string) {
+  return run(
+    (actor) => resolveFloorStaffCall(actor, reservationId),
+    "Chiamata segnata come gestita",
   );
 }

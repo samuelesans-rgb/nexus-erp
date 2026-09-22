@@ -5,6 +5,7 @@ import type { Prisma, RestaurantReservationSource, RestaurantReservationStatus }
 import { executeIdempotent } from "@/lib/idempotency";
 import { prisma } from "@/lib/prisma";
 import { lockRestaurantResources } from "@/lib/restaurant-locking";
+import { offerFreedSlot } from "@/lib/restaurant-waitlist";
 import { checkAvailability, getBookingSettings, isSeatable, RestaurantAvailabilityError } from "@/lib/restaurant-availability";
 import { addZonedDays, startOfZonedDay } from "@/lib/timezone";
 import {
@@ -21,6 +22,9 @@ export class RestaurantBookingError extends Error {
 }
 
 const terminal = new Set<RestaurantReservationStatus>(["CANCELLED", "COMPLETED", "NO_SHOW"]);
+/** Uscire da una prenotazione che teneva un posto lo rende di nuovo disponibile. */
+const freesASlot = (from: RestaurantReservationStatus, to: RestaurantReservationStatus) =>
+  ["PENDING", "CONFIRMED", "SEATED"].includes(from) && ["CANCELLED", "NO_SHOW"].includes(to);
 const transitions: Partial<Record<RestaurantReservationStatus, readonly RestaurantReservationStatus[]>> = {
   WAITLIST: ["PENDING", "CONFIRMED", "CANCELLED"],
   PENDING: ["CONFIRMED", "CANCELLED"],
@@ -314,6 +318,7 @@ export async function transitionReservation(companyId: string, locationId: strin
     ? await checkAvailability(companyId, locationId, { startTime: current.startTime, partySize: current.partySize, durationMinutes: current.durationMinutes, tableIds: current.tables.map(table => table.tableId), excludeReservationId: id, ignoreAdvance: true })
     : null;
   if (promotion && !promotion.available) throw new RestaurantBookingError("Nessuna disponibilità per promuovere la waitlist.");
+  let released: Awaited<ReturnType<typeof offerFreedSlot>> = {};
   await prisma.$transaction(async (tx) => {
     if (promotion) {
       if (promotion.tableIds.length) {
@@ -341,8 +346,17 @@ export async function transitionReservation(companyId: string, locationId: strin
     // che tengono il tavolo. Queste due updateMany scrivevano una colonna che
     // nessuno leggeva piu'.
     await event(tx, companyId, id, eventNames[nextStatus] ?? "RestaurantReservationStatusChanged", { from: current.status, to: nextStatus, userId: userId ?? null });
+    // Il posto si è liberato: la lista d'attesa lo viene a sapere qui dentro,
+    // nella stessa transazione. Non esiste un istante in cui il tavolo è
+    // libero e la lista non lo sa.
+    if (freesASlot(current.status, nextStatus))
+      released = await offerFreedSlot(tx, companyId, locationId, {
+        startTime: current.startTime,
+        endTime: current.endTime ?? new Date(current.startTime.getTime() + current.durationMinutes * 60000),
+        partySize: current.partySize,
+      });
   });
-  return { id, status: nextStatus };
+  return { id, status: nextStatus, waitlist: released };
 }
 
 export async function confirmReservation(companyId: string, locationId: string, id: string) {
