@@ -125,3 +125,22 @@ test("una chiusura inserita poco dopo mezzanotte resta sul giorno giusto", async
   await assert.rejects(checkAvailability(companyId, locationId, { startTime: romeAt(2026, 12, 25, 20), partySize: 2, ignoreAdvance: true }), /chiusa/);
   await prisma.restaurantCalendarException.deleteMany({ where: { companyId } });
 });
+
+test("§6 un guasto non viene riportato come 'nessuna disponibilità'", async () => {
+  const { getAvailableSlots: slotsWith } = await import("../../lib/restaurant-availability");
+  const boom = new Error("connessione al database interrotta");
+  await assert.rejects(
+    slotsWith(companyId, locationId, { date: romeAt(2026, 11, 10, 12), partySize: 2 }, async () => { throw boom; }),
+    (error: Error) => error === boom,
+    "l'errore deve arrivare al chiamante, non diventare una lista vuota",
+  );
+});
+
+test("§6 la sede chiusa resta una risposta, non un errore", async () => {
+  const { getAvailableSlots: slotsWith } = await import("../../lib/restaurant-availability");
+  const slots = await slotsWith(
+    companyId, locationId, { date: romeAt(2026, 11, 10, 12), partySize: 2 },
+    async () => { throw new RestaurantAvailabilityError("La sede è chiusa nell’orario selezionato."); },
+  );
+  assert.deepEqual(slots, [], "nessuno slot, senza sollevare");
+});
