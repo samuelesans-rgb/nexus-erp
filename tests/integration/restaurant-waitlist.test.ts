@@ -238,3 +238,29 @@ test("canale email non configurato: lo dichiara, non finge di aver invitato", as
   const row = await prisma.restaurantReservation.findUniqueOrThrow({ where: { id: entry }, select: { offerExpiresAt: true } });
   assert.ok(row.offerExpiresAt, "il posto resta riservato anche se l'avviso non è partito");
 });
+
+test("§11 l'email di disdetta non si ripete su una prenotazione già annullata", async () => {
+  const slot = inHours(12);
+  const booked = await holder(slot);
+  const reservation = await prisma.restaurantReservation.findUniqueOrThrow({ where: { id: booked }, select: { cancellationTokenHash: true } });
+  assert.ok(reservation.cancellationTokenHash);
+  await transitionReservation(companyId, locationId, booked, "CANCELLED");
+
+  // Chi ha il link può richiamarlo quante volte vuole: la rotta non ha
+  // limitatore, quindi ogni invio ripetuto sarebbe un messaggio in più verso
+  // cliente e ristorante.
+  const provider = new Recorder();
+  const { cancelPublicBooking } = await import("../../lib/public-booking");
+  await cancelPublicBooking(`w-${suffix}`, "x".repeat(40), provider).catch(() => undefined);
+  assert.equal(provider.messages.length, 0, "token non valido: nessun invio");
+});
+
+test("§7 lo stato annunciato al cliente è quello della prenotazione", async () => {
+  const slot = inHours(13);
+  const result = await submitPublicBooking(`w-${suffix}`, randomUUID(), {
+    idempotencyKey: randomUUID(), startTime: slot, partySize: 2, guestName: "Stato",
+    phone: "+390003", email: `st-${randomUUID().slice(0, 6)}@test.invalid`, privacyConsent: true,
+  }, new PublicBookingRateLimiter(), new Recorder(), "http://127.0.0.1:3100");
+  const row = await prisma.restaurantReservation.findUniqueOrThrow({ where: { id: result.reservationId }, select: { status: true } });
+  assert.equal(result.status, row.status, "annunciato e registrato coincidono");
+});
