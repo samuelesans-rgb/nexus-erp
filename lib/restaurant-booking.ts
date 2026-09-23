@@ -225,8 +225,12 @@ export async function createStaffReservation(
       `Una prenotazione non puo' nascere nello stato ${input.status}.`,
     );
   const tableIds = [...new Set(input.tableIds ?? [])];
+  // La durata predefinita e' quella configurata per la sede: due ore fisse
+  // ignoravano le impostazioni, quindi un locale con servizi da 90 minuti si
+  // ritrovava le prenotazioni telefoniche da 120.
+  const settings = await getBookingSettings(companyId, locationId);
   const endTime =
-    input.endTime ?? new Date(input.startTime.getTime() + 2 * 60 * 60 * 1000);
+    input.endTime ?? new Date(input.startTime.getTime() + settings.defaultDurationMinutes * 60000);
   if (endTime <= input.startTime)
     throw new RestaurantBookingError("La fine deve seguire l'inizio.");
   return prisma.$transaction(async (tx) => {
