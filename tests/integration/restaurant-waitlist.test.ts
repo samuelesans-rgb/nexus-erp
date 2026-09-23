@@ -47,7 +47,10 @@ after(async () => {
   await prisma.$disconnect();
 });
 
-const inHours = (h: number) => new Date(Date.now() + h * 3_600_000);
+// Data fissa, non "adesso + N ore": con una finestra che finisce a mezzanotte
+// una prenotazione serale sforava il giorno e veniva rifiutata per orario
+// fuori servizio, quindi il test passava o falliva secondo l'ora in cui girava.
+const inHours = (h: number) => zonedTimeToUtc({ year: 2027, month: 3, day: 1 + h, hour: 20 }, ROME);
 const holder = async (startTime: Date, partySize = 2) => {
   const result = await createReservation(companyId, null, randomUUID(), { cancellationToken: newCancellationToken(), locationId, guestName: "Titolare", partySize, startTime, source: "WEBSITE" });
   await transitionReservation(companyId, locationId, result.reservationId, "CONFIRMED");
