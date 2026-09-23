@@ -370,10 +370,28 @@ export async function updateReservation(companyId: string, locationId: string, i
   const current = await byId(companyId, locationId, id);
   if (terminal.has(current.status)) throw new RestaurantBookingError("Prenotazione non modificabile.");
   if (!input.guestName.trim()) throw new RestaurantBookingError("Il nome del cliente è obbligatorio.");
-  const tableId = current.tables[0]?.tableId;
-  const availability = await checkAvailability(companyId, locationId, { ...input, tableId, excludeReservationId: id });
+  // Tutti i tavoli, non solo il primo: spostare l'orario di una prenotazione su
+  // piu' tavoli ne validava uno e ignorava gli altri.
+  const tableIds = current.tables.map((row) => row.tableId);
+  const availability = await checkAvailability(companyId, locationId, { ...input, tableIds, excludeReservationId: id });
   if (!availability.available) throw new RestaurantBookingError("Tavolo non disponibile.");
   await prisma.$transaction(async (tx) => {
+    // La verifica qui sopra sta fuori transazione: senza lock e senza
+    // ricontrollo, due operatori che spostano due prenotazioni su orari
+    // sovrapposti dello stesso tavolo riuscivano entrambi. Le altre scritture
+    // sui tavoli lo facevano gia'; questa no.
+    if (tableIds.length) {
+      await lockRestaurantResources(tx, companyId, tableIds.map((tableId) => "table:" + tableId));
+      const conflict = await tx.restaurantReservationTable.findFirst({
+        where: { companyId, tableId: { in: tableIds }, reservationId: { not: id }, reservation: { locationId, deletedAt: null, status: { in: ["PENDING", "CONFIRMED", "SEATED"] }, startTime: { lt: availability.endTime }, endTime: { gt: availability.startTime } } },
+        select: { tableId: true },
+      });
+      if (conflict) throw new RestaurantBookingError("Sovrapposizione con una prenotazione esistente.");
+    } else {
+      await lockRestaurantResources(tx, companyId, ["booking:" + locationId]);
+      const seatable = await isSeatable(tx as never, companyId, locationId, { start: availability.startTime, end: availability.endTime, partySize: input.partySize, excludeReservationId: id });
+      if (!seatable.seatable) throw new RestaurantBookingError("Nessun tavolo disponibile per il nuovo orario.");
+    }
     const updated = await tx.restaurantReservation.updateMany({
       where: { id, companyId, locationId, deletedAt: null, status: current.status },
       data: { guestName: input.guestName.trim(), phone: input.phone?.trim() || null, email: input.email?.trim().toLowerCase() || null, notes: input.notes?.trim() || null, internalNotes: input.internalNotes?.trim() || null, partySize: input.partySize, reservationDate: availability.startTime, startTime: availability.startTime, endTime: availability.endTime, durationMinutes: availability.durationMinutes, updatedById: userId },
