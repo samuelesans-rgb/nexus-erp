@@ -14,6 +14,8 @@ import {
 } from "@/lib/kitchen-connector";
 import { deriveLineDelivery } from "@/lib/restaurant-floor-line-state";
 import { pendingStaffCalls, resolveStaffCall } from "@/lib/restaurant-waitlist";
+import { pendingNoShowAlerts, snoozeNoShowAlert } from "@/lib/restaurant-no-show";
+import { transitionReservation } from "@/lib/restaurant-booking";
 import { emitRestaurantEventTx, RestaurantDomainError } from "@/lib/restaurant";
 import {
   deriveTableStatusFromRow,
@@ -263,6 +265,8 @@ export async function getOperationalRestaurantFloor(
     connector: await getKitchenChannelHealth(companyId, locationId),
     // Chiamate da fare: restano finché qualcuno non le gestisce.
     staffCalls: await pendingStaffCalls(companyId, locationId),
+    // Prenotazioni in ritardo oltre soglia: si segnala, non si decide.
+    noShowAlerts: await pendingNoShowAlerts(companyId, locationId),
   };
 }
 
@@ -841,4 +845,19 @@ export const newFloorDispatchKey = () => randomUUID();
  */
 export async function resolveFloorStaffCall(actor: Actor, reservationId: string) {
   return resolveStaffCall(actor.companyId, actor.locationId, reservationId, actor.userId);
+}
+
+/** Il cliente è arrivato: la prenotazione passa a seduta. */
+export async function seatFloorReservation(actor: Actor, reservationId: string) {
+  return transitionReservation(actor.companyId, actor.locationId, reservationId, "SEATED", actor.userId);
+}
+
+/** Il cliente non si è presentato: lo dichiara chi ha visto la sala, non il sistema. */
+export async function markFloorNoShow(actor: Actor, reservationId: string) {
+  return transitionReservation(actor.companyId, actor.locationId, reservationId, "NO_SHOW", actor.userId);
+}
+
+/** Ha telefonato: arriva tardi. Si rinvia l'avviso senza decidere nulla. */
+export async function snoozeFloorNoShow(actor: Actor, reservationId: string) {
+  return snoozeNoShowAlert(actor.companyId, actor.locationId, reservationId, actor.userId);
 }

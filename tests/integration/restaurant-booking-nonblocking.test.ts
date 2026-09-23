@@ -4,6 +4,8 @@ import { after, before, beforeEach, test } from "node:test";
 
 import { assignTable, assignTables, createReservation, createStaffReservation, newCancellationToken, updateReservation } from "../../lib/restaurant-booking";
 import { openOrder } from "../../lib/restaurant-orders";
+import { pendingNoShowAlerts, snoozeNoShowAlert } from "../../lib/restaurant-no-show";
+import { NO_SHOW_SNOOZE_MINUTES } from "../../lib/restaurant-waitlist-policy";
 import { prisma } from "../../lib/prisma";
 
 if (!(process.env.DATABASE_URL ?? "").includes("_test")) throw new Error("Richiede DATABASE_URL _test.");
@@ -129,4 +131,55 @@ test("§15 la durata dello staff segue le impostazioni, non una costante", async
   const row = await prisma.restaurantReservation.findUniqueOrThrow({ where: { id: created.id }, select: { durationMinutes: true } });
   assert.equal(row.durationMinutes, 90, "prima erano 120 fissi");
   await prisma.restaurantBookingSettings.updateMany({ where: { companyId, locationId }, data: { defaultDurationMinutes: 60 } });
+});
+
+test("§14 una prenotazione in ritardo si segnala, e nessuno decide al posto del cameriere", async () => {
+  const late = await prisma.restaurantReservation.create({
+    data: { companyId, locationId, code: `LATE-${randomUUID().slice(0, 6)}`, guestName: "Ritardatario", phone: "+39111",
+      partySize: 2, reservationDate: new Date(Date.now() - 90 * 60_000), startTime: new Date(Date.now() - 90 * 60_000),
+      endTime: new Date(Date.now() - 30 * 60_000), durationMinutes: 60, status: "CONFIRMED", source: "PHONE" },
+    select: { id: true },
+  });
+  const alerts = await pendingNoShowAlerts(companyId, locationId);
+  assert.equal(alerts.length, 1);
+  assert.equal(alerts[0]!.id, late.id);
+  assert.ok(alerts[0]!.lateByMinutes >= 90);
+  assert.equal(alerts[0]!.deferred, false);
+
+  // Lo stato non è stato toccato: il sistema segnala, non decide.
+  assert.equal((await prisma.restaurantReservation.findUniqueOrThrow({ where: { id: late.id }, select: { status: true } })).status, "CONFIRMED");
+});
+
+test("§14 'aspetta ancora' tace per un quarto d'ora, poi l'avviso torna", async () => {
+  const late = await prisma.restaurantReservation.create({
+    data: { companyId, locationId, code: `SNZ-${randomUUID().slice(0, 6)}`, guestName: "Telefonato",
+      partySize: 2, reservationDate: new Date(Date.now() - 60 * 60_000), startTime: new Date(Date.now() - 60 * 60_000),
+      endTime: new Date(Date.now()), durationMinutes: 60, status: "CONFIRMED", source: "PHONE" },
+    select: { id: true },
+  });
+  assert.equal((await pendingNoShowAlerts(companyId, locationId)).length, 1);
+
+  const snoozed = await snoozeNoShowAlert(companyId, locationId, late.id);
+  assert.equal(snoozed.minutes, NO_SHOW_SNOOZE_MINUTES);
+  assert.equal((await pendingNoShowAlerts(companyId, locationId)).length, 0, "tace subito dopo il rinvio");
+
+  // Passato il quarto d'ora torna, e si vede che era già stato rinviato.
+  const later = new Date(Date.now() + (NO_SHOW_SNOOZE_MINUTES + 1) * 60_000);
+  const back = await pendingNoShowAlerts(companyId, locationId, later);
+  assert.equal(back.length, 1);
+  assert.equal(back[0]!.deferred, true, "l'avviso dichiara di essere già stato rinviato");
+
+  // E lo stato è rimasto intatto: rinviare non è decidere.
+  assert.equal((await prisma.restaurantReservation.findUniqueOrThrow({ where: { id: late.id }, select: { status: true } })).status, "CONFIRMED");
+});
+
+test("§14 una prenotazione già chiusa non produce avvisi", async () => {
+  const seated = await prisma.restaurantReservation.create({
+    data: { companyId, locationId, code: `SEAT-${randomUUID().slice(0, 6)}`, guestName: "Seduto",
+      partySize: 2, reservationDate: new Date(Date.now() - 60 * 60_000), startTime: new Date(Date.now() - 60 * 60_000),
+      endTime: new Date(Date.now()), durationMinutes: 60, status: "SEATED", source: "PHONE" },
+    select: { id: true },
+  });
+  const alerts = await pendingNoShowAlerts(companyId, locationId);
+  assert.equal(alerts.some((a) => a.id === seated.id), false);
 });

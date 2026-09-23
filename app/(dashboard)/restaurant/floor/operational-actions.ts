@@ -13,7 +13,10 @@ import {
   releaseFloorTable,
   settleFloorOrder,
   searchFloorPartners,
+  markFloorNoShow,
   resolveFloorStaffCall,
+  seatFloorReservation,
+  snoozeFloorNoShow,
   retrySafeFloorJob,
   updateFloorGuestCount,
   updateUnsentFloorLine,
@@ -172,4 +175,14 @@ export async function resolveStaffCallAction(reservationId: string) {
     (actor) => resolveFloorStaffCall(actor, reservationId),
     "Chiamata segnata come gestita",
   );
+}
+
+export async function seatReservationAction(reservationId: string) {
+  return run((actor) => seatFloorReservation(actor, reservationId), "Cliente arrivato");
+}
+export async function markNoShowAction(reservationId: string) {
+  return run((actor) => markFloorNoShow(actor, reservationId), "Segnato come non presentato");
+}
+export async function snoozeNoShowAction(reservationId: string) {
+  return run((actor) => snoozeFloorNoShow(actor, reservationId), "Avviso rinviato di 15 minuti");
 }

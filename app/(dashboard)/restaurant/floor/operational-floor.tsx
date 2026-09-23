@@ -27,7 +27,10 @@ import {
   releaseFloorTableAction,
   searchFloorPartnersAction,
   settleFloorOrderAction,
+  markNoShowAction,
   resolveStaffCallAction,
+  seatReservationAction,
+  snoozeNoShowAction,
   retryFloorJobAction,
   saveFloorLineNoteAction,
 } from "./operational-actions";
@@ -114,6 +117,15 @@ type Props = {
       phone: string | null;
       timeLabel: string;
       minutesToStart: number;
+    }>;
+    noShowAlerts: Array<{
+      id: string;
+      guestName: string;
+      partySize: number;
+      phone: string | null;
+      timeLabel: string;
+      lateByMinutes: number;
+      deferred: boolean;
     }>;
     menu: {
       id: string | null;
@@ -374,6 +386,50 @@ export function OperationalFloor({
           >
             {pending ? "…" : "HO CHIAMATO"}
           </button>
+        </section>
+      ))}
+      {data.noShowAlerts.map((alert) => (
+        // Si segnala e non si decide: il sistema sa che nessuno ha toccato
+        // questa prenotazione, non che il cliente non sia venuto. Chi ha visto
+        // la sala sceglie — e può anche scegliere di non scegliere ancora.
+        <section
+          role="alert"
+          className="rounded-2xl border-4 border-slate-400 bg-slate-50 p-4"
+          key={alert.id}
+        >
+          <h2 className="text-lg font-black text-slate-800">
+            ⏱ PRENOTAZIONE IN RITARDO{alert.deferred ? " (già rinviata)" : ""}
+          </h2>
+          <p className="mt-1 text-base font-black text-slate-900">
+            {alert.guestName} · {alert.partySize} coperti · {alert.timeLabel}
+          </p>
+          <p className="mt-1 text-sm text-slate-700">
+            {alert.lateByMinutes} minuti oltre l’orario
+            {alert.phone ? ` · ${alert.phone}` : ""}
+          </p>
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            <button
+              disabled={pending}
+              onClick={() => execute(() => seatReservationAction(alert.id))}
+              className="min-h-14 rounded-xl bg-emerald-700 px-2 font-black text-white disabled:bg-slate-300"
+            >
+              È ARRIVATO
+            </button>
+            <button
+              disabled={pending}
+              onClick={() => execute(() => snoozeNoShowAction(alert.id))}
+              className="min-h-14 rounded-xl border-2 border-slate-500 px-2 font-black text-slate-800 disabled:opacity-50"
+            >
+              ASPETTA ANCORA
+            </button>
+            <button
+              disabled={pending}
+              onClick={() => execute(() => markNoShowAction(alert.id))}
+              className="min-h-14 rounded-xl bg-slate-700 px-2 font-black text-white disabled:bg-slate-300"
+            >
+              NON VENUTO
+            </button>
+          </div>
         </section>
       ))}
       {feedback && (

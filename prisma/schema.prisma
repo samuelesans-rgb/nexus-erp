@@ -2251,6 +2251,10 @@ model RestaurantReservation {
   offerExpiresAt        DateTime?
   staffCallRequestedAt  DateTime?
   staffCallResolvedAt   DateTime?
+  // Ritardo dichiarato: l'avviso di mancata presentazione tace fino a questo
+  // istante, poi torna. Rinviare non decide nulla, e non deve sembrare una
+  // decisione.
+  noShowSnoozedUntil    DateTime?
   privacyConsentAt      DateTime?
   depositAmount         Decimal?                     @db.Decimal(15, 2)
   depositScheduleId     String?

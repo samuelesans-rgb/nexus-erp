@@ -108,3 +108,14 @@ export function buildStaffCallMessage({
     ],
   };
 }
+
+/**
+ * Di quanto si rinvia l'avviso di mancata presentazione.
+ *
+ * Quindici minuti: è il ritardo che un cliente dichiara al telefono, abbastanza
+ * breve da non far sparire il problema e abbastanza lungo da non tornare
+ * addosso al cameriere subito. Ripetibile senza limite, perché imporre una
+ * decisione dopo N rinvii sarebbe di nuovo decidere al posto di chi ha visto
+ * la sala.
+ */
+export const NO_SHOW_SNOOZE_MINUTES = 15;
