@@ -10,7 +10,6 @@ import { checkAvailability, getBookingSettings, isSeatable, RestaurantAvailabili
 import { addZonedDays, startOfZonedDay } from "@/lib/timezone";
 import {
   deriveTableStatusFromRow,
-  tableHasOpenOrderWhere,
   tableStatusInclude,
 } from "@/lib/restaurant-table-status";
 
@@ -396,7 +395,19 @@ export async function assignTable(companyId: string, locationId: string, id: str
     // is preserved: a table busy right now still refuses assignment. Whether
     // that should hold for a booking in the future is the same question
     // checkAvailability answers, and is addressed with it.
-    const table = await tx.restaurantTable.findFirst({ where: { id: tableId, companyId, locationId, active: true, deletedAt: null, physicalStatus: { not: "OUT_OF_SERVICE" }, NOT: tableHasOpenOrderWhere() }, select: { id: true } });
+    // Qui non si esclude piu' il tavolo con una comanda aperta. Una comanda in
+    // corso adesso non dice nulla su una prenotazione di domani, e teneva fermo
+    // il cameriere proprio quando aveva tempo di preparare: alle 20:30, con la
+    // sala piena, non poteva assegnare nulla per il giorno dopo.
+    //
+    // Non e' stato sostituito da un controllo condizionato alla finestra
+    // perche' quello non potrebbe mai scattare: assignTable passa da
+    // checkAvailability, che rifiuta per anticipo minimo ogni orario non
+    // futuro, quindi la finestra non contiene mai questo istante. Una guardia
+    // sempre falsa e' peggio di nessuna guardia: sembra proteggere e non lo fa.
+    //
+    // Fuori servizio resta indefinito, e continua a escludere il tavolo.
+    const table = await tx.restaurantTable.findFirst({ where: { id: tableId, companyId, locationId, active: true, deletedAt: null, physicalStatus: { not: "OUT_OF_SERVICE" } }, select: { id: true } });
     if (!table) throw new RestaurantBookingError("Tavolo non appartenente alla sede corrente.");
     const conflict = await tx.restaurantReservationTable.findFirst({ where: { companyId, tableId, reservationId: { not: id }, reservation: { locationId, deletedAt: null, status: { in: ["PENDING", "CONFIRMED", "SEATED"] }, startTime: { lt: availability.endTime }, endTime: { gt: availability.startTime } } }, select: { tableId: true } });
     if (conflict) throw new RestaurantBookingError("Sovrapposizione con una prenotazione esistente.");
