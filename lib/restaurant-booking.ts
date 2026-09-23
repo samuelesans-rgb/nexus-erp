@@ -21,6 +21,14 @@ export class RestaurantBookingError extends Error {
 }
 
 const terminal = new Set<RestaurantReservationStatus>(["CANCELLED", "COMPLETED", "NO_SHOW"]);
+/**
+ * Stati con cui una prenotazione puo' nascere.
+ *
+ * SEATED farebbe risultare il tavolo occupato senza comanda; COMPLETED e
+ * NO_SHOW la farebbero nascere terminale e non piu' modificabile. Il modulo ne
+ * offre tre, ma un'azione server accetta qualunque cosa le si mandi.
+ */
+const initialStatuses = new Set<RestaurantReservationStatus>(["PENDING", "WAITLIST", "CONFIRMED"]);
 /** Uscire da una prenotazione che teneva un posto lo rende di nuovo disponibile. */
 const freesASlot = (from: RestaurantReservationStatus, to: RestaurantReservationStatus) =>
   ["PENDING", "CONFIRMED", "SEATED"].includes(from) && ["CANCELLED", "NO_SHOW"].includes(to);
@@ -212,6 +220,10 @@ export async function createStaffReservation(
 ) {
   if (!input.guestName.trim() || input.partySize < 1)
     throw new RestaurantBookingError("Ospite e numero coperti sono obbligatori.");
+  if (input.status && !initialStatuses.has(input.status))
+    throw new RestaurantBookingError(
+      `Una prenotazione non puo' nascere nello stato ${input.status}.`,
+    );
   const tableIds = [...new Set(input.tableIds ?? [])];
   const endTime =
     input.endTime ?? new Date(input.startTime.getTime() + 2 * 60 * 60 * 1000);
