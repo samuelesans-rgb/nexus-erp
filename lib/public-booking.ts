@@ -157,13 +157,20 @@ export async function submitPublicBooking(slug: string, rateKey: string, input: 
   if (cancellationToken) await sendBookingConfirmationEmails(location.companyId, location.id, result.reservationId, cancellationToken, baseUrl, emailProvider).catch((error) => {
     console.warn(JSON.stringify({ scope: "booking-email", notification: "confirmation", outcome: "FAILED", error: error instanceof Error ? error.name : "EmailError" }));
   });
+  const stored = await prisma.restaurantReservation.findFirst({
+    where: { id: result.reservationId, companyId: location.companyId },
+    select: { status: true },
+  });
   return {
     reservationId: result.reservationId,
     code: result.code,
     startTime: parsed.data.startTime,
     partySize: parsed.data.partySize,
     locationName: location.name,
-    status: location.restaurantBookingSettings?.confirmationPolicy === "AUTO_CONFIRM" ? "CONFIRMED" : "PENDING",
+    // Letto dalla prenotazione, non dedotto dalla policy corrente: su un
+    // replay la policy puo' essere cambiata, o lo staff puo' aver gia'
+    // confermato o annullato, e si annuncerebbe uno stato che non esiste.
+    status: stored?.status ?? (location.restaurantBookingSettings?.confirmationPolicy === "AUTO_CONFIRM" ? "CONFIRMED" : "PENDING"),
     confirmationMessage: location.restaurantBookingSettings?.confirmationMessage ?? (location.restaurantBookingSettings?.confirmationPolicy === "AUTO_CONFIRM" ? "Prenotazione confermata." : "La prenotazione è stata registrata. Attendi la conferma dello staff."),
   };
 }
@@ -181,10 +188,12 @@ export async function cancelPublicBooking(slug: string, cancellationToken: strin
   if (!reservation) throw new PublicBookingError("Prenotazione non trovata.");
   const policy = location.restaurantBookingSettings;
   if (!policy?.cancellationEnabled) throw new PublicBookingError(policy?.customerCancellationMessage ?? "La cancellazione online non è abilitata.");
+  let cancelledNow = false;
   if (reservation.status !== "CANCELLED") {
     if (Date.now() > reservation.startTime.getTime() - policy.cancellationDeadlineMinutes * 60_000) throw new PublicBookingError(policy.customerCancellationMessage ?? "Il termine per la cancellazione online è scaduto. Contatta il ristorante.");
     if (!["PENDING", "CONFIRMED"].includes(reservation.status)) throw new PublicBookingError("La prenotazione non può essere annullata.");
     const outcome = await transitionReservation(location.companyId, location.id, reservation.id, "CANCELLED");
+    cancelledNow = true;
     // Il posto liberato va offerto a chi è in lista. L'invio sta fuori dalla
     // transazione, ma l'offerta è già registrata: se l'email non parte il posto
     // resta assegnato a quella persona fino alla scadenza, non si perde.
@@ -193,7 +202,10 @@ export async function cancelPublicBooking(slug: string, cancellationToken: strin
         console.warn(JSON.stringify({ scope: "waitlist-offer", outcome: "FAILED", error: error instanceof Error ? error.name : "EmailError" }));
       });
   }
-  await sendBookingCancellationEmails(location.companyId, location.id, reservation.id, emailProvider).catch((error) => {
+  // Solo se la transizione e' avvenuta adesso. Prima l'email partiva anche su
+  // una prenotazione gia' annullata, e la rotta non ha limitatore: chi aveva il
+  // link poteva generare messaggi illimitati verso cliente e ristorante.
+  if (cancelledNow) await sendBookingCancellationEmails(location.companyId, location.id, reservation.id, emailProvider).catch((error) => {
     console.warn(JSON.stringify({ scope: "booking-email", notification: "cancellation", outcome: "FAILED", error: error instanceof Error ? error.name : "EmailError" }));
   });
   return { code: reservation.code, locationName: location.name };
