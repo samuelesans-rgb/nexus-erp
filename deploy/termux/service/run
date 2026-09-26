@@ -9,6 +9,22 @@ set +a
 mkdir -p "$HOME/.local/state/nexus-kitchen"
 date +%s > "$HOME/.local/state/nexus-kitchen/started-at"
 
+# Il wake lock viene preso qui e non solo dallo script di boot, cosi' ogni
+# avvio del servizio lo ripristina. Senza, un `sv restart` lasciava Termux
+# senza lock, e Android lo ha poi terminato in background portandosi via
+# runsvdir e il connector: il 20/09 il log si e' fermato e per tre giorni non
+# c'e' stato nessun tentativo di riavvio, perche' non era rimasto nulla in
+# esecuzione. Il comando e' idempotente.
+termux-wake-lock 2>/dev/null || echo "[launcher] termux-wake-lock non disponibile"
+
+# Lo stato del lock finisce nel log, cosi' un'analisi a posteriori non deve
+# dedurlo dall'assenza della notifica.
+if command -v termux-wake-lock >/dev/null 2>&1; then
+  echo "[launcher] wake lock richiesto"
+else
+  echo "[launcher] ATTENZIONE: termux-api assente, nessun wake lock"
+fi
+
 # Nessuna attesa della rete qui, per scelta. Il connector aspetta da solo:
 # l'heartbeat di avvio non lo uccide piu' se l'ERP non risponde. Aspettare qui
 # sarebbe anzi dannoso, perche' recover() stampa sul POS le comande gia'
