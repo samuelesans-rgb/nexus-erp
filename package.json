@@ -14,6 +14,7 @@
     "test:integration:modules": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/modules.test.ts",
     "test:integration:documents": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/documents-location-scoping.test.ts",
     "test:integration:treasury": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/treasury-location-scoping.test.ts",
+    "test:integration:treasury-credit-note": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/treasury-purchase-credit-note-direction.test.ts",
     "test:integration:locations": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test tests/integration/locations.test.ts",
     "test:integration:master-data": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/master-data-settings.test.ts",
     "test:integration:inventory": "node --import tsx --loader ./tests/register-server-only-loader.mjs --test --test-concurrency=1 tests/integration/inventory-location-scoping.test.ts",

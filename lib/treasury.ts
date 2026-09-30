@@ -39,7 +39,7 @@ export async function generateSchedulesForPostedDocument(tx: Tx, companyId: stri
   const salesCredit = document.documentType === "CREDIT_NOTE" && (sourceType === "RETURN" ? document.partner.isCustomer && !document.partner.isSupplier : document.partner.isCustomer);
   const sourceModule = document.documentType === "SALES_INVOICE" || salesCredit ? MODULE_CODES.CORE_SALES : MODULE_CODES.CORE_PURCHASES;
   if (!await moduleEnabled(tx, companyId, sourceModule)) return [];
-  const direction: PaymentScheduleDirection = document.documentType === "SALES_INVOICE" || salesCredit ? "RECEIVABLE" : "PAYABLE";
+  const direction: PaymentScheduleDirection = document.documentType === "CREDIT_NOTE" ? (salesCredit ? "PAYABLE" : "RECEIVABLE") : document.documentType === "SALES_INVOICE" ? "RECEIVABLE" : "PAYABLE";
   const raw = document.paymentTerm?.installments;
   const installments: Installment[] = Array.isArray(raw) ? raw.filter((row): row is Installment => Boolean(row && typeof row === "object" && "days" in row && "percentage" in row)).map((row) => ({ days: Number(row.days), percentage: Number(row.percentage) })) : [{ days: document.paymentTerm?.dueDays ?? 0, percentage: 100 }];
   if (!installments.length || installments.some((row) => !Number.isInteger(row.days) || row.days < 0 || !Number.isFinite(row.percentage) || row.percentage <= 0) || Math.abs(installments.reduce((sum, row) => sum + row.percentage, 0) - 100) > 0.001) throw new TreasuryDomainError("Condizione di pagamento rateale non valida: il totale deve essere 100%.");
