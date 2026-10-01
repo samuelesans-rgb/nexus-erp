@@ -46,6 +46,10 @@ export default async function ItemDetailPage({
           </p>
         </div>
         <div className="flex gap-2">
+          {item.purchasable && <Link
+            href={`/items/${item.id}/suppliers`}
+            className="rounded-lg border bg-white px-4 py-2 text-sm"
+          >Supplier</Link>}
           {!item.deletedAt && (
             <Link
               href={`/items/${item.id}/edit`}

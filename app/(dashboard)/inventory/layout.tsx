@@ -2,7 +2,7 @@ import { requireInventoryContext } from "@/lib/inventory-access";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-const links = [["Dashboard", "/inventory"], ["Giacenze", "/inventory/stock"], ["Movimenti", "/inventory/movements"], ["Trasferimenti", "/inventory/transfers"], ["Inventari", "/inventory/counts"], ["Magazzini", "/inventory/warehouses"], ["Lotti", "/inventory/lots"]];
+const links = [["Dashboard", "/inventory"], ["Carico iniziale", "/inventory/opening"], ["Giacenze", "/inventory/stock"], ["Movimenti", "/inventory/movements"], ["Trasferimenti", "/inventory/transfers"], ["Inventari", "/inventory/counts"], ["Magazzini", "/inventory/warehouses"], ["Lotti", "/inventory/lots"]];
 
 export default async function InventoryLayout({ children }: { children: React.ReactNode }) {
   try { await requireInventoryContext(); } catch { redirect("/dashboard"); }
