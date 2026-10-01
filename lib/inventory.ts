@@ -34,7 +34,7 @@ async function emit(tx: Prisma.TransactionClient, companyId: string, eventType: 
   await tx.domainEvent.create({ data: { companyId, eventType, aggregateType, aggregateId, payload, occurredAt: new Date() } });
 }
 
-async function postWithTx(tx: Prisma.TransactionClient, companyId: string, userId: string, input: MovementInput & { reversalOfId?: string; forcedDirection?: 1 | -1 }) {
+export async function validateInventoryMovementTx(tx: Prisma.TransactionClient, companyId: string, input: MovementInput & { forcedDirection?: 1 | -1 }) {
   const quantity = positive(input.quantity, "La quantità");
   const movementDirection = input.forcedDirection ?? direction(input.movementType);
   const [warehouse, item, unit, bin, lot, serial] = await Promise.all([
@@ -55,6 +55,12 @@ async function postWithTx(tx: Prisma.TransactionClient, companyId: string, userI
   if (item.trackExpiration && (!lot || !lot.expirationDate)) throw new InventoryDomainError("Il lotto deve avere una scadenza.");
   const decimals = (String(quantity).split(".")[1] ?? "").length;
   if (decimals > unit.precision) throw new InventoryDomainError(`La quantità ammette al massimo ${unit.precision} decimali.`);
+
+  return { quantity, movementDirection, warehouse, item, unit, bin, lot, serial };
+}
+
+async function postWithTx(tx: Prisma.TransactionClient, companyId: string, userId: string, input: MovementInput & { reversalOfId?: string; forcedDirection?: 1 | -1 }) {
+  const { quantity, movementDirection, warehouse, item, unit, bin, lot, serial } = await validateInventoryMovementTx(tx, companyId, input);
 
   const current = await tx.stockBalance.findUnique({ where: { companyId_warehouseId_itemId: { companyId, warehouseId: warehouse.id, itemId: item.id } } });
   const oldQuantity = Number(current?.quantity ?? 0);
