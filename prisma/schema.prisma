@@ -508,6 +508,8 @@ model Company {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  itemSuppliers                 ItemSupplier[]
+  warehouseItemPolicies         WarehouseItemPolicy[]
 }
 
 model ModuleDefinition {
@@ -816,6 +818,7 @@ model Partner {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  suppliedItems          ItemSupplier[]
   @@unique([companyId, code])
   @@unique([companyId, id])
   @@index([companyId, active, deletedAt])
@@ -920,8 +923,10 @@ model UnitOfMeasure {
 
   createdAt             DateTime               @default(now())
   updatedAt             DateTime               @updatedAt
-  businessDocumentLines BusinessDocumentLine[]
+  businessDocumentLines BusinessDocumentLine[] @relation("DocumentLinePurchaseUom")
 
+  supplierItems           ItemSupplier[]
+  stockDocumentLines    BusinessDocumentLine[] @relation("DocumentLineStockUom")
   @@unique([companyId, code])
   @@unique([companyId, id])
   @@index([companyId, active, deletedAt])
@@ -1136,6 +1141,8 @@ model Item {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  suppliers                    ItemSupplier[]
+  warehousePolicies            WarehouseItemPolicy[]
   @@unique([companyId, code])
   @@unique([companyId, id])
   @@index([companyId, active, deletedAt])
@@ -1161,6 +1168,60 @@ model ProductProfile {
 
   @@unique([companyId, itemId])
   @@index([companyId])
+}
+
+model ItemSupplier {
+  id                   String        @id @default(cuid())
+  companyId            String
+  locationId           String
+  itemId               String
+  supplierPartnerId    String
+  supplierItemCode     String?
+  preferred            Boolean       @default(false)
+  purchaseUomId        String
+  packSize             Decimal       @default(1) @db.Decimal(15, 6)
+  minimumOrderQuantity Decimal       @default(1) @db.Decimal(15, 3)
+  leadTimeDays         Int           @default(0)
+  currency             String        @default("EUR")
+  unitCost             Decimal       @db.Decimal(15, 4)
+  validFrom            DateTime?
+  validTo              DateTime?
+  priority             Int           @default(0)
+  active               Boolean       @default(true)
+  company              Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location             Location      @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Cascade)
+  item                 Item          @relation(fields: [companyId, itemId], references: [companyId, id], onDelete: Cascade)
+  supplier             Partner       @relation(fields: [companyId, supplierPartnerId], references: [companyId, id], onDelete: Restrict)
+  purchaseUom          UnitOfMeasure @relation(fields: [companyId, purchaseUomId], references: [companyId, id], onDelete: Restrict)
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  @@unique([companyId, locationId, itemId, supplierPartnerId])
+  @@unique([companyId, id])
+  @@index([companyId, locationId, itemId, active, preferred])
+  @@index([companyId, supplierPartnerId, active])
+}
+
+model WarehouseItemPolicy {
+  id           String    @id @default(cuid())
+  companyId    String
+  locationId   String
+  warehouseId  String
+  itemId       String
+  minimumStock Decimal?  @db.Decimal(15, 3)
+  reorderPoint Decimal   @db.Decimal(15, 3)
+  targetStock  Decimal?  @db.Decimal(15, 3)
+  active       Boolean   @default(true)
+  company      Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location     Location  @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Cascade)
+  warehouse    Warehouse @relation(fields: [companyId, locationId, warehouseId], references: [companyId, locationId, id], onDelete: Cascade)
+  item         Item      @relation(fields: [companyId, itemId], references: [companyId, id], onDelete: Cascade)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([companyId, warehouseId, itemId])
+  @@unique([companyId, id])
+  @@index([companyId, locationId, active])
 }
 
 model ServiceProfile {
@@ -1391,6 +1452,8 @@ model Location {
   crmOpportunities             CrmOpportunity[]
   crmActivities                CrmActivity[]
 
+  itemSuppliers                 ItemSupplier[]
+  warehouseItemPolicies         WarehouseItemPolicy[]
   @@unique([companyId, code])
   @@unique([companyId, id])
   @@index([companyId, active, deletedAt])
@@ -1423,9 +1486,11 @@ model Warehouse {
   updatedAt             DateTime               @updatedAt
   businessDocumentLines BusinessDocumentLine[]
 
+  itemPolicies          WarehouseItemPolicy[]
   @@unique([companyId, code])
   @@unique([companyId, id])
   @@index([companyId, locationId, active, deletedAt])
+  @@unique([companyId, locationId, id])
 }
 
 model WarehouseBin {
@@ -1447,6 +1512,7 @@ model WarehouseBin {
   createdAt            DateTime            @default(now())
   updatedAt            DateTime            @updatedAt
 
+  businessDocumentLines BusinessDocumentLine[]
   @@unique([companyId, warehouseId, code])
   @@unique([companyId, id])
   @@index([companyId, warehouseId, active, deletedAt])
@@ -1819,7 +1885,7 @@ model BusinessDocumentLine {
   company         Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
   document        BusinessDocument @relation(fields: [companyId, documentId], references: [companyId, id], onDelete: Cascade)
   item            Item             @relation(fields: [companyId, itemId], references: [companyId, id], onDelete: Restrict)
-  unitOfMeasure   UnitOfMeasure    @relation(fields: [companyId, unitOfMeasureId], references: [companyId, id], onDelete: Restrict)
+  unitOfMeasure            UnitOfMeasure    @relation("DocumentLinePurchaseUom", fields: [companyId, unitOfMeasureId], references: [companyId, id], onDelete: Restrict)
   vatRate         VatRate          @relation(fields: [companyId, vatRateId], references: [companyId, id], onDelete: Restrict)
   warehouse       Warehouse?       @relation(fields: [companyId, warehouseId], references: [companyId, id], onDelete: Restrict)
   lot             InventoryLot?    @relation(fields: [companyId, lotId], references: [companyId, id], onDelete: Restrict)
@@ -1829,8 +1895,14 @@ model BusinessDocumentLine {
   itemCategory    ItemCategory?    @relation(fields: [companyId, itemCategoryId], references: [companyId, id])
   itemCategoryId  String?
 
+  stockUnitOfMeasureId     String?
+  purchaseConversionFactor Decimal?         @db.Decimal(15, 6)
+  warehouseBinId           String?
+  stockUnitOfMeasure       UnitOfMeasure?   @relation("DocumentLineStockUom", fields: [companyId, stockUnitOfMeasureId], references: [companyId, id], onDelete: Restrict)
+  warehouseBin             WarehouseBin?    @relation(fields: [companyId, warehouseBinId], references: [companyId, id], onDelete: Restrict)
   @@unique([companyId, documentId, lineNumber])
   @@index([companyId, itemId])
+  @@index([companyId, warehouseBinId])
 }
 
 model DocumentAttachment {
